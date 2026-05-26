@@ -27,3 +27,11 @@ curl http://127.0.0.1:8765/health
 uv run alembic revision --autogenerate -m "message"
 uv run alembic upgrade head
 ```
+
+## Local CI Checks
+
+```bash
+uv run ruff check .
+uv run pytest
+uv run alembic current
+```
