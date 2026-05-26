@@ -4,12 +4,14 @@ from fastapi import FastAPI
 from app.api.router import api_router
 from app.core.config import settings
 from app.db.init_db import prepare_database
+from app.web.routes import router as web_router
 
 
 def create_app() -> FastAPI:
     prepare_database()
     app = FastAPI(title=settings.app_name, version=settings.app_version)
     app.include_router(api_router)
+    app.include_router(web_router)
     return app
 
 

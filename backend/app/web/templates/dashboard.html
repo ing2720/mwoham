@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Mwoham{% endblock %}
+
+{% block content %}
+  <div class="page-title">
+    <h1>Dashboard</h1>
+    <span class="muted">Local work status</span>
+  </div>
+
+  <section class="grid">
+    <div class="panel">
+      <h2>Status</h2>
+      <div class="status-row">
+        <span class="badge">{{ status.status }}</span>
+        <div>Session: {{ status.session_id if status.session_id else "none" }}</div>
+        <div>Current app: {{ status.current_app if status.current_app else "none" }}</div>
+        <div>Current window: {{ status.current_window if status.current_window else "none" }}</div>
+        <div>Last event: {{ status.last_event_at if status.last_event_at else "none" }}</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Recent Memos</h2>
+      <div class="list">
+        {% for memo in memos %}
+          <article class="item">
+            <div class="item-title">{{ memo.content }}</div>
+            <div class="item-meta">{{ memo.timestamp }}</div>
+          </article>
+        {% else %}
+          <div class="empty">No memos yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-top: 16px;">
+    <h2>Recent Events</h2>
+    <div class="list">
+      {% for event in events %}
+        <article class="item">
+          <div class="item-title">{{ event.content }}</div>
+          <div class="item-meta">
+            {{ event.timestamp }} · {{ event.source }}
+            {% if event.app_name %} · {{ event.app_name }}{% endif %}
+          </div>
+        </article>
+      {% else %}
+        <div class="empty">No events yet.</div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

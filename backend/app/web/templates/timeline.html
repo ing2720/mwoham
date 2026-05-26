@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Timeline - Mwoham{% endblock %}
+
+{% block content %}
+  <div class="page-title">
+    <h1>Timeline</h1>
+    <span class="muted">{{ target_date if target_date else "All activity" }}</span>
+  </div>
+
+  <section class="timeline">
+    {% for entry in items %}
+      <article class="timeline-item">
+        <div>
+          <span class="badge">{{ entry.kind }}</span>
+        </div>
+        {% if entry.kind == "event" %}
+          <div class="item-title">{{ entry.item.content }}</div>
+          <div class="item-meta">
+            {{ entry.timestamp }} · {{ entry.item.source }}
+            {% if entry.item.app_name %} · {{ entry.item.app_name }}{% endif %}
+          </div>
+        {% else %}
+          <div class="item-title">{{ entry.item.content }}</div>
+          <div class="item-meta">{{ entry.timestamp }}</div>
+        {% endif %}
+      </article>
+    {% else %}
+      <div class="panel empty">No timeline items.</div>
+    {% endfor %}
+  </section>
+{% endblock %}
