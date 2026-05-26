@@ -1,0 +1,1 @@
+"""PDF report generator placeholder."""

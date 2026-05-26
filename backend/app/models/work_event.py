@@ -1,0 +1,1 @@
+"""WorkEvent model placeholder."""

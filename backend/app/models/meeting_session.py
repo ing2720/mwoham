@@ -1,0 +1,1 @@
+"""MeetingSession model placeholder."""

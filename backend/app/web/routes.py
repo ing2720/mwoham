@@ -1,0 +1,1 @@
+"""Local dashboard routes placeholder."""

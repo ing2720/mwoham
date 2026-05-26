@@ -1,0 +1,1 @@
+"""ManualMemo model placeholder."""

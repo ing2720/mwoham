@@ -1,0 +1,1 @@
+"""ScreenObservation model placeholder."""

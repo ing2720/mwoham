@@ -1,0 +1,1 @@
+"""VoiceTranscript model placeholder."""

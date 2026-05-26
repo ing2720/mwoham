@@ -1,0 +1,1 @@
+"""Projects endpoint placeholder."""

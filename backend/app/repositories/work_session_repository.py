@@ -1,0 +1,1 @@
+"""WorkSession repository placeholder."""

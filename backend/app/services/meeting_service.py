@@ -1,0 +1,1 @@
+"""Meeting service placeholder."""
