@@ -1,0 +1,1 @@
+"""Meetings endpoint placeholder."""

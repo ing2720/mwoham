@@ -1,0 +1,1 @@
+"""WorkSession model placeholder."""

@@ -1,0 +1,1 @@
+"""WorkEvent schemas placeholder."""

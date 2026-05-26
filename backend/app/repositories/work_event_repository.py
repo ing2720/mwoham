@@ -1,0 +1,1 @@
+"""WorkEvent repository placeholder."""

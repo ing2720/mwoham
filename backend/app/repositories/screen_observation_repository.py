@@ -1,0 +1,1 @@
+"""ScreenObservation repository placeholder."""
