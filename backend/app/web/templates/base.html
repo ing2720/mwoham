@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Mwoham Dashboard{% endblock %}</title>
+    <style>
+      :root {
+        --bg: #f7f7f4;
+        --panel: #ffffff;
+        --text: #202124;
+        --muted: #6b7280;
+        --line: #deded8;
+        --accent: #256f5c;
+        --accent-soft: #dcece7;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      a { color: inherit; text-decoration: none; }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line);
+        background: #efefea;
+        padding: 24px 18px;
+      }
+
+      .brand {
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 24px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 6px;
+      }
+
+      .nav a {
+        border-radius: 6px;
+        color: #40444c;
+        padding: 10px 12px;
+      }
+
+      .nav a.active {
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 650;
+      }
+
+      .content {
+        padding: 28px;
+      }
+
+      .page-title {
+        align-items: baseline;
+        display: flex;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      h1 {
+        font-size: 26px;
+        line-height: 1.2;
+        margin: 0;
+      }
+
+      h2 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+
+      .muted { color: var(--muted); }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      .status-row {
+        display: grid;
+        gap: 8px;
+      }
+
+      .badge {
+        background: var(--accent-soft);
+        border-radius: 999px;
+        color: var(--accent);
+        display: inline-block;
+        font-size: 13px;
+        font-weight: 650;
+        padding: 4px 10px;
+        width: fit-content;
+      }
+
+      .list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .item {
+        border-top: 1px solid var(--line);
+        display: grid;
+        gap: 4px;
+        padding-top: 10px;
+      }
+
+      .item:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .item-title {
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .item-meta {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 12px;
+      }
+
+      .timeline-item {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: grid;
+        gap: 6px;
+        padding: 14px 16px;
+      }
+
+      .empty {
+        color: var(--muted);
+        padding: 10px 0;
+      }
+
+      @media (max-width: 760px) {
+        .shell { grid-template-columns: 1fr; }
+        .sidebar { border-bottom: 1px solid var(--line); border-right: 0; }
+        .content { padding: 20px; }
+        .grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">Mwoham</div>
+        <nav class="nav" aria-label="Main navigation">
+          <a href="/dashboard" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
+          <a href="/timeline" class="{{ 'active' if active_page == 'timeline' else '' }}">Timeline</a>
+          <a href="/reports" class="{{ 'active' if active_page == 'reports' else '' }}">Reports</a>
+          <a href="/settings" class="{{ 'active' if active_page == 'settings' else '' }}">Settings</a>
+        </nav>
+      </aside>
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>
