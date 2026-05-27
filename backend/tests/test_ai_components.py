@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 
 from app.ai.gemini_client import GeminiClient
 from app.ai.prompt_builder import PromptBuilder
+from app.ai.report_content_cleaner import ReportContentCleaner
 from app.ai.summarizer import GeminiSummarizer
 from app.schemas.timeline import TimelineItem, TimelineResponse
 from app.services.privacy_filter import PrivacyFilter
@@ -157,6 +158,23 @@ def test_gemini_client_returns_none_without_api_key() -> None:
     assert client.generate_text("hello") is None
 
 
+def test_gemini_client_parses_finish_reason() -> None:
+    payload = {
+        "candidates": [
+            {
+                "finishReason": "MAX_TOKENS",
+                "content": {"parts": [{"text": "잘린 리포트"}]},
+            }
+        ]
+    }
+
+    result = GeminiClient(api_key="token", model="gemini-2.5-flash")._extract_result(payload)
+
+    assert result.text == "잘린 리포트"
+    assert result.finish_reason == "MAX_TOKENS"
+    assert result.was_truncated is True
+
+
 def test_summarizer_does_not_call_unconfigured_client() -> None:
     class UnconfiguredClient:
         is_configured = False
@@ -171,3 +189,42 @@ def test_summarizer_does_not_call_unconfigured_client() -> None:
     )
 
     assert summarizer.summarize_daily_report(timeline) is None
+
+
+def test_report_content_cleaner_removes_standalone_bullets() -> None:
+    content = "## 시간대별 작업 흐름\n- 테스트 실패\n*\n-\n•\n"
+
+    cleaned = ReportContentCleaner().clean(content)
+
+    assert "\n*\n" not in cleaned
+    assert "\n-\n" not in cleaned
+    assert "\n•\n" not in cleaned
+    assert "- 테스트 실패" in cleaned
+
+
+def test_report_content_cleaner_fills_missing_sections() -> None:
+    content = "## 오늘 한 일 요약\n테스트를 진행했습니다."
+
+    cleaned = ReportContentCleaner().clean(content)
+
+    assert "## 오늘 한 일 요약\n테스트를 진행했습니다." in cleaned
+    assert "## 시간대별 작업 흐름\n확인된 내용 없음." in cleaned
+    assert "## 주요 트러블슈팅\n확인된 내용 없음." in cleaned
+    assert "## 회의/메모에서 나온 결정사항\n확인된 내용 없음." in cleaned
+    assert "## 다음 작업 후보\n확인된 내용 없음." in cleaned
+
+
+def test_report_content_cleaner_preserves_normal_markdown() -> None:
+    content = "\n\n".join(
+        [
+            "## 오늘 한 일 요약\n- API 구현",
+            "## 시간대별 작업 흐름\n- 오전: 구현",
+            "## 주요 트러블슈팅\n- 확인된 내용 없음.",
+            "## 회의/메모에서 나온 결정사항\n- 결정사항 없음.",
+            "## 다음 작업 후보\n- Swift 연동",
+        ]
+    )
+
+    cleaned = ReportContentCleaner().clean(content)
+
+    assert cleaned == content

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import GeminiClient
 from app.ai.prompt_builder import get_prompt_builder
+from app.ai.report_content_cleaner import ReportContentCleaner, get_report_content_cleaner
 from app.ai.summarizer import GeminiSummarizer
 from app.core.config import settings
 from app.core.exceptions import ResourceNotFoundError
@@ -20,24 +21,29 @@ class ReportService:
         repository: ReportRepository,
         timeline_builder: TimelineBuilder,
         summarizer: GeminiSummarizer,
+        content_cleaner: ReportContentCleaner | None = None,
     ) -> None:
         self.repository = repository
         self.timeline_builder = timeline_builder
         self.summarizer = summarizer
+        self.content_cleaner = content_cleaner or get_report_content_cleaner()
 
     def create_daily_report(self, db: Session, request: DailyReportCreate) -> ReportResponse:
         target_date = request.date or datetime.now(UTC).date()
         timeline = self.timeline_builder.build_for_date(db, target_date=target_date)
         generated_content = self.summarizer.summarize_daily_report(timeline)
+        cleaned_content = (
+            self.content_cleaner.clean(generated_content) if generated_content else None
+        )
         report = Report(
             project_id=request.project_id,
             date=target_date,
             mode=request.mode,
             title=f"{target_date.isoformat()} 일일 작업 리포트",
-            content=generated_content or self._build_placeholder_content(timeline),
+            content=cleaned_content or self._build_placeholder_content(timeline),
             source_range_start=datetime.combine(target_date, time.min, tzinfo=UTC),
             source_range_end=datetime.combine(target_date, time.max, tzinfo=UTC),
-            created_by="ai" if generated_content else "system",
+            created_by="ai" if cleaned_content else "system",
         )
         return ReportResponse.model_validate(self.repository.create(db, report))
 
@@ -105,7 +111,9 @@ def get_report_service() -> ReportService:
             client=GeminiClient(
                 api_key=settings.gemini_api_key,
                 model=settings.gemini_model,
+                max_output_tokens=settings.gemini_max_output_tokens,
             ),
             prompt_builder=get_prompt_builder(),
         ),
+        content_cleaner=get_report_content_cleaner(),
     )
