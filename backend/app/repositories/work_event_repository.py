@@ -62,10 +62,12 @@ class WorkEventRepository:
 
     def get_latest(self, db: Session) -> WorkEvent | None:
         return db.scalar(
-            select(WorkEvent).order_by(
+            select(WorkEvent)
+            .order_by(
                 WorkEvent.timestamp.desc(),
                 WorkEvent.id.desc(),
-            ).limit(1)
+            )
+            .limit(1)
         )
 
     def _filtered_select(

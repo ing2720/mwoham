@@ -1,15 +1,28 @@
 {% extends "base.html" %}
 
-{% block title %}Reports - Mwoham{% endblock %}
+{% block title %}리포트 - 뭐함{% endblock %}
 
 {% block content %}
   <div class="page-title">
-    <h1>Reports</h1>
-    <span class="muted">Draft area</span>
+    <h1>리포트</h1>
+    <span class="muted">생성된 리포트 {{ total }}개</span>
   </div>
 
   <section class="panel">
-    <h2>Generated reports</h2>
-    <div class="empty">No reports yet.</div>
+    <h2>리포트 목록</h2>
+    <div class="list">
+      {% for report in reports %}
+        <article class="item">
+          <a class="item-title" href="/reports/{{ report.id }}/view">
+            {{ report.title if report.title else "제목 없는 리포트" }}
+          </a>
+          <div class="item-meta">
+            {{ report.date if report.date else "날짜 없음" }} · {{ report.mode }} · {{ report.created_by }}
+          </div>
+        </article>
+      {% else %}
+        <div class="empty">아직 생성된 리포트가 없습니다.</div>
+      {% endfor %}
+    </div>
   </section>
 {% endblock %}

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.report import Report
     from app.models.work_session import WorkSession
 
 
@@ -29,6 +30,10 @@ class Project(Base):
     )
 
     work_sessions: Mapped[list["WorkSession"]] = relationship(
+        back_populates="project",
+        passive_deletes=True,
+    )
+    reports: Mapped[list["Report"]] = relationship(
         back_populates="project",
         passive_deletes=True,
     )
