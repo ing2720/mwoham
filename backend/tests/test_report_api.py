@@ -13,6 +13,8 @@ from app.ai.summarizer import GeminiSummarizer
 from app.db.session import get_db
 from app.main import app
 from app.models import Base
+from app.report.export_service import ReportExportService, get_report_export_service
+from app.report.markdown_generator import MarkdownGenerator
 from app.repositories.report_repository import ReportRepository
 from app.services.report_service import ReportService, get_report_service
 from app.services.timeline_builder import get_timeline_builder
@@ -26,6 +28,11 @@ class StubSummarizer:
     def summarize_daily_report(self, timeline):
         self.calls += 1
         return self.content
+
+
+class FakePdfGenerator:
+    def generate(self, report, output_path) -> None:
+        output_path.write_bytes(b"%PDF-1.4\n% fake test pdf\n")
 
 
 @pytest.fixture
@@ -169,3 +176,72 @@ def test_daily_report_falls_back_when_mocked_gemini_returns_none(client: TestCli
     body = response.json()
     assert body["created_by"] == "system"
     assert "placeholder" in body["content"]
+
+
+def test_export_report_to_markdown(client: TestClient, tmp_path) -> None:
+    app.dependency_overrides[get_report_export_service] = lambda: ReportExportService(
+        repository=ReportRepository(),
+        markdown_generator=MarkdownGenerator(),
+        pdf_generator=FakePdfGenerator(),
+        export_dir=tmp_path,
+    )
+    try:
+        created = client.post("/reports/daily", json={"date": "2026-05-26"}).json()
+        response = client.post(
+            f"/reports/{created['id']}/export",
+            json={"export_format": "markdown"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_report_export_service, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["format"] == "markdown"
+    assert body["file_path"].endswith(f"report_{created['id']}_2026-05-26.md")
+
+    exported_path = tmp_path / f"report_{created['id']}_2026-05-26.md"
+    assert exported_path.exists()
+    exported_content = exported_path.read_text(encoding="utf-8")
+    assert "일일 작업 리포트" in exported_content
+    assert "## 본문" in exported_content
+
+
+def test_export_report_to_pdf_uses_pdf_generator(client: TestClient, tmp_path) -> None:
+    app.dependency_overrides[get_report_export_service] = lambda: ReportExportService(
+        repository=ReportRepository(),
+        markdown_generator=MarkdownGenerator(),
+        pdf_generator=FakePdfGenerator(),
+        export_dir=tmp_path,
+    )
+    try:
+        created = client.post("/reports/daily", json={"date": "2026-05-26"}).json()
+        response = client.post(
+            f"/reports/{created['id']}/export",
+            json={"export_format": "pdf"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_report_export_service, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["format"] == "pdf"
+    assert body["file_path"].endswith(f"report_{created['id']}_2026-05-26.pdf")
+
+    exported_path = tmp_path / f"report_{created['id']}_2026-05-26.pdf"
+    assert exported_path.exists()
+    assert exported_path.read_bytes().startswith(b"%PDF-1.4")
+
+
+def test_export_missing_report_returns_404(client: TestClient, tmp_path) -> None:
+    app.dependency_overrides[get_report_export_service] = lambda: ReportExportService(
+        repository=ReportRepository(),
+        markdown_generator=MarkdownGenerator(),
+        pdf_generator=FakePdfGenerator(),
+        export_dir=tmp_path,
+    )
+    try:
+        response = client.post("/reports/999/export", json={"export_format": "markdown"})
+    finally:
+        app.dependency_overrides.pop(get_report_export_service, None)
+
+    assert response.status_code == 404

@@ -9,6 +9,14 @@
   </div>
 
   <section class="panel">
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-bottom: 12px;">
+      <form method="post" action="/reports/{{ report.id }}/export?export_format=markdown">
+        <button type="submit">Markdown 내보내기</button>
+      </form>
+      <form method="post" action="/reports/{{ report.id }}/export?export_format=pdf">
+        <button type="submit">PDF 내보내기</button>
+      </form>
+    </div>
     <h2>본문</h2>
     <div class="item-meta">
       유형: {{ report.mode }} · 생성 주체: {{ report.created_by }} · 수정: {{ report.updated_at }}
