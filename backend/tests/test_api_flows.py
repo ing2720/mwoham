@@ -321,3 +321,89 @@ def test_private_app_regex_match_minimizes_event(client: TestClient) -> None:
 
     event = client.get("/events?date=2026-05-26").json()["items"][0]
     assert event["content"] == "비공개 앱 사용 중"
+
+
+def test_meeting_lifecycle_and_transcripts(client: TestClient) -> None:
+    start_session = client.post("/recording/start", json={})
+    session_id = start_session.json()["session_id"]
+
+    meeting_start = client.post(
+        "/meetings/start",
+        json={
+            "started_at": datetime(2026, 5, 26, 14, 0, tzinfo=UTC).isoformat(),
+            "meeting_app": "Zoom",
+            "title": "인증 플로우 회의",
+            "transcript_enabled": True,
+        },
+    )
+    assert meeting_start.status_code == 200
+    meeting = meeting_start.json()
+    assert meeting["session_id"] == session_id
+    assert meeting["transcript_enabled"] is True
+
+    transcript = client.post(
+        "/transcripts",
+        json={
+            "meeting_id": meeting["id"],
+            "timestamp": datetime(2026, 5, 26, 14, 5, tzinfo=UTC).isoformat(),
+            "speaker": "speaker_1",
+            "text": "콜백 오류는 redirect URI 설정을 먼저 확인하겠습니다.",
+            "confidence": 0.91,
+        },
+    )
+    assert transcript.status_code == 201
+    assert transcript.json()["speaker"] == "speaker_1"
+
+    meeting_end = client.post(
+        f"/meetings/{meeting['id']}/end",
+        json={
+            "ended_at": datetime(2026, 5, 26, 14, 30, tzinfo=UTC).isoformat(),
+            "summary": "redirect URI 확인 결정",
+        },
+    )
+    assert meeting_end.status_code == 200
+    assert meeting_end.json()["summary"] == "redirect URI 확인 결정"
+
+    meetings = client.get("/meetings?date=2026-05-26")
+    transcripts = client.get(f"/meetings/{meeting['id']}/transcripts")
+    assert meetings.status_code == 200
+    assert meetings.json()["total"] == 1
+    assert transcripts.status_code == 200
+    assert transcripts.json()["total"] == 1
+    assert transcripts.json()["items"][0]["text"].startswith("콜백 오류")
+
+
+def test_timeline_today_includes_meeting_and_transcript_items(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post(
+        "/meetings/start",
+        json={
+            "started_at": datetime(2026, 5, 26, 10, 0, tzinfo=UTC).isoformat(),
+            "title": "스프린트 회의",
+            "meeting_app": "Google Meet",
+            "transcript_enabled": True,
+        },
+    ).json()
+    client.post(
+        "/transcripts",
+        json={
+            "meeting_id": meeting["id"],
+            "timestamp": datetime(2026, 5, 26, 10, 10, tzinfo=UTC).isoformat(),
+            "speaker": "PM",
+            "text": "오늘은 전사 저장 API를 마무리합니다.",
+        },
+    )
+    client.post(
+        f"/meetings/{meeting['id']}/end",
+        json={"ended_at": datetime(2026, 5, 26, 10, 30, tzinfo=UTC).isoformat()},
+    )
+
+    response = client.get("/timeline/today?date=2026-05-26")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["type"] for item in body["items"]] == ["meeting", "transcript", "meeting"]
+    assert body["items"][0]["content"] == "스프린트 회의 시작"
+    assert body["items"][1]["content"] == "오늘은 전사 저장 API를 마무리합니다."
+    assert body["items"][1]["speaker"] == "PM"
+    assert body["items"][2]["content"] == "스프린트 회의 종료"

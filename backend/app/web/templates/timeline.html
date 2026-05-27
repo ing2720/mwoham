@@ -13,7 +13,7 @@
       <article class="timeline-item">
         <div>
           <span class="badge">
-            {% if item.type == "event" %}이벤트{% elif item.type == "screen_ocr" %}화면 OCR{% else %}메모{% endif %}
+            {% if item.type == "event" %}이벤트{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% else %}메모{% endif %}
           </span>
         </div>
         {% if item.type == "event" %}
@@ -32,6 +32,21 @@
           {% if item.ai_inference %}
             <div class="item-meta">AI 추정: {{ item.ai_inference }}</div>
           {% endif %}
+        {% elif item.type == "meeting" %}
+          <div class="item-title">{{ item.content }}</div>
+          <div class="item-meta">
+            {{ item.timestamp }}
+            {% if item.app_name %} · {{ item.app_name }}{% endif %}
+          </div>
+          {% if item.ai_inference %}
+            <div class="item-meta">회의 요약: {{ item.ai_inference }}</div>
+          {% endif %}
+        {% elif item.type == "transcript" %}
+          <div class="item-title">{{ item.content }}</div>
+          <div class="item-meta">
+            {{ item.timestamp }}
+            {% if item.speaker %} · {{ item.speaker }}{% endif %}
+          </div>
         {% else %}
           <div class="item-title">{{ item.content }}</div>
           <div class="item-meta">{{ item.timestamp }}</div>

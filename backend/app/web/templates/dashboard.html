@@ -36,7 +36,7 @@
         <article class="item">
           <div>
             <span class="badge">
-              {% if item.type == "event" %}이벤트{% elif item.type == "screen_ocr" %}화면 OCR{% else %}메모{% endif %}
+              {% if item.type == "event" %}이벤트{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% else %}메모{% endif %}
             </span>
           </div>
           <div class="item-title">{{ item.content }}</div>
@@ -44,6 +44,7 @@
             {{ item.timestamp }}
             {% if item.source %} · {{ item.source }}{% endif %}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
+            {% if item.speaker %} · {{ item.speaker }}{% endif %}
             {% if item.detected_keywords %} · 키워드 {{ item.detected_keywords }}{% endif %}
           </div>
         </article>

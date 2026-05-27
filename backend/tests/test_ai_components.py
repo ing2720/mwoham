@@ -71,6 +71,31 @@ def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
     assert "api_key=secret" not in prompt
 
 
+def test_prompt_builder_includes_meeting_transcripts() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="transcript",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 11, 0, tzinfo=UTC),
+                content="배포 전 리포트 생성을 확인합니다.",
+                meeting_id=7,
+                speaker="mentor",
+                confidence=0.9,
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "type=transcript" in prompt
+    assert "speaker=mentor" in prompt
+    assert "meeting_id=7" in prompt
+    assert "배포 전 리포트 생성을 확인합니다." in prompt
+
+
 def test_gemini_client_returns_none_without_api_key() -> None:
     client = GeminiClient(api_key=None, model="gemini-2.5-flash")
 

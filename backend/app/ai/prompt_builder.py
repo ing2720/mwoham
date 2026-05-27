@@ -44,9 +44,14 @@ class PromptBuilder:
                 if item.type == "screen_ocr" and item.ai_inference
                 else ""
             )
+            speaker = (
+                f" speaker={item.speaker}" if item.type == "transcript" and item.speaker else ""
+            )
+            meeting = f" meeting_id={item.meeting_id}" if item.meeting_id else ""
             lines.append(
                 f"- {item.timestamp.isoformat()} "
-                f"type={label}{source}{app_name}{keywords}{inference}: {item.content}"
+                f"type={label}{source}{app_name}{keywords}{inference}{speaker}{meeting}: "
+                f"{item.content}"
             )
         return "\n".join(lines)
 

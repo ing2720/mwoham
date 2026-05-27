@@ -18,6 +18,9 @@ class TimelineItem(ApiSchema):
     detected_keywords: list[str] | dict[str, Any] | None = None
     ai_inference: str | None = None
     frame_hash: str | None = None
+    meeting_id: int | None = None
+    speaker: str | None = None
+    confidence: float | None = None
     session_id: int | None = None
     linked_type: str | None = None
     linked_id: int | None = None
