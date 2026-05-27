@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
+from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.meeting import (
     MeetingEndRequest,
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/meetings", tags=["meetings"])
 @router.post("/start", response_model=MeetingResponse)
 def start_meeting(
     request: MeetingStartRequest | None = None,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: MeetingService = Depends(get_meeting_service),
 ) -> MeetingResponse:
@@ -34,6 +36,7 @@ def start_meeting(
 def end_meeting(
     meeting_id: int,
     request: MeetingEndRequest | None = None,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: MeetingService = Depends(get_meeting_service),
 ) -> MeetingResponse:

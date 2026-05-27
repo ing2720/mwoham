@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
+from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.report.display import format_created_by, format_report_mode
 from app.report.export_service import ReportExportService, get_report_export_service
@@ -30,6 +31,7 @@ templates.env.filters["report_mode_label"] = format_report_mode
 @router.post("/daily", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 def create_daily_report(
     request: DailyReportCreate | None = None,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: ReportService = Depends(get_report_service),
 ) -> ReportResponse:
@@ -84,6 +86,7 @@ def get_report(
 def update_report(
     report_id: int,
     request: ReportUpdate,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: ReportService = Depends(get_report_service),
 ) -> ReportResponse:
@@ -98,6 +101,7 @@ def export_report(
     report_id: int,
     request: ReportExportRequest | None = None,
     export_format: ReportExportFormat | None = None,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: ReportExportService = Depends(get_report_export_service),
 ) -> ReportExportResponse:

@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.setting import (
     DeletePrivateAppResponse,
@@ -42,6 +43,7 @@ def get_settings(
 @router.patch("", response_model=SettingsResponse)
 def update_settings(
     request: SettingsPatchRequest,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: SettingService = Depends(get_setting_service),
 ) -> SettingsResponse:
@@ -59,6 +61,7 @@ def list_private_apps(
 @router.post("/private-apps", response_model=PrivateAppResponse)
 def create_private_app(
     request: PrivateAppCreate,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: SettingService = Depends(get_setting_service),
 ) -> PrivateAppResponse:
@@ -68,6 +71,7 @@ def create_private_app(
 @router.delete("/private-apps/{app_name}", response_model=DeletePrivateAppResponse)
 def delete_private_app(
     app_name: str,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: SettingService = Depends(get_setting_service),
 ) -> DeletePrivateAppResponse:

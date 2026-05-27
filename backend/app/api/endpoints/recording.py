@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import InvalidStateTransitionError, ResourceNotFoundError
+from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.recording import (
     RecordingResponse,
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/recording", tags=["recording"])
 @router.post("/start", response_model=RecordingResponse)
 def start_recording(
     request: RecordingStartRequest | None = None,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: RecordingService = Depends(get_recording_service),
 ) -> RecordingResponse:
@@ -29,6 +31,7 @@ def start_recording(
 @router.post("/pause", response_model=RecordingResponse)
 def pause_recording(
     request: RecordingSessionRequest | None = None,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: RecordingService = Depends(get_recording_service),
 ) -> RecordingResponse:
@@ -43,6 +46,7 @@ def pause_recording(
 @router.post("/resume", response_model=RecordingResponse)
 def resume_recording(
     request: RecordingSessionRequest | None = None,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: RecordingService = Depends(get_recording_service),
 ) -> RecordingResponse:
@@ -57,6 +61,7 @@ def resume_recording(
 @router.post("/stop", response_model=RecordingResponse)
 def stop_recording(
     request: RecordingStopRequest | None = None,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: RecordingService = Depends(get_recording_service),
 ) -> RecordingResponse:

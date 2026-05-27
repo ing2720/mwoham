@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
+from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.screen_observation import (
     ScreenObservationCreate,
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/screen-observations", tags=["screen-observations"])
 )
 def create_screen_observation(
     request: ScreenObservationCreate,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: ScreenObservationService = Depends(get_screen_observation_service),
 ) -> ScreenObservationCreateResponse:

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
+from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.transcript import TranscriptCreate, TranscriptResponse
 from app.services.meeting_service import MeetingService, get_meeting_service
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/transcripts", tags=["transcripts"])
 @router.post("", response_model=TranscriptResponse, status_code=status.HTTP_201_CREATED)
 def create_transcript(
     request: TranscriptCreate,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: MeetingService = Depends(get_meeting_service),
 ) -> TranscriptResponse:
