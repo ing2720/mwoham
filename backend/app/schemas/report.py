@@ -49,3 +49,4 @@ class ReportExportResponse(ApiSchema):
     file_path: str
     format: ReportExportFormat
     created_at: DateTimeType
+    download_url: str

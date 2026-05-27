@@ -11,14 +11,35 @@ class PromptBuilder:
         safe_timeline = self.privacy_filter.mask(compressed_timeline)
         return "\n".join(
             [
-                "다음은 개인 로컬 작업 기록 에이전트가 만든 압축 타임라인입니다.",
+                "다음은 개인 로컬 작업 기록 에이전트가 만든 일일 압축 타임라인입니다.",
                 "원본 화면, 음성, 스크린샷, 오디오 파일은 포함하지 않았습니다.",
                 "민감할 수 있는 API key, token, password, secret 패턴은 마스킹되었습니다.",
                 "",
                 "요청:",
-                "- 한국어로 일일 작업 리포트를 작성하세요.",
+                "- 자연스러운 한국어 업무 리포트를 Markdown 형식으로 작성하세요.",
                 "- 과장하지 말고 타임라인에 있는 사실만 사용하세요.",
-                "- 섹션은 요약, 주요 작업, 메모, 다음 액션 순서로 작성하세요.",
+                "- 비어 있는 섹션은 억지로 늘리지 말고 '확인된 내용 없음'처럼 짧게 처리하세요.",
+                "- 빈 타임라인이면 '기록된 작업이 없습니다.' 한 문장만 반환하세요.",
+                "- 앱 이름은 작업 도구나 환경 정보로만 참고하세요.",
+                "- 'Codex 앱에서', 'Chrome 앱에서', 'VSCode 앱에서'처럼 앱이 업무 주체인 듯한 "
+                "표현을 피하세요.",
+                "- 앱 이름보다 실제 작업 내용, 결정사항, 문제 해결 과정을 중심으로 요약하세요.",
+                "- 아래 섹션 순서를 지키세요.",
+                "",
+                "리포트 구조:",
+                "## 오늘 한 일 요약",
+                "## 시간대별 작업 흐름",
+                "## 주요 트러블슈팅",
+                "## 회의/메모에서 나온 결정사항",
+                "## 다음 작업 후보",
+                "",
+                "타입별 입력 의미:",
+                "- EVENT: 앱/터미널/윈도우 등에서 관찰된 작업 이벤트입니다.",
+                "- MEMO: 사용자가 직접 남긴 메모입니다.",
+                "- SCREEN_OCR: 화면 OCR 텍스트와 감지 키워드입니다. "
+                "원본 이미지는 포함하지 않았습니다.",
+                "- MEETING: 회의 시작/종료 등 회의 상태 이벤트입니다.",
+                "- TRANSCRIPT: 회의 전사 텍스트입니다. 원본 음성은 포함하지 않았습니다.",
                 "",
                 "압축 타임라인:",
                 safe_timeline,
@@ -27,33 +48,44 @@ class PromptBuilder:
 
     def _compress_timeline(self, timeline: TimelineResponse) -> str:
         if not timeline.items:
-            return f"{timeline.date.isoformat()} 타임라인 항목 없음"
+            return f"DATE: {timeline.date.isoformat()}\nEMPTY: 기록된 작업이 없습니다."
 
-        lines = [f"date={timeline.date.isoformat()} total={timeline.total}"]
+        lines = [f"DATE: {timeline.date.isoformat()}", f"TOTAL_ITEMS: {timeline.total}"]
         for item in timeline.items:
-            label = item.type
-            source = f" source={item.source}" if item.source else ""
-            app_name = f" app={item.app_name}" if item.app_name else ""
-            keywords = (
-                f" keywords={item.detected_keywords}"
-                if item.type == "screen_ocr" and item.detected_keywords
-                else ""
-            )
-            inference = (
-                f" inference={item.ai_inference}"
-                if item.type == "screen_ocr" and item.ai_inference
-                else ""
-            )
-            speaker = (
-                f" speaker={item.speaker}" if item.type == "transcript" and item.speaker else ""
-            )
-            meeting = f" meeting_id={item.meeting_id}" if item.meeting_id else ""
-            lines.append(
-                f"- {item.timestamp.isoformat()} "
-                f"type={label}{source}{app_name}{keywords}{inference}{speaker}{meeting}: "
-                f"{item.content}"
-            )
+            lines.append(self._format_timeline_item(item))
         return "\n".join(lines)
+
+    def _format_timeline_item(self, item) -> str:
+        timestamp = item.timestamp.isoformat()
+        if item.type == "event":
+            return (
+                f"- EVENT | time={timestamp} | source={item.source or '-'} | "
+                f"app={item.app_name or '-'} | window={item.window_title or '-'} | "
+                f"content={item.content}"
+            )
+        if item.type == "memo":
+            return (
+                f"- MEMO | time={timestamp} | linked_type={item.linked_type or '-'} | "
+                f"linked_id={item.linked_id or '-'} | content={item.content}"
+            )
+        if item.type == "screen_ocr":
+            return (
+                f"- SCREEN_OCR | time={timestamp} | app={item.app_name or '-'} | "
+                f"keywords={item.detected_keywords or []} | "
+                f"inference={item.ai_inference or '-'} | ocr_text={item.content}"
+            )
+        if item.type == "meeting":
+            return (
+                f"- MEETING | time={timestamp} | meeting_id={item.meeting_id or item.id} | "
+                f"content={item.content}"
+            )
+        if item.type == "transcript":
+            return (
+                f"- TRANSCRIPT | time={timestamp} | meeting_id={item.meeting_id or '-'} | "
+                f"speaker={item.speaker or '-'} | confidence={item.confidence or '-'} | "
+                f"text={item.content}"
+            )
+        return f"- {item.type.upper()} | time={timestamp} | content={item.content}"
 
 
 def get_prompt_builder() -> PromptBuilder:

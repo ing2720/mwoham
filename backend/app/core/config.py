@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/mwoham.sqlite3"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
+    report_export_dir: str = "exports/reports"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

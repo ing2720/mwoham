@@ -200,3 +200,8 @@ def test_reports_page_and_detail_render_generated_report(client: TestClient) -> 
     assert "Implemented report skeleton" in detail_response.text
     assert "Markdown 내보내기" in detail_response.text
     assert "PDF 내보내기" in detail_response.text
+    assert f"/reports/{created['id']}/download" in detail_response.text
+    assert 'name="format" value="markdown"' in detail_response.text
+    assert 'name="format" value="pdf"' in detail_response.text
+    assert "상세 리포트" in detail_response.text
+    assert "시스템" in detail_response.text

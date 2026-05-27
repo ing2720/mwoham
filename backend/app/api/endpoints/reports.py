@@ -2,12 +2,13 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
 from app.db.session import get_db
+from app.report.display import format_created_by, format_report_mode
 from app.report.export_service import ReportExportService, get_report_export_service
 from app.schemas.report import (
     DailyReportCreate,
@@ -22,6 +23,8 @@ from app.services.report_service import ReportService, get_report_service
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 templates = Jinja2Templates(directory="app/web/templates")
+templates.env.filters["created_by_label"] = format_created_by
+templates.env.filters["report_mode_label"] = format_report_mode
 
 
 @router.post("/daily", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
@@ -109,3 +112,25 @@ def export_report(
         return service.export_report(db, report_id=report_id, export_format=selected_format)
     except ResourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/{report_id}/download", response_class=FileResponse)
+def download_report(
+    report_id: int,
+    export_format: Annotated[ReportExportFormat, Query(alias="format")],
+    db: Session = Depends(get_db),
+    service: ReportExportService = Depends(get_report_export_service),
+) -> FileResponse:
+    try:
+        exported = service.export_report(db, report_id=report_id, export_format=export_format)
+    except ResourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    media_type = "application/pdf" if export_format == "pdf" else "text/markdown; charset=utf-8"
+    filename = exported.file_path.rsplit("/", maxsplit=1)[-1]
+    return FileResponse(
+        exported.file_path,
+        media_type=media_type,
+        filename=filename,
+        content_disposition_type="attachment",
+    )

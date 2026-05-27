@@ -39,9 +39,14 @@ def test_prompt_builder_uses_only_compressed_masked_timeline() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "원본 화면, 음성, 스크린샷, 오디오 파일은 포함하지 않았습니다." in prompt
+    assert "## 오늘 한 일 요약" in prompt
+    assert "## 시간대별 작업 흐름" in prompt
+    assert "앱 이름은 작업 도구나 환경 정보로만 참고하세요." in prompt
+    assert "'Codex 앱에서', 'Chrome 앱에서', 'VSCode 앱에서'" in prompt
     assert "secret-token" not in prompt
     assert "[MASKED]" in prompt
     assert "deploy" in prompt
+    assert "EVENT |" in prompt
 
 
 def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
@@ -64,7 +69,8 @@ def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
-    assert "type=screen_ocr" in prompt
+    assert "SCREEN_OCR |" in prompt
+    assert "ocr_text=401 Unauthorized" in prompt
     assert "401 Unauthorized" in prompt
     assert "Authorization" in prompt
     assert "인증 설정 문제 가능성" in prompt
@@ -90,10 +96,59 @@ def test_prompt_builder_includes_meeting_transcripts() -> None:
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
-    assert "type=transcript" in prompt
+    assert "TRANSCRIPT |" in prompt
     assert "speaker=mentor" in prompt
     assert "meeting_id=7" in prompt
     assert "배포 전 리포트 생성을 확인합니다." in prompt
+
+
+def test_prompt_builder_handles_empty_timeline_concisely() -> None:
+    timeline = TimelineResponse(date=date(2026, 5, 26), total=0, items=[])
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "EMPTY: 기록된 작업이 없습니다." in prompt
+    assert "빈 타임라인이면 '기록된 작업이 없습니다.' 한 문장만 반환하세요." in prompt
+
+
+def test_prompt_builder_distinguishes_event_memo_meeting_types() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=3,
+        items=[
+            TimelineItem(
+                type="event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 9, 0, tzinfo=UTC),
+                source="window",
+                app_name="Cursor",
+                window_title="backend",
+                content="프롬프트 개선",
+            ),
+            TimelineItem(
+                type="memo",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                content="결정사항은 별도 섹션으로 정리",
+                linked_type="report",
+                linked_id=1,
+            ),
+            TimelineItem(
+                type="meeting",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 11, 0, tzinfo=UTC),
+                content="회의 시작: 리포트 품질 개선",
+                meeting_id=3,
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "EVENT |" in prompt
+    assert "MEMO |" in prompt
+    assert "MEETING |" in prompt
+    assert "회의/메모에서 나온 결정사항" in prompt
 
 
 def test_gemini_client_returns_none_without_api_key() -> None:

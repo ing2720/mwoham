@@ -17,7 +17,7 @@
             {{ report.title if report.title else "제목 없는 리포트" }}
           </a>
           <div class="item-meta">
-            {{ report.date if report.date else "날짜 없음" }} · {{ report.mode }} · {{ report.created_by }}
+            {{ report.date if report.date else "날짜 없음" }} · {{ report.mode | report_mode_label }} · {{ report.created_by | created_by_label }}
           </div>
         </article>
       {% else %}

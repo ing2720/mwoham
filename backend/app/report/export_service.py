@@ -3,6 +3,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import ResourceNotFoundError
 from app.repositories.report_repository import ReportRepository
 from app.schemas.report import ReportExportFormat, ReportExportResponse
@@ -50,12 +51,15 @@ class ReportExportService:
             file_path=str(output_path),
             format=export_format,
             created_at=created_at,
+            download_url=f"/reports/{report.id}/download?format={export_format}",
         )
 
 
 def get_report_export_service() -> ReportExportService:
+    # TODO: move export storage outside the backend repository for packaged/local releases.
     return ReportExportService(
         repository=ReportRepository(),
         markdown_generator=MarkdownGenerator(),
         pdf_generator=PdfGenerator(),
+        export_dir=settings.report_export_dir,
     )
