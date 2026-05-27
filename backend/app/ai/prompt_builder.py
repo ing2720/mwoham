@@ -31,12 +31,22 @@ class PromptBuilder:
 
         lines = [f"date={timeline.date.isoformat()} total={timeline.total}"]
         for item in timeline.items:
-            label = "event" if item.type == "event" else "memo"
+            label = item.type
             source = f" source={item.source}" if item.source else ""
             app_name = f" app={item.app_name}" if item.app_name else ""
+            keywords = (
+                f" keywords={item.detected_keywords}"
+                if item.type == "screen_ocr" and item.detected_keywords
+                else ""
+            )
+            inference = (
+                f" inference={item.ai_inference}"
+                if item.type == "screen_ocr" and item.ai_inference
+                else ""
+            )
             lines.append(
                 f"- {item.timestamp.isoformat()} "
-                f"type={label}{source}{app_name}: {item.content}"
+                f"type={label}{source}{app_name}{keywords}{inference}: {item.content}"
             )
         return "\n".join(lines)
 

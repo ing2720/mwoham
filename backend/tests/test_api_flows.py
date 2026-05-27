@@ -141,3 +141,71 @@ def test_memos_can_be_created_and_listed_without_session(client: TestClient) -> 
     body = list_response.json()
     assert body["total"] == 1
     assert body["items"][0]["content"] == "Remember the recording API edge case."
+
+
+def test_screen_observations_are_saved_listed_and_deduplicated(client: TestClient) -> None:
+    start_response = client.post("/recording/start", json={})
+    session_id = start_response.json()["session_id"]
+    timestamp = datetime(2026, 5, 26, 13, 0, tzinfo=UTC).isoformat()
+    payload = {
+        "timestamp": timestamp,
+        "app_name": "Chrome",
+        "window_title": "Swagger UI",
+        "ocr_text": "401 Unauthorized token=secret",
+        "detected_keywords": ["401", "Authorization"],
+        "ai_inference": "인증 헤더 누락 가능성",
+        "frame_hash": "same-frame",
+    }
+
+    first = client.post("/screen-observations", json=payload)
+    second = client.post("/screen-observations", json=payload)
+
+    assert first.status_code == 201
+    assert first.json()["saved"] is True
+    assert second.status_code == 201
+    assert second.json()["saved"] is False
+    assert second.json()["duplicate"] is True
+    assert second.json()["id"] == first.json()["id"]
+
+    list_response = client.get(f"/screen-observations?session_id={session_id}&date=2026-05-26")
+    assert list_response.status_code == 200
+    body = list_response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["ocr_text"] == "401 Unauthorized token=secret"
+    assert body["items"][0]["detected_keywords"] == ["401", "Authorization"]
+
+
+def test_timeline_today_includes_screen_ocr_items(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 8, 30, tzinfo=UTC).isoformat(),
+            "source": "terminal",
+            "content": "Ran pytest",
+        },
+    )
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 8, 45, tzinfo=UTC).isoformat(),
+            "app_name": "Chrome",
+            "ocr_text": "OAuth callback error",
+            "detected_keywords": ["OAuth", "error"],
+        },
+    )
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime(2026, 5, 26, 9, 0, tzinfo=UTC).isoformat(),
+            "content": "Check auth settings",
+        },
+    )
+
+    response = client.get("/timeline/today?date=2026-05-26")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["type"] for item in body["items"]] == ["event", "screen_ocr", "memo"]
+    assert body["items"][1]["content"] == "OAuth callback error"
+    assert body["items"][1]["detected_keywords"] == ["OAuth", "error"]

@@ -24,8 +24,7 @@ class GeminiClient:
             return None
 
         url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.model}:generateContent"
+            f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         )
         payload = {
             "contents": [

@@ -12,7 +12,9 @@
     {% for item in timeline.items %}
       <article class="timeline-item">
         <div>
-          <span class="badge">{{ "이벤트" if item.type == "event" else "메모" }}</span>
+          <span class="badge">
+            {% if item.type == "event" %}이벤트{% elif item.type == "screen_ocr" %}화면 OCR{% else %}메모{% endif %}
+          </span>
         </div>
         {% if item.type == "event" %}
           <div class="item-title">{{ item.content }}</div>
@@ -20,6 +22,16 @@
             {{ item.timestamp }} · {{ item.source }}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
           </div>
+        {% elif item.type == "screen_ocr" %}
+          <div class="item-title">{{ item.content if item.content else "OCR 텍스트 없음" }}</div>
+          <div class="item-meta">
+            {{ item.timestamp }}
+            {% if item.app_name %} · {{ item.app_name }}{% endif %}
+            {% if item.detected_keywords %} · 키워드 {{ item.detected_keywords }}{% endif %}
+          </div>
+          {% if item.ai_inference %}
+            <div class="item-meta">AI 추정: {{ item.ai_inference }}</div>
+          {% endif %}
         {% else %}
           <div class="item-title">{{ item.content }}</div>
           <div class="item-meta">{{ item.timestamp }}</div>

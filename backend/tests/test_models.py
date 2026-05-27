@@ -8,6 +8,7 @@ def test_initial_worklog_tables_are_registered() -> None:
         "work_events",
         "manual_memos",
         "reports",
+        "screen_observations",
     }.issubset(Base.metadata.tables)
 
 
@@ -16,8 +17,10 @@ def test_initial_model_foreign_keys() -> None:
     work_events = Base.metadata.tables["work_events"]
     manual_memos = Base.metadata.tables["manual_memos"]
     reports = Base.metadata.tables["reports"]
+    screen_observations = Base.metadata.tables["screen_observations"]
 
     assert next(iter(work_sessions.c.project_id.foreign_keys)).ondelete == "SET NULL"
     assert next(iter(work_events.c.session_id.foreign_keys)).ondelete == "CASCADE"
     assert next(iter(manual_memos.c.session_id.foreign_keys)).ondelete == "SET NULL"
     assert next(iter(reports.c.project_id.foreign_keys)).ondelete == "SET NULL"
+    assert next(iter(screen_observations.c.session_id.foreign_keys)).ondelete == "CASCADE"

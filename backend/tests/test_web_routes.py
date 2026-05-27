@@ -106,6 +106,27 @@ def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> 
     assert response.text.index("Ran pytest") < response.text.index("Document edge case")
 
 
+def test_timeline_renders_screen_ocr_items(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 10, 0, tzinfo=UTC).isoformat(),
+            "app_name": "Chrome",
+            "ocr_text": "로그인 실패 화면",
+            "detected_keywords": ["로그인", "실패"],
+            "ai_inference": "인증 흐름 확인 필요",
+        },
+    )
+
+    response = client.get("/timeline?date=2026-05-26")
+
+    assert response.status_code == 200
+    assert "화면 OCR" in response.text
+    assert "로그인 실패 화면" in response.text
+    assert "인증 흐름 확인 필요" in response.text
+
+
 @pytest.mark.parametrize("path,title", [("/reports", "리포트"), ("/settings", "설정")])
 def test_placeholder_pages_render(client: TestClient, path: str, title: str) -> None:
     response = client.get(path, headers={"accept": "text/html"})
