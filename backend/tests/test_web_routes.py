@@ -79,6 +79,44 @@ def test_dashboard_renders_status_events_and_memos(client: TestClient) -> None:
     assert "active" in response.text
     assert "Edited dashboard route" in response.text
     assert "Check timeline merge" in response.text
+    assert "기록 시작" in response.text
+    assert "개발용 이벤트 입력" in response.text
+    assert "메모 입력" in response.text
+    assert "오늘 리포트 생성" in response.text
+
+
+def test_dashboard_forms_drive_recording_event_and_memo_flow(client: TestClient) -> None:
+    start_response = client.post("/dashboard/recording/start", data={"title": "웹 기록"})
+    assert start_response.status_code == 200
+    assert "active" in start_response.text
+
+    event_response = client.post(
+        "/dashboard/events",
+        data={
+            "app_name": "Browser",
+            "window_title": "Dashboard",
+            "source": "web",
+            "content": "웹 폼으로 이벤트 저장",
+        },
+    )
+    memo_response = client.post(
+        "/dashboard/memos",
+        data={"content": "웹 폼으로 메모 저장"},
+    )
+
+    assert event_response.status_code == 200
+    assert "웹 폼으로 이벤트 저장" in event_response.text
+    assert memo_response.status_code == 200
+    assert "웹 폼으로 메모 저장" in memo_response.text
+
+    pause_response = client.post("/dashboard/recording/pause")
+    resume_response = client.post("/dashboard/recording/resume")
+    stop_response = client.post("/dashboard/recording/stop")
+
+    assert pause_response.status_code == 200
+    assert resume_response.status_code == 200
+    assert stop_response.status_code == 200
+    assert "stopped" in stop_response.text
 
 
 def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> None:
@@ -177,6 +215,29 @@ def test_settings_page_renders_settings_and_private_apps(client: TestClient) -> 
     assert "capture_enabled" in response.text
     assert "KakaoTalk" in response.text
     assert "기록 제외 앱" in response.text
+    assert "제외 앱 추가" in response.text
+    assert "삭제" in response.text
+
+
+def test_settings_private_app_forms_add_and_delete(client: TestClient) -> None:
+    add_response = client.post(
+        "/settings/private-apps/add",
+        data={"app_name": "Slack", "match_type": "contains", "is_enabled": "on"},
+        headers={"accept": "text/html"},
+    )
+
+    assert add_response.status_code == 200
+    assert "Slack" in add_response.text
+    assert "contains" in add_response.text
+
+    delete_response = client.post(
+        "/settings/private-apps/delete",
+        data={"app_name": "Slack"},
+        headers={"accept": "text/html"},
+    )
+
+    assert delete_response.status_code == 200
+    assert "Slack" not in delete_response.text
 
 
 def test_reports_page_and_detail_render_generated_report(client: TestClient) -> None:
@@ -205,3 +266,26 @@ def test_reports_page_and_detail_render_generated_report(client: TestClient) -> 
     assert 'name="format" value="pdf"' in detail_response.text
     assert "상세 리포트" in detail_response.text
     assert "시스템" in detail_response.text
+
+
+def test_web_report_create_form_redirects_to_detail(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    client.post("/recording/start", json={})
+    client.post(
+        "/events",
+        json={
+            "timestamp": now.isoformat(),
+            "source": "web",
+            "content": "웹에서 리포트 생성",
+        },
+    )
+
+    response = client.post("/reports/daily/create", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/reports/")
+    assert response.headers["location"].endswith("/view")
+
+    detail_response = client.get(response.headers["location"])
+    assert detail_response.status_code == 200
+    assert "웹에서 리포트 생성" in detail_response.text

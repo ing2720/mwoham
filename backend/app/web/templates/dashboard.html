@@ -18,6 +18,21 @@
         <div>현재 창: {{ status.current_window if status.current_window else "없음" }}</div>
         <div>마지막 이벤트: {{ status.last_event_at if status.last_event_at else "없음" }}</div>
       </div>
+      <div class="button-row" style="margin-top: 14px;">
+        <form method="post" action="/dashboard/recording/start">
+          <input type="hidden" name="title" value="브라우저 기록">
+          <button type="submit">기록 시작</button>
+        </form>
+        <form method="post" action="/dashboard/recording/pause">
+          <button type="submit">일시정지</button>
+        </form>
+        <form method="post" action="/dashboard/recording/resume">
+          <button type="submit">재개</button>
+        </form>
+        <form method="post" action="/dashboard/recording/stop">
+          <button type="submit">기록 종료</button>
+        </form>
+      </div>
     </div>
 
     <div class="panel">
@@ -26,6 +41,42 @@
         <div>타임라인 항목: {{ timeline.total }}개</div>
         <div>기준 날짜: {{ timeline.date }}</div>
       </div>
+      <form method="post" action="/reports/daily/create" style="margin-top: 14px;">
+        <button type="submit">오늘 리포트 생성</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="grid" style="margin-top: 16px;">
+    <div class="panel">
+      <h2>개발용 이벤트 입력</h2>
+      <form class="form-grid" method="post" action="/dashboard/events">
+        <div class="form-row">
+          <label>앱 이름
+            <input name="app_name" placeholder="예: VSCode">
+          </label>
+          <label>창 제목
+            <input name="window_title" placeholder="예: backend">
+          </label>
+        </div>
+        <label>출처
+          <input name="source" value="web">
+        </label>
+        <label>내용
+          <textarea name="content" required placeholder="방금 수행한 작업을 입력"></textarea>
+        </label>
+        <button type="submit">이벤트 저장</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>메모 입력</h2>
+      <form class="form-grid" method="post" action="/dashboard/memos">
+        <label>메모
+          <textarea name="content" required placeholder="결정사항이나 다음 작업 후보를 입력"></textarea>
+        </label>
+        <button type="submit">메모 저장</button>
+      </form>
     </div>
   </section>
 
