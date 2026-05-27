@@ -7,6 +7,7 @@ from app.api.endpoints import (
     recording,
     reports,
     screen_observations,
+    settings,
     status,
     timeline,
 )
@@ -20,3 +21,4 @@ api_router.include_router(screen_observations.router)
 api_router.include_router(memos.router)
 api_router.include_router(timeline.router)
 api_router.include_router(reports.router)
+api_router.include_router(settings.router)

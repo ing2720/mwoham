@@ -209,3 +209,115 @@ def test_timeline_today_includes_screen_ocr_items(client: TestClient) -> None:
     assert [item["type"] for item in body["items"]] == ["event", "screen_ocr", "memo"]
     assert body["items"][1]["content"] == "OAuth callback error"
     assert body["items"][1]["detected_keywords"] == ["OAuth", "error"]
+
+
+def test_settings_and_private_apps_crud(client: TestClient) -> None:
+    settings_response = client.patch(
+        "/settings",
+        json={"settings": {"poll_interval_seconds": 5, "capture_enabled": True}},
+    )
+    assert settings_response.status_code == 200
+    assert settings_response.json()["total"] == 2
+
+    create_response = client.post(
+        "/settings/private-apps",
+        json={"app_name": "KakaoTalk", "match_type": "exact", "is_enabled": True},
+    )
+    assert create_response.status_code == 200
+    assert create_response.json()["app_name"] == "KakaoTalk"
+
+    list_response = client.get("/settings/private-apps")
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 1
+
+    delete_response = client.delete("/settings/private-apps/KakaoTalk")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+
+
+def test_private_app_minimizes_event_and_screen_observation(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "Kakao", "match_type": "contains", "is_enabled": True},
+    )
+
+    event_response = client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 10, 0, tzinfo=UTC).isoformat(),
+            "source": "window",
+            "app_name": "KakaoTalk",
+            "window_title": "친구와의 대화",
+            "content": "민감한 메시지 token=secret",
+            "metadata_json": {"raw": "sensitive"},
+        },
+    )
+    screen_response = client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 10, 1, tzinfo=UTC).isoformat(),
+            "app_name": "KakaoTalk",
+            "window_title": "친구와의 대화",
+            "ocr_text": "민감한 화면 텍스트",
+            "detected_keywords": ["민감"],
+        },
+    )
+
+    assert event_response.status_code == 201
+    assert screen_response.status_code == 201
+
+    events = client.get("/events?date=2026-05-26").json()["items"]
+    observations = client.get("/screen-observations?date=2026-05-26").json()["items"]
+    assert events[0]["content"] == "비공개 앱 사용 중"
+    assert events[0]["window_title"] is None
+    assert events[0]["metadata_json"] is None
+    assert observations[0]["ocr_text"] is None
+    assert observations[0]["window_title"] is None
+    assert observations[0]["detected_keywords"] is None
+
+
+def test_disabled_private_app_rule_is_ignored(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "SecretApp", "match_type": "exact", "is_enabled": False},
+    )
+
+    response = client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 11, 0, tzinfo=UTC).isoformat(),
+            "source": "window",
+            "app_name": "SecretApp",
+            "window_title": "Visible title",
+            "content": "Visible content",
+        },
+    )
+
+    assert response.status_code == 201
+    event = client.get("/events?date=2026-05-26").json()["items"][0]
+    assert event["content"] == "Visible content"
+    assert event["window_title"] == "Visible title"
+
+
+def test_private_app_regex_match_minimizes_event(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "^Bank", "match_type": "regex", "is_enabled": True},
+    )
+
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 12, 0, tzinfo=UTC).isoformat(),
+            "source": "window",
+            "app_name": "BankSecure",
+            "window_title": "Account",
+            "content": "Balance details",
+        },
+    )
+
+    event = client.get("/events?date=2026-05-26").json()["items"][0]
+    assert event["content"] == "비공개 앱 사용 중"

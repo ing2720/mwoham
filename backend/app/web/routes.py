@@ -69,12 +69,3 @@ def report_detail(
         "report_detail.html",
         {"active_page": "reports", "report": report},
     )
-
-
-@router.get("/settings")
-def settings(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "settings.html",
-        {"active_page": "settings"},
-    )

@@ -4,9 +4,11 @@ from app.models import Base
 def test_initial_worklog_tables_are_registered() -> None:
     assert {
         "projects",
+        "app_settings",
         "work_sessions",
         "work_events",
         "manual_memos",
+        "private_apps",
         "reports",
         "screen_observations",
     }.issubset(Base.metadata.tables)
