@@ -65,8 +65,7 @@ uv run python scripts/seed_sample_data.py --reset
 ## 문서
 
 - [Backend README](backend/README.md)
-- [Backend Development Guide](docs/BACKEND_DEVELOPMENT_GUIDE.md)
-- [Codex Workflow](docs/CODEX_WORKFLOW.md)
+- [Development Guide](DEVELOPMENT.md)
 
 ## 주의사항
 

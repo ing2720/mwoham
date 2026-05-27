@@ -1,0 +1,21 @@
+# Local/internal documents
+docs/
+
+# Backend local environment and runtime files
+backend/.env
+backend/.venv/
+backend/data/
+backend/exports/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+backend/.pytest_cache/
+backend/.ruff_cache/
+
+# Local SQLite databases
+*.sqlite
+*.sqlite3
+*.db
