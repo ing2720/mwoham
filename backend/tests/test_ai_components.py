@@ -44,6 +44,33 @@ def test_prompt_builder_uses_only_compressed_masked_timeline() -> None:
     assert "deploy" in prompt
 
 
+def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="screen_ocr",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                app_name="Chrome",
+                content="401 Unauthorized api_key=secret",
+                detected_keywords=["401", "Authorization"],
+                ai_inference="인증 설정 문제 가능성",
+                session_id=1,
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "type=screen_ocr" in prompt
+    assert "401 Unauthorized" in prompt
+    assert "Authorization" in prompt
+    assert "인증 설정 문제 가능성" in prompt
+    assert "api_key=secret" not in prompt
+
+
 def test_gemini_client_returns_none_without_api_key() -> None:
     client = GeminiClient(api_key=None, model="gemini-2.5-flash")
 
