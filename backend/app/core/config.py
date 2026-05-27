@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/mwoham.sqlite3"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
+    gemini_max_output_tokens: int = 8192
     report_export_dir: str = "exports/reports"
     local_api_token: str | None = None
 

@@ -153,8 +153,36 @@ def test_daily_report_uses_mocked_gemini_summary_when_available(client: TestClie
     assert response.status_code == 201
     body = response.json()
     assert body["created_by"] == "ai"
-    assert body["content"] == "## Gemini 요약\n- mock 리포트"
+    assert "## Gemini 요약\n- mock 리포트" in body["content"]
+    assert "## 오늘 한 일 요약" in body["content"]
+    assert "## 다음 작업 후보" in body["content"]
     assert summarizer.calls == 1
+
+
+def test_daily_report_cleans_mocked_gemini_summary_before_saving(client: TestClient) -> None:
+    original_service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=GeminiSummarizer(
+            client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
+            prompt_builder=get_prompt_builder(),
+        ),
+    )
+    summarizer = StubSummarizer("## 시간대별 작업 흐름\n- 테스트 실패\n*")
+    original_service.summarizer = summarizer
+    app.dependency_overrides[get_report_service] = lambda: original_service
+    try:
+        response = client.post("/reports/daily", json={"date": "2026-05-26"})
+    finally:
+        app.dependency_overrides.pop(get_report_service, None)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["created_by"] == "ai"
+    assert "\n*" not in body["content"]
+    assert "## 오늘 한 일 요약\n확인된 내용 없음." in body["content"]
+    assert "## 시간대별 작업 흐름\n- 테스트 실패" in body["content"]
+    assert "## 다음 작업 후보\n확인된 내용 없음." in body["content"]
 
 
 def test_daily_report_falls_back_when_mocked_gemini_returns_none(client: TestClient) -> None:
