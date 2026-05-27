@@ -1,32 +1,32 @@
 {% extends "base.html" %}
 
-{% block title %}Timeline - Mwoham{% endblock %}
+{% block title %}타임라인 - 뭐함{% endblock %}
 
 {% block content %}
   <div class="page-title">
-    <h1>Timeline</h1>
-    <span class="muted">{{ target_date if target_date else "All activity" }}</span>
+    <h1>타임라인</h1>
+    <span class="muted">{{ timeline.date }}</span>
   </div>
 
   <section class="timeline">
-    {% for entry in items %}
+    {% for item in timeline.items %}
       <article class="timeline-item">
         <div>
-          <span class="badge">{{ entry.kind }}</span>
+          <span class="badge">{{ "이벤트" if item.type == "event" else "메모" }}</span>
         </div>
-        {% if entry.kind == "event" %}
-          <div class="item-title">{{ entry.item.content }}</div>
+        {% if item.type == "event" %}
+          <div class="item-title">{{ item.content }}</div>
           <div class="item-meta">
-            {{ entry.timestamp }} · {{ entry.item.source }}
-            {% if entry.item.app_name %} · {{ entry.item.app_name }}{% endif %}
+            {{ item.timestamp }} · {{ item.source }}
+            {% if item.app_name %} · {{ item.app_name }}{% endif %}
           </div>
         {% else %}
-          <div class="item-title">{{ entry.item.content }}</div>
-          <div class="item-meta">{{ entry.timestamp }}</div>
+          <div class="item-title">{{ item.content }}</div>
+          <div class="item-meta">{{ item.timestamp }}</div>
         {% endif %}
       </article>
     {% else %}
-      <div class="panel empty">No timeline items.</div>
+      <div class="panel empty">표시할 타임라인 항목이 없습니다.</div>
     {% endfor %}
   </section>
 {% endblock %}

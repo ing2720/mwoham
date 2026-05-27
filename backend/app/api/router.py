@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.endpoints import events, health, memos, recording, status
+from app.api.endpoints import events, health, memos, recording, reports, status, timeline
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -8,3 +8,5 @@ api_router.include_router(status.router)
 api_router.include_router(recording.router)
 api_router.include_router(events.router)
 api_router.include_router(memos.router)
+api_router.include_router(timeline.router)
+api_router.include_router(reports.router)
