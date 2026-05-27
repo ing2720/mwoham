@@ -127,6 +127,35 @@ def test_timeline_renders_screen_ocr_items(client: TestClient) -> None:
     assert "인증 흐름 확인 필요" in response.text
 
 
+def test_timeline_renders_meeting_and_transcript_items(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post(
+        "/meetings/start",
+        json={
+            "started_at": datetime(2026, 5, 26, 15, 0, tzinfo=UTC).isoformat(),
+            "title": "리포트 회의",
+            "meeting_app": "Zoom",
+            "transcript_enabled": True,
+        },
+    ).json()
+    client.post(
+        "/transcripts",
+        json={
+            "meeting_id": meeting["id"],
+            "timestamp": datetime(2026, 5, 26, 15, 5, tzinfo=UTC).isoformat(),
+            "speaker": "mentor",
+            "text": "전사 내용은 리포트 입력에 포함합니다.",
+        },
+    )
+
+    response = client.get("/timeline?date=2026-05-26")
+
+    assert response.status_code == 200
+    assert "회의" in response.text
+    assert "전사" in response.text
+    assert "전사 내용은 리포트 입력에 포함합니다." in response.text
+
+
 @pytest.mark.parametrize("path,title", [("/reports", "리포트"), ("/settings", "설정")])
 def test_placeholder_pages_render(client: TestClient, path: str, title: str) -> None:
     response = client.get(path, headers={"accept": "text/html"})

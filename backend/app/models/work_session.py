@@ -8,6 +8,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.manual_memo import ManualMemo
+    from app.models.meeting_session import MeetingSession
     from app.models.project import Project
     from app.models.screen_observation import ScreenObservation
     from app.models.work_event import WorkEvent
@@ -64,6 +65,11 @@ class WorkSession(Base):
         passive_deletes=True,
     )
     screen_observations: Mapped[list["ScreenObservation"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    meeting_sessions: Mapped[list["MeetingSession"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
         passive_deletes=True,
