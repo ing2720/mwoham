@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from datetime import date as DateType
 from datetime import datetime as DateTimeType
+from typing import Literal
 
 from pydantic import Field
 
 from app.schemas.common import ApiSchema
+
+ReportExportFormat = Literal["markdown", "pdf"]
 
 
 class DailyReportCreate(ApiSchema):
@@ -36,3 +39,13 @@ class ReportResponse(ApiSchema):
 class ReportListResponse(ApiSchema):
     items: list[ReportResponse]
     total: int
+
+
+class ReportExportRequest(ApiSchema):
+    export_format: ReportExportFormat
+
+
+class ReportExportResponse(ApiSchema):
+    file_path: str
+    format: ReportExportFormat
+    created_at: DateTimeType

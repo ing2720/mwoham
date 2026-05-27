@@ -8,7 +8,16 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
 from app.db.session import get_db
-from app.schemas.report import DailyReportCreate, ReportListResponse, ReportResponse, ReportUpdate
+from app.report.export_service import ReportExportService, get_report_export_service
+from app.schemas.report import (
+    DailyReportCreate,
+    ReportExportFormat,
+    ReportExportRequest,
+    ReportExportResponse,
+    ReportListResponse,
+    ReportResponse,
+    ReportUpdate,
+)
 from app.services.report_service import ReportService, get_report_service
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -77,5 +86,26 @@ def update_report(
 ) -> ReportResponse:
     try:
         return service.update_report(db, report_id, request)
+    except ResourceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/{report_id}/export", response_model=ReportExportResponse)
+def export_report(
+    report_id: int,
+    request: ReportExportRequest | None = None,
+    export_format: ReportExportFormat | None = None,
+    db: Session = Depends(get_db),
+    service: ReportExportService = Depends(get_report_export_service),
+) -> ReportExportResponse:
+    selected_format = request.export_format if request is not None else export_format
+    if selected_format is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="export_format is required.",
+        )
+
+    try:
+        return service.export_report(db, report_id=report_id, export_format=selected_format)
     except ResourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

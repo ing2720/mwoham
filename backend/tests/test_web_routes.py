@@ -198,3 +198,5 @@ def test_reports_page_and_detail_render_generated_report(client: TestClient) -> 
     assert "일일 작업 리포트" in list_response.text
     assert detail_response.status_code == 200
     assert "Implemented report skeleton" in detail_response.text
+    assert "Markdown 내보내기" in detail_response.text
+    assert "PDF 내보내기" in detail_response.text
