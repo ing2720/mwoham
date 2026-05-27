@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
+from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.memo import MemoCreate, MemoListResponse, MemoResponse
 from app.services.memo_service import MemoService, get_memo_service
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/memos", tags=["memos"])
 @router.post("", response_model=MemoResponse, status_code=status.HTTP_201_CREATED)
 def create_memo(
     request: MemoCreate,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: MemoService = Depends(get_memo_service),
 ) -> MemoResponse:

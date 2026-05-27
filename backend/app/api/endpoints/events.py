@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
+from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.work_event import WorkEventCreate, WorkEventCreateResponse, WorkEventListResponse
 from app.services.event_service import EventService, get_event_service
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/events", tags=["events"])
 @router.post("", response_model=WorkEventCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_event(
     request: WorkEventCreate,
+    _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: EventService = Depends(get_event_service),
 ) -> WorkEventCreateResponse:
