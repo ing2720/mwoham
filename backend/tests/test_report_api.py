@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,8 +13,10 @@ from app.ai.summarizer import GeminiSummarizer
 from app.db.session import get_db
 from app.main import app
 from app.models import Base
+from app.models.report import Report
 from app.report.export_service import ReportExportService, get_report_export_service
 from app.report.markdown_generator import MarkdownGenerator
+from app.report.pdf_generator import PdfGenerator
 from app.repositories.report_repository import ReportRepository
 from app.services.report_service import ReportService, get_report_service
 from app.services.timeline_builder import get_timeline_builder
@@ -245,3 +247,35 @@ def test_export_missing_report_returns_404(client: TestClient, tmp_path) -> None
         app.dependency_overrides.pop(get_report_export_service, None)
 
     assert response.status_code == 404
+
+
+def test_pdf_generator_converts_markdown_content_to_html() -> None:
+    report = Report(
+        id=12,
+        date=date(2026, 5, 26),
+        mode="detailed",
+        title="Markdown PDF 테스트",
+        content="\n".join(
+            [
+                "# 요약",
+                "",
+                "## 세부",
+                "- 작업 항목",
+                "- `uv run pytest` 실행",
+                "",
+                "> 중요한 메모",
+            ]
+        ),
+        created_by="ai",
+        created_at=datetime(2026, 5, 26, 15, 30, tzinfo=UTC),
+    )
+
+    html = PdfGenerator()._build_html(report)
+
+    assert "<h1>요약</h1>" in html
+    assert "<h2>세부</h2>" in html
+    assert "<li>작업 항목</li>" in html
+    assert "<code>uv run pytest</code>" in html
+    assert "<blockquote>" in html
+    assert "<pre># 요약" not in html
+    assert "생성 시각: 2026-05-26 15:30" in html
