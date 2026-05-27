@@ -7,9 +7,25 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.ai.gemini_client import GeminiClient
+from app.ai.prompt_builder import get_prompt_builder
+from app.ai.summarizer import GeminiSummarizer
 from app.db.session import get_db
 from app.main import app
 from app.models import Base
+from app.repositories.report_repository import ReportRepository
+from app.services.report_service import ReportService, get_report_service
+from app.services.timeline_builder import get_timeline_builder
+
+
+class StubSummarizer:
+    def __init__(self, content: str | None) -> None:
+        self.content = content
+        self.calls = 0
+
+    def summarize_daily_report(self, timeline):
+        self.calls += 1
+        return self.content
 
 
 @pytest.fixture
@@ -30,6 +46,14 @@ def client() -> Generator[TestClient]:
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_report_service] = lambda: ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=GeminiSummarizer(
+            client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
+            prompt_builder=get_prompt_builder(),
+        ),
+    )
     try:
         yield TestClient(app)
     finally:
@@ -98,3 +122,50 @@ def test_missing_report_returns_404(client: TestClient) -> None:
     response = client.get("/reports/999")
 
     assert response.status_code == 404
+
+
+def test_daily_report_uses_mocked_gemini_summary_when_available(client: TestClient) -> None:
+    original_service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=GeminiSummarizer(
+            client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
+            prompt_builder=get_prompt_builder(),
+        ),
+    )
+    summarizer = StubSummarizer("## Gemini 요약\n- mock 리포트")
+    original_service.summarizer = summarizer
+    app.dependency_overrides[get_report_service] = lambda: original_service
+    try:
+        response = client.post("/reports/daily", json={"date": "2026-05-26"})
+    finally:
+        app.dependency_overrides.pop(get_report_service, None)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["created_by"] == "ai"
+    assert body["content"] == "## Gemini 요약\n- mock 리포트"
+    assert summarizer.calls == 1
+
+
+def test_daily_report_falls_back_when_mocked_gemini_returns_none(client: TestClient) -> None:
+    original_service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=GeminiSummarizer(
+            client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
+            prompt_builder=get_prompt_builder(),
+        ),
+    )
+    summarizer = StubSummarizer(None)
+    original_service.summarizer = summarizer
+    app.dependency_overrides[get_report_service] = lambda: original_service
+    try:
+        response = client.post("/reports/daily", json={"date": "2026-05-26"})
+    finally:
+        app.dependency_overrides.pop(get_report_service, None)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["created_by"] == "system"
+    assert "placeholder" in body["content"]

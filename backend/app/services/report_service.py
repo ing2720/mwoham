@@ -2,6 +2,10 @@ from datetime import UTC, date, datetime, time
 
 from sqlalchemy.orm import Session
 
+from app.ai.gemini_client import GeminiClient
+from app.ai.prompt_builder import get_prompt_builder
+from app.ai.summarizer import GeminiSummarizer
+from app.core.config import settings
 from app.core.exceptions import ResourceNotFoundError
 from app.models.report import Report
 from app.repositories.report_repository import ReportRepository
@@ -11,22 +15,29 @@ from app.services.timeline_builder import TimelineBuilder, get_timeline_builder
 
 
 class ReportService:
-    def __init__(self, repository: ReportRepository, timeline_builder: TimelineBuilder) -> None:
+    def __init__(
+        self,
+        repository: ReportRepository,
+        timeline_builder: TimelineBuilder,
+        summarizer: GeminiSummarizer,
+    ) -> None:
         self.repository = repository
         self.timeline_builder = timeline_builder
+        self.summarizer = summarizer
 
     def create_daily_report(self, db: Session, request: DailyReportCreate) -> ReportResponse:
         target_date = request.date or datetime.now(UTC).date()
         timeline = self.timeline_builder.build_for_date(db, target_date=target_date)
+        generated_content = self.summarizer.summarize_daily_report(timeline)
         report = Report(
             project_id=request.project_id,
             date=target_date,
             mode=request.mode,
             title=f"{target_date.isoformat()} 일일 작업 리포트",
-            content=self._build_placeholder_content(timeline),
+            content=generated_content or self._build_placeholder_content(timeline),
             source_range_start=datetime.combine(target_date, time.min, tzinfo=UTC),
             source_range_end=datetime.combine(target_date, time.max, tzinfo=UTC),
-            created_by="system",
+            created_by="ai" if generated_content else "system",
         )
         return ReportResponse.model_validate(self.repository.create(db, report))
 
@@ -90,4 +101,11 @@ def get_report_service() -> ReportService:
     return ReportService(
         repository=ReportRepository(),
         timeline_builder=get_timeline_builder(),
+        summarizer=GeminiSummarizer(
+            client=GeminiClient(
+                api_key=settings.gemini_api_key,
+                model=settings.gemini_model,
+            ),
+            prompt_builder=get_prompt_builder(),
+        ),
     )
