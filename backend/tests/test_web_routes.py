@@ -7,9 +7,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.ai.gemini_client import GeminiClient
+from app.ai.prompt_builder import get_prompt_builder
+from app.ai.summarizer import GeminiSummarizer
 from app.db.session import get_db
 from app.main import app
 from app.models import Base
+from app.repositories.report_repository import ReportRepository
+from app.services.report_service import ReportService, get_report_service
+from app.services.timeline_builder import get_timeline_builder
 
 
 @pytest.fixture
@@ -30,6 +36,14 @@ def client() -> Generator[TestClient]:
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_report_service] = lambda: ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=GeminiSummarizer(
+            client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
+            prompt_builder=get_prompt_builder(),
+        ),
+    )
     try:
         yield TestClient(app)
     finally:

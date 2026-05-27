@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8765
     database_url: str = "sqlite:///./data/mwoham.sqlite3"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
