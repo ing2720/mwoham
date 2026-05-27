@@ -4,6 +4,7 @@ from pathlib import Path
 import markdown as markdown_lib
 
 from app.models.report import Report
+from app.report.display import format_created_by, format_report_mode
 
 
 class PdfGenerator:
@@ -17,11 +18,8 @@ class PdfGenerator:
     def _build_html(self, report: Report) -> str:
         title = escape(report.title or "제목 없는 리포트")
         report_date = escape(report.date.strftime("%Y-%m-%d") if report.date else "날짜 없음")
-        mode = escape(report.mode)
-        created_by = escape(report.created_by)
-        created_at = escape(
-            report.created_at.strftime("%Y-%m-%d %H:%M") if report.created_at else "-"
-        )
+        mode = escape(format_report_mode(report.mode))
+        created_by = escape(format_created_by(report.created_by))
         content_html = markdown_lib.markdown(
             report.content,
             extensions=["extra", "sane_lists", "nl2br"],
@@ -56,7 +54,7 @@ class PdfGenerator:
         display: grid;
         font-size: 12px;
         gap: 4px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }}
       .content h1 {{
         border-bottom: 1px solid #edf0f2;
@@ -115,7 +113,6 @@ class PdfGenerator:
         <div>날짜: {report_date}</div>
         <div>유형: {mode}</div>
         <div>생성 주체: {created_by}</div>
-        <div>생성 시각: {created_at}</div>
       </div>
     </header>
     <main class="content">

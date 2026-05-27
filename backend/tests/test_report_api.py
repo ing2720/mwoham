@@ -200,12 +200,14 @@ def test_export_report_to_markdown(client: TestClient, tmp_path) -> None:
     body = response.json()
     assert body["format"] == "markdown"
     assert body["file_path"].endswith(f"report_{created['id']}_2026-05-26.md")
+    assert body["download_url"] == f"/reports/{created['id']}/download?format=markdown"
 
     exported_path = tmp_path / f"report_{created['id']}_2026-05-26.md"
     assert exported_path.exists()
     exported_content = exported_path.read_text(encoding="utf-8")
     assert "일일 작업 리포트" in exported_content
     assert "## 본문" in exported_content
+    assert "생성 시각" not in exported_content
 
 
 def test_export_report_to_pdf_uses_pdf_generator(client: TestClient, tmp_path) -> None:
@@ -228,6 +230,7 @@ def test_export_report_to_pdf_uses_pdf_generator(client: TestClient, tmp_path) -
     body = response.json()
     assert body["format"] == "pdf"
     assert body["file_path"].endswith(f"report_{created['id']}_2026-05-26.pdf")
+    assert body["download_url"] == f"/reports/{created['id']}/download?format=pdf"
 
     exported_path = tmp_path / f"report_{created['id']}_2026-05-26.pdf"
     assert exported_path.exists()
@@ -243,6 +246,40 @@ def test_export_missing_report_returns_404(client: TestClient, tmp_path) -> None
     )
     try:
         response = client.post("/reports/999/export", json={"export_format": "markdown"})
+    finally:
+        app.dependency_overrides.pop(get_report_export_service, None)
+
+    assert response.status_code == 404
+
+
+def test_download_report_returns_file_attachment(client: TestClient, tmp_path) -> None:
+    app.dependency_overrides[get_report_export_service] = lambda: ReportExportService(
+        repository=ReportRepository(),
+        markdown_generator=MarkdownGenerator(),
+        pdf_generator=FakePdfGenerator(),
+        export_dir=tmp_path,
+    )
+    try:
+        created = client.post("/reports/daily", json={"date": "2026-05-26"}).json()
+        response = client.get(f"/reports/{created['id']}/download?format=markdown")
+    finally:
+        app.dependency_overrides.pop(get_report_export_service, None)
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].startswith("attachment;")
+    assert f"report_{created['id']}_2026-05-26.md" in response.headers["content-disposition"]
+    assert "일일 작업 리포트" in response.text
+
+
+def test_download_missing_report_returns_404(client: TestClient, tmp_path) -> None:
+    app.dependency_overrides[get_report_export_service] = lambda: ReportExportService(
+        repository=ReportRepository(),
+        markdown_generator=MarkdownGenerator(),
+        pdf_generator=FakePdfGenerator(),
+        export_dir=tmp_path,
+    )
+    try:
+        response = client.get("/reports/999/download?format=pdf")
     finally:
         app.dependency_overrides.pop(get_report_export_service, None)
 
@@ -278,4 +315,6 @@ def test_pdf_generator_converts_markdown_content_to_html() -> None:
     assert "<code>uv run pytest</code>" in html
     assert "<blockquote>" in html
     assert "<pre># 요약" not in html
-    assert "생성 시각: 2026-05-26 15:30" in html
+    assert "유형: 상세 리포트" in html
+    assert "생성 주체: AI" in html
+    assert "생성 시각" not in html
