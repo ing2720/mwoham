@@ -135,6 +135,21 @@ def test_placeholder_pages_render(client: TestClient, path: str, title: str) -> 
     assert title in response.text
 
 
+def test_settings_page_renders_settings_and_private_apps(client: TestClient) -> None:
+    client.patch("/settings", json={"settings": {"capture_enabled": True}})
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "KakaoTalk", "match_type": "exact", "is_enabled": True},
+    )
+
+    response = client.get("/settings", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert "capture_enabled" in response.text
+    assert "KakaoTalk" in response.text
+    assert "기록 제외 앱" in response.text
+
+
 def test_reports_page_and_detail_render_generated_report(client: TestClient) -> None:
     client.post("/recording/start", json={})
     client.post(

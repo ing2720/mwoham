@@ -7,6 +7,7 @@ from app.models.work_session import WorkSession
 from app.repositories.work_event_repository import WorkEventRepository
 from app.repositories.work_session_repository import WorkSessionRepository
 from app.schemas.work_event import WorkEventCreate, WorkEventCreateResponse, WorkEventListResponse
+from app.services.setting_service import SettingService, get_setting_service
 
 
 class EventService:
@@ -14,12 +15,26 @@ class EventService:
         self,
         event_repository: WorkEventRepository,
         session_repository: WorkSessionRepository,
+        setting_service: SettingService,
     ) -> None:
         self.event_repository = event_repository
         self.session_repository = session_repository
+        self.setting_service = setting_service
 
     def create(self, db: Session, request: WorkEventCreate) -> WorkEventCreateResponse:
         session = self._resolve_session(db, request.session_id)
+        if self.setting_service.is_private_app(db, request.app_name):
+            request = WorkEventCreate(
+                session_id=request.session_id,
+                timestamp=request.timestamp,
+                source=request.source,
+                app_name=request.app_name,
+                window_title=None,
+                content="비공개 앱 사용 중",
+                project_name=request.project_name,
+                metadata_json=None,
+                confidence=request.confidence,
+            )
         event = self.event_repository.create(db, event_in=request, session_id=session.id)
         return WorkEventCreateResponse(id=event.id)
 
@@ -62,4 +77,5 @@ def get_event_service() -> EventService:
     return EventService(
         event_repository=WorkEventRepository(),
         session_repository=WorkSessionRepository(),
+        setting_service=get_setting_service(),
     )

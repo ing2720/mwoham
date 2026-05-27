@@ -11,6 +11,7 @@ from app.schemas.screen_observation import (
     ScreenObservationCreateResponse,
     ScreenObservationListResponse,
 )
+from app.services.setting_service import SettingService, get_setting_service
 
 
 class ScreenObservationService:
@@ -18,9 +19,11 @@ class ScreenObservationService:
         self,
         observation_repository: ScreenObservationRepository,
         session_repository: WorkSessionRepository,
+        setting_service: SettingService,
     ) -> None:
         self.observation_repository = observation_repository
         self.session_repository = session_repository
+        self.setting_service = setting_service
 
     def create(
         self,
@@ -28,6 +31,17 @@ class ScreenObservationService:
         request: ScreenObservationCreate,
     ) -> ScreenObservationCreateResponse:
         session = self._resolve_session(db, request.session_id)
+        if self.setting_service.is_private_app(db, request.app_name):
+            request = ScreenObservationCreate(
+                session_id=request.session_id,
+                timestamp=request.timestamp,
+                app_name=request.app_name,
+                window_title=None,
+                ocr_text=None,
+                detected_keywords=None,
+                ai_inference=None,
+                frame_hash=request.frame_hash,
+            )
         if request.frame_hash:
             duplicate = self.observation_repository.get_recent_by_frame_hash(
                 db,
@@ -84,4 +98,5 @@ def get_screen_observation_service() -> ScreenObservationService:
     return ScreenObservationService(
         observation_repository=ScreenObservationRepository(),
         session_repository=WorkSessionRepository(),
+        setting_service=get_setting_service(),
     )
