@@ -8,6 +8,13 @@
     <span class="muted">생성된 리포트 {{ total }}개</span>
   </div>
 
+  <section class="panel" style="margin-bottom: 16px;">
+    <h2>오늘 리포트</h2>
+    <form method="post" action="/reports/daily/create">
+      <button type="submit">오늘 리포트 생성</button>
+    </form>
+  </section>
+
   <section class="panel">
     <h2>리포트 목록</h2>
     <div class="list">

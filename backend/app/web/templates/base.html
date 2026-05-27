@@ -38,6 +38,51 @@
         padding: 8px 12px;
       }
 
+      input,
+      select,
+      textarea {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--text);
+        font: inherit;
+        min-width: 0;
+        padding: 8px 10px;
+        width: 100%;
+      }
+
+      textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+
+      label {
+        color: var(--muted);
+        display: grid;
+        font-size: 12px;
+        gap: 5px;
+      }
+
+      .form-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .form-row > * {
+        flex: 1 1 160px;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
       .shell {
         display: grid;
         grid-template-columns: 220px minmax(0, 1fr);

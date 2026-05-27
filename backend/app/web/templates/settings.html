@@ -24,6 +24,25 @@
 
   <section class="panel" style="margin-top: 16px;">
     <h2>기록 제외 앱</h2>
+    <form class="form-grid" method="post" action="/settings/private-apps/add" style="margin-bottom: 16px;">
+      <div class="form-row">
+        <label>앱 이름
+          <input name="app_name" required placeholder="예: KakaoTalk">
+        </label>
+        <label>매칭 방식
+          <select name="match_type">
+            <option value="exact">정확히 일치</option>
+            <option value="contains">포함</option>
+            <option value="regex">정규식</option>
+          </select>
+        </label>
+      </div>
+      <label style="display: flex; align-items: center; flex-direction: row; gap: 8px;">
+        <input type="checkbox" name="is_enabled" checked style="width: auto;">
+        활성화
+      </label>
+      <button type="submit">제외 앱 추가</button>
+    </form>
     <div class="list">
       {% for app in private_apps %}
         <article class="item">
@@ -31,6 +50,10 @@
           <div class="item-meta">
             {{ app.match_type }} · {{ "활성" if app.is_enabled else "비활성" }}
           </div>
+          <form method="post" action="/settings/private-apps/delete">
+            <input type="hidden" name="app_name" value="{{ app.app_name }}">
+            <button type="submit">삭제</button>
+          </form>
         </article>
       {% else %}
         <div class="empty">등록된 기록 제외 앱이 없습니다.</div>
