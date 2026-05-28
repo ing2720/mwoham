@@ -1,30 +1,7 @@
-from collections.abc import Generator
+from sqlalchemy.orm import Session
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from app.models import Base
 from app.services.timeline_builder import get_timeline_builder
 from scripts.seed_sample_data import seed_sample_data
-
-
-@pytest.fixture
-def db() -> Generator[Session]:
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-    db = testing_session_local()
-    try:
-        yield db
-    finally:
-        db.close()
-        Base.metadata.drop_all(bind=engine)
 
 
 def test_seed_sample_data_creates_report_timeline_sources(db: Session) -> None:

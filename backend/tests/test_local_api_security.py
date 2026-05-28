@@ -1,42 +1,39 @@
-from collections.abc import Generator
-
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
-from app.db.session import get_db
+from app.core.security import require_local_api_token
 from app.main import app
-from app.models import Base
 
+PROTECTED_API_ROUTES = {
+    ("POST", "/recording/start"),
+    ("POST", "/recording/pause"),
+    ("POST", "/recording/resume"),
+    ("POST", "/recording/stop"),
+    ("POST", "/events"),
+    ("POST", "/memos"),
+    ("POST", "/screen-observations"),
+    ("POST", "/meetings/start"),
+    ("POST", "/meetings/{meeting_id}/end"),
+    ("POST", "/transcripts"),
+    ("POST", "/reports/daily"),
+    ("PATCH", "/reports/{report_id}"),
+    ("POST", "/reports/{report_id}/export"),
+    ("PATCH", "/settings"),
+    ("POST", "/settings/private-apps"),
+    ("DELETE", "/settings/private-apps/{app_name}"),
+}
 
-@pytest.fixture
-def client() -> Generator[TestClient]:
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    def override_get_db() -> Generator[Session]:
-        db = testing_session_local()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    original_token = settings.local_api_token
-    try:
-        yield TestClient(app)
-    finally:
-        settings.local_api_token = original_token
-        app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
+WEB_FORM_ROUTES = {
+    ("POST", "/dashboard/recording/start"),
+    ("POST", "/dashboard/recording/pause"),
+    ("POST", "/dashboard/recording/resume"),
+    ("POST", "/dashboard/recording/stop"),
+    ("POST", "/dashboard/events"),
+    ("POST", "/dashboard/memos"),
+    ("POST", "/reports/daily/create"),
+    ("POST", "/settings/private-apps/add"),
+    ("POST", "/settings/private-apps/delete"),
+}
 
 
 def test_protected_api_allows_requests_when_local_token_is_not_configured(
@@ -96,3 +93,20 @@ def test_web_dashboard_form_bypasses_api_token_dependency(client: TestClient) ->
 
     assert response.status_code == 200
     assert "active" in response.text
+
+
+def test_mutating_api_routes_have_local_token_dependency() -> None:
+    mutating_routes = {}
+    for route in app.routes:
+        methods = getattr(route, "methods", set()) or set()
+        path = getattr(route, "path", "")
+        for method in methods.intersection({"POST", "PATCH", "DELETE"}):
+            route_key = (method, path)
+            if route_key not in WEB_FORM_ROUTES:
+                mutating_routes[route_key] = route
+
+    assert set(mutating_routes) == PROTECTED_API_ROUTES
+
+    for route in mutating_routes.values():
+        dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+        assert require_local_api_token in dependency_calls

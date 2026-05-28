@@ -1,18 +1,11 @@
-from collections.abc import Generator
 from datetime import UTC, date, datetime
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.ai.gemini_client import GeminiClient
 from app.ai.prompt_builder import get_prompt_builder
 from app.ai.summarizer import GeminiSummarizer
-from app.db.session import get_db
 from app.main import app
-from app.models import Base
 from app.models.report import Report
 from app.report.export_service import ReportExportService, get_report_export_service
 from app.report.markdown_generator import MarkdownGenerator
@@ -35,39 +28,6 @@ class StubSummarizer:
 class FakePdfGenerator:
     def generate(self, report, output_path) -> None:
         output_path.write_bytes(b"%PDF-1.4\n% fake test pdf\n")
-
-
-@pytest.fixture
-def client() -> Generator[TestClient]:
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    def override_get_db() -> Generator[Session]:
-        db = testing_session_local()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_report_service] = lambda: ReportService(
-        repository=ReportRepository(),
-        timeline_builder=get_timeline_builder(),
-        summarizer=GeminiSummarizer(
-            client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
-            prompt_builder=get_prompt_builder(),
-        ),
-    )
-    try:
-        yield TestClient(app)
-    finally:
-        app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
 
 
 def test_daily_report_api_uses_timeline_placeholder_content(client: TestClient) -> None:
