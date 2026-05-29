@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct MwohamMacApp: App {
     @StateObject private var viewModel = BackendStatusViewModel()
+    @StateObject private var floatingWidgetController = FloatingWidgetController()
 
     var body: some Scene {
         WindowGroup("MwohamMac", id: "main") {
@@ -17,7 +18,10 @@ struct MwohamMacApp: App {
         }
 
         MenuBarExtra {
-            MenuBarStatusView(viewModel: viewModel)
+            MenuBarStatusView(
+                viewModel: viewModel,
+                floatingWidgetController: floatingWidgetController
+            )
         } label: {
             Label("Mwoham", systemImage: "record.circle")
         }
