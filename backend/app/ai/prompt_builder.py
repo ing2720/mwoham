@@ -1,5 +1,6 @@
 from app.schemas.timeline import TimelineResponse
 from app.services.privacy_filter import PrivacyFilter, get_privacy_filter
+from app.services.screen_observation_summarizer import SAFE_UNCLEAR_INFERENCE
 
 
 class PromptBuilder:
@@ -80,10 +81,11 @@ class PromptBuilder:
             )
         if item.type == "screen_ocr":
             ocr_excerpt = self._truncate(item.ocr_text or item.content, 300)
+            inference = self._safe_inference(item.ai_inference or item.content)
             return (
                 f"- SCREEN_OCR | time={timestamp} | app={item.app_name or '-'} | "
                 f"keywords={item.detected_keywords or []} | "
-                f"inference={item.ai_inference or item.content or '-'} | "
+                f"inference={inference} | "
                 f"ocr_excerpt={ocr_excerpt}"
             )
         if item.type == "meeting":
@@ -103,6 +105,42 @@ class PromptBuilder:
         if len(text) <= limit:
             return text
         return text[:limit].rstrip() + "..."
+
+    def _safe_inference(self, inference: str | None) -> str:
+        if not inference:
+            return "-"
+        if self._has_unbalanced_delimiter(inference):
+            return SAFE_UNCLEAR_INFERENCE
+        if not self._ends_with_complete_korean_sentence(inference):
+            return SAFE_UNCLEAR_INFERENCE
+        return inference
+
+    def _has_unbalanced_delimiter(self, text: str) -> bool:
+        delimiter_pairs = [("'", "'"), ('"', '"'), ("`", "`"), ("(", ")"), ("[", "]"), ("{", "}")]
+        for opener, closer in delimiter_pairs:
+            if opener == closer:
+                if text.count(opener) % 2 != 0:
+                    return True
+            elif text.count(opener) != text.count(closer):
+                return True
+        return False
+
+    def _ends_with_complete_korean_sentence(self, text: str) -> bool:
+        complete_endings = (
+            "합니다.",
+            "있습니다.",
+            "보입니다.",
+            "어렵습니다.",
+            "진행하고 있습니다.",
+            "확인하고 있습니다.",
+            "진행 중입니다.",
+            "확인 중입니다.",
+            "같습니다.",
+            "않습니다.",
+            "됩니다.",
+            "했습니다.",
+        )
+        return text.endswith(complete_endings)
 
 
 def get_prompt_builder() -> PromptBuilder:
