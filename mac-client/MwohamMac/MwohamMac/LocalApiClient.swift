@@ -116,8 +116,8 @@ struct WorkEventCreateResponse: Decodable {
 }
 
 struct ActivitySegmentResponse: Decodable {
-    let id: Int
-    let sessionId: Int
+    let id: Int?
+    let sessionId: Int?
     let appName: String?
     let windowTitle: String?
     let source: String
@@ -127,6 +127,7 @@ struct ActivitySegmentResponse: Decodable {
     let durationSeconds: Int
     let sampleCount: Int
     let createdAt: String
+    let saved: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -140,6 +141,7 @@ struct ActivitySegmentResponse: Decodable {
         case durationSeconds = "duration_seconds"
         case sampleCount = "sample_count"
         case createdAt = "created_at"
+        case saved
     }
 }
 

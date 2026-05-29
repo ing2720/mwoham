@@ -19,8 +19,8 @@ class ActivitySegmentUpdate(ApiSchema):
 
 
 class ActivitySegmentResponse(ApiSchema):
-    id: int
-    session_id: int
+    id: int | None = None
+    session_id: int | None = None
     app_name: str | None = None
     window_title: str | None = None
     source: str
@@ -30,6 +30,7 @@ class ActivitySegmentResponse(ApiSchema):
     duration_seconds: int
     sample_count: int
     created_at: datetime
+    saved: bool = True
 
 
 class ActivitySegmentListResponse(ApiSchema):

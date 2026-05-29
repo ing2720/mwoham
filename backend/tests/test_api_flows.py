@@ -151,6 +151,91 @@ def test_activity_segments_are_created_updated_and_added_to_timeline(client: Tes
     assert memo_items[0]["content"] == "Manual note"
 
 
+def test_private_apps_are_not_saved_as_activity_segments(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "Discord", "match_type": "exact", "is_enabled": True},
+    )
+
+    create_response = client.post(
+        "/activity-segments",
+        json={
+            "started_at": datetime(2026, 5, 26, 11, 0, tzinfo=UTC).isoformat(),
+            "last_seen_at": datetime(2026, 5, 26, 11, 0, 2, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "Discord",
+            "window_title": "DM",
+        },
+    )
+
+    assert create_response.status_code == 201
+    assert create_response.json()["saved"] is False
+    assert create_response.json()["id"] is None
+
+    list_response = client.get("/activity-segments?date=2026-05-26")
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 0
+
+
+def test_disabled_private_app_rule_does_not_block_activity_segments(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "Discord", "match_type": "exact", "is_enabled": False},
+    )
+
+    create_response = client.post(
+        "/activity-segments",
+        json={
+            "started_at": datetime(2026, 5, 26, 11, 30, tzinfo=UTC).isoformat(),
+            "last_seen_at": datetime(2026, 5, 26, 11, 30, 4, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "Discord",
+            "window_title": "General",
+        },
+    )
+
+    assert create_response.status_code == 201
+    assert create_response.json()["saved"] is True
+    assert create_response.json()["id"] is not None
+
+
+def test_timeline_filters_private_activity_segments_defensively(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    create_response = client.post(
+        "/activity-segments",
+        json={
+            "started_at": datetime(2026, 5, 26, 12, 0, tzinfo=UTC).isoformat(),
+            "last_seen_at": datetime(2026, 5, 26, 12, 0, 3, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "KakaoTalk",
+            "window_title": "친구와의 대화",
+        },
+    )
+    client.post(
+        "/activity-segments",
+        json={
+            "started_at": datetime(2026, 5, 26, 12, 5, tzinfo=UTC).isoformat(),
+            "last_seen_at": datetime(2026, 5, 26, 12, 5, 3, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "PyCharm",
+            "window_title": "backend",
+        },
+    )
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "Kakao", "match_type": "contains", "is_enabled": True},
+    )
+
+    assert create_response.json()["saved"] is True
+
+    timeline_response = client.get("/timeline/today?date=2026-05-26")
+    items = timeline_response.json()["items"]
+    segment_items = [item for item in items if item["type"] == "activity_segment"]
+    assert {item["app_name"] for item in segment_items} == {"PyCharm"}
+
+
 def test_event_without_active_session_returns_404(client: TestClient) -> None:
     response = client.post(
         "/events",

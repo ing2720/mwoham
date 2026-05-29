@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy.orm import Session
 
@@ -29,13 +29,19 @@ class ActivitySegmentService:
     def create(self, db: Session, request: ActivitySegmentCreate) -> ActivitySegmentResponse:
         session = self._resolve_session(db, request.session_id)
         if self.setting_service.is_private_app(db, request.app_name):
-            request = ActivitySegmentCreate(
-                session_id=request.session_id,
+            return ActivitySegmentResponse(
+                id=None,
+                session_id=session.id,
                 app_name=request.app_name,
                 window_title=None,
                 source=request.source,
                 started_at=request.started_at,
+                ended_at=request.last_seen_at,
                 last_seen_at=request.last_seen_at,
+                duration_seconds=0,
+                sample_count=0,
+                created_at=datetime.now(UTC),
+                saved=False,
             )
         segment = self.segment_repository.create(db, segment_in=request, session_id=session.id)
         return ActivitySegmentResponse.model_validate(segment)
@@ -53,6 +59,11 @@ class ActivitySegmentService:
         session = self.session_repository.get_by_id(db, segment.session_id)
         if session is None or session.status != "active":
             raise ResourceNotFoundError("Active recording session not found.")
+
+        if self.setting_service.is_private_app(db, segment.app_name):
+            response = ActivitySegmentResponse.model_validate(segment)
+            response.saved = False
+            return response
 
         segment = self.segment_repository.update_seen_at(
             db,
