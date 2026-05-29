@@ -89,6 +89,26 @@ struct ActivitySegmentUpdateRequest: Encodable {
     }
 }
 
+struct ScreenObservationCreateRequest: Encodable {
+    let timestamp: String
+    let appName: String?
+    let windowTitle: String?
+    let ocrText: String?
+    let detectedKeywords: [String]?
+    let aiInference: String?
+    let frameHash: String?
+
+    enum CodingKeys: String, CodingKey {
+        case timestamp
+        case appName = "app_name"
+        case windowTitle = "window_title"
+        case ocrText = "ocr_text"
+        case detectedKeywords = "detected_keywords"
+        case aiInference = "ai_inference"
+        case frameHash = "frame_hash"
+    }
+}
+
 struct PrivateAppResponse: Decodable {
     let id: Int
     let appName: String
@@ -164,6 +184,12 @@ struct ActivitySegmentResponse: Decodable {
         case createdAt = "created_at"
         case saved
     }
+}
+
+struct ScreenObservationCreateResponse: Decodable {
+    let id: Int
+    let saved: Bool
+    let duplicate: Bool
 }
 
 struct BackendSnapshot {
@@ -286,6 +312,30 @@ final class LocalApiClient {
             "/activity-segments/\(id)",
             body: ActivitySegmentUpdateRequest(
                 lastSeenAt: Self.eventTimestampFormatter.string(from: lastSeenAt)
+            )
+        )
+    }
+
+    @discardableResult
+    func createScreenObservation(
+        appName: String?,
+        windowTitle: String?,
+        ocrText: String,
+        detectedKeywords: [String]?,
+        aiInference: String?,
+        frameHash: String?,
+        timestamp: Date = Date()
+    ) async throws -> ScreenObservationCreateResponse {
+        try await post(
+            "/screen-observations",
+            body: ScreenObservationCreateRequest(
+                timestamp: Self.eventTimestampFormatter.string(from: timestamp),
+                appName: appName,
+                windowTitle: windowTitle,
+                ocrText: ocrText,
+                detectedKeywords: detectedKeywords,
+                aiInference: aiInference,
+                frameHash: frameHash
             )
         )
     }
