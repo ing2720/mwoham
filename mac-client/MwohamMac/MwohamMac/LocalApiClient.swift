@@ -41,6 +41,30 @@ struct RecordingResponse: Decodable {
     }
 }
 
+struct MemoCreateRequest: Encodable {
+    let content: String
+}
+
+struct MemoResponse: Decodable {
+    let id: Int
+    let sessionId: Int?
+    let timestamp: String
+    let content: String
+    let linkedType: String?
+    let linkedId: Int?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId = "session_id"
+        case timestamp
+        case content
+        case linkedType = "linked_type"
+        case linkedId = "linked_id"
+        case createdAt = "created_at"
+    }
+}
+
 struct BackendSnapshot {
     let health: HealthResponse
     let status: StatusResponse
@@ -102,6 +126,11 @@ final class LocalApiClient {
         try await post("/recording/stop")
     }
 
+    @discardableResult
+    func createMemo(content: String) async throws -> MemoResponse {
+        try await post("/memos", body: MemoCreateRequest(content: content))
+    }
+
     private func get<Response: Decodable>(_ path: String) async throws -> Response {
         var request = makeRequest(path: path)
         request.httpMethod = "GET"
@@ -116,6 +145,16 @@ final class LocalApiClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
+
+        return try await send(request)
+    }
+
+    private func post<Body: Encodable, Response: Decodable>(_ path: String, body: Body) async throws -> Response {
+        var request = makeRequest(path: path)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
 
         return try await send(request)
     }

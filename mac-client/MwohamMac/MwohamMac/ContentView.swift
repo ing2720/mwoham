@@ -6,6 +6,7 @@
 //
 
 import Combine
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -17,6 +18,9 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var currentApp = "-"
     @Published var currentWindow = "-"
     @Published var errorMessage: String?
+    @Published var memoContent = ""
+    @Published var memoStatusMessage = ""
+    @Published var isSavingMemo = false
 
     private let localApiClient: LocalApiClient
     private var rawRecordingStatus = "unknown"
@@ -65,6 +69,32 @@ final class BackendStatusViewModel: ObservableObject {
         await runRecordingAction(.stop)
     }
 
+    func saveMemo() async {
+        let trimmedContent = memoContent.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedContent.isEmpty else {
+            memoStatusMessage = "메모 내용을 입력해 주세요."
+            return
+        }
+
+        isSavingMemo = true
+        memoStatusMessage = "메모 저장 중..."
+
+        do {
+            try await localApiClient.createMemo(content: trimmedContent)
+            memoContent = ""
+            memoStatusMessage = "메모가 저장되었습니다."
+
+            let snapshot = try await localApiClient.fetchSnapshot()
+            applySnapshot(snapshot)
+        } catch {
+            memoStatusMessage = "메모 저장에 실패했습니다: \(error.localizedDescription)"
+            await refreshAfterFailedAction()
+        }
+
+        isSavingMemo = false
+    }
+
     var canStartRecording: Bool {
         canUseControls && rawRecordingStatus == "stopped"
     }
@@ -79,6 +109,10 @@ final class BackendStatusViewModel: ObservableObject {
 
     var canStopRecording: Bool {
         canUseControls && (rawRecordingStatus == "active" || rawRecordingStatus == "paused")
+    }
+
+    var canSaveMemo: Bool {
+        isConnected && !isSavingMemo
     }
 
     private func displayValue(_ value: String?) -> String {
@@ -235,6 +269,42 @@ struct ContentView: View {
                 StatusRow(title: "current_window", value: viewModel.currentWindow)
             }
 
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("빠른 메모")
+                    .font(.headline)
+
+                MemoTextEditor(text: $viewModel.memoContent) {
+                    Task {
+                        await viewModel.saveMemo()
+                    }
+                }
+                    .frame(minHeight: 70)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(.quaternary)
+                    )
+
+                HStack {
+                    Spacer()
+
+                    Button {
+                        Task {
+                            await viewModel.saveMemo()
+                        }
+                    } label: {
+                        Label("메모 저장", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(!viewModel.canSaveMemo)
+                }
+
+                Text(viewModel.memoStatusMessage.isEmpty ? " " : viewModel.memoStatusMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             if viewModel.isLoading {
                 ProgressView("상태를 확인하는 중")
             }
@@ -245,7 +315,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(minWidth: 420, minHeight: 260, alignment: .topLeading)
+        .frame(minWidth: 460, minHeight: 390, alignment: .topLeading)
         .padding(24)
         .task {
             await viewModel.refresh()
@@ -264,6 +334,94 @@ private struct StatusRow: View {
             Text(value)
                 .fontWeight(.medium)
                 .textSelection(.enabled)
+        }
+    }
+}
+
+private struct MemoTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = true
+        scrollView.borderType = .noBorder
+
+        let textView = KeyHandlingTextView()
+        textView.delegate = context.coordinator
+        textView.onSubmit = onSubmit
+        textView.string = text
+        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.isRichText = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.drawsBackground = true
+        textView.backgroundColor = .textBackgroundColor
+        textView.textContainerInset = NSSize(width: 6, height: 6)
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: 70)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let textView = scrollView.documentView as? KeyHandlingTextView else {
+            return
+        }
+
+        textView.onSubmit = onSubmit
+
+        if textView.string != text {
+            textView.string = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: MemoTextEditor
+        weak var textView: KeyHandlingTextView?
+
+        init(_ parent: MemoTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else {
+                return
+            }
+
+            parent.text = textView.string
+        }
+    }
+
+    final class KeyHandlingTextView: NSTextView {
+        var onSubmit: (() -> Void)?
+
+        override func keyDown(with event: NSEvent) {
+            let isReturnKey = event.keyCode == 36 || event.keyCode == 76
+            let isShiftPressed = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
+
+            if isReturnKey && !isShiftPressed {
+                onSubmit?()
+                return
+            }
+
+            super.keyDown(with: event)
         }
     }
 }
