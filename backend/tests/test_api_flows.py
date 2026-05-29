@@ -77,6 +77,80 @@ def test_events_can_be_created_and_listed(client: TestClient) -> None:
     assert status_response.json()["current_window"] == "pytest"
 
 
+def test_activity_segments_are_created_updated_and_added_to_timeline(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    started_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
+    last_seen_at = datetime(2026, 5, 26, 10, 0, 2, tzinfo=UTC)
+
+    create_response = client.post(
+        "/activity-segments",
+        json={
+            "started_at": started_at.isoformat(),
+            "last_seen_at": last_seen_at.isoformat(),
+            "source": "mac_active_window",
+            "app_name": "Chrome",
+            "window_title": "PR 작성",
+        },
+    )
+
+    assert create_response.status_code == 201
+    segment = create_response.json()
+    assert segment["duration_seconds"] == 2
+    assert segment["sample_count"] == 1
+
+    update_response = client.patch(
+        f"/activity-segments/{segment['id']}",
+        json={"last_seen_at": datetime(2026, 5, 26, 10, 0, 8, tzinfo=UTC).isoformat()},
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["duration_seconds"] == 8
+    assert updated["sample_count"] == 2
+
+    status_response = client.get("/status")
+    assert status_response.json()["current_app"] == "Chrome"
+    assert status_response.json()["current_window"] == "PR 작성"
+
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 10, 0, 4, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "Chrome",
+            "window_title": "PR 작성",
+            "content": "Chrome / PR 작성",
+        },
+    )
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 10, 1, tzinfo=UTC).isoformat(),
+            "source": "terminal",
+            "content": "Ran pytest",
+        },
+    )
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime(2026, 5, 26, 10, 2, tzinfo=UTC).isoformat(),
+            "content": "Manual note",
+        },
+    )
+
+    timeline_response = client.get("/timeline/today?date=2026-05-26")
+    assert timeline_response.status_code == 200
+    items = timeline_response.json()["items"]
+    segment_items = [item for item in items if item["type"] == "activity_segment"]
+    event_items = [item for item in items if item["type"] == "event"]
+    memo_items = [item for item in items if item["type"] == "memo"]
+    assert segment_items[0]["app_name"] == "Chrome"
+    assert segment_items[0]["duration_seconds"] == 8
+    assert "mac_active_window" not in {item["source"] for item in event_items}
+    assert event_items[0]["content"] == "Ran pytest"
+    assert memo_items[0]["content"] == "Manual note"
+
+
 def test_event_without_active_session_returns_404(client: TestClient) -> None:
     response = client.post(
         "/events",

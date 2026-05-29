@@ -2,11 +2,13 @@ from datetime import UTC, date, datetime
 
 from sqlalchemy.orm import Session
 
+from app.models.activity_segment import ActivitySegment
 from app.models.manual_memo import ManualMemo
 from app.models.meeting_session import MeetingSession
 from app.models.screen_observation import ScreenObservation
 from app.models.voice_transcript import VoiceTranscript
 from app.models.work_event import WorkEvent
+from app.repositories.activity_segment_repository import ActivitySegmentRepository
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.memo_repository import MemoRepository
 from app.repositories.screen_observation_repository import ScreenObservationRepository
@@ -17,11 +19,13 @@ from app.schemas.timeline import TimelineItem, TimelineResponse
 class TimelineBuilder:
     def __init__(
         self,
+        activity_segment_repository: ActivitySegmentRepository,
         event_repository: WorkEventRepository,
         memo_repository: MemoRepository,
         screen_observation_repository: ScreenObservationRepository,
         meeting_repository: MeetingRepository,
     ) -> None:
+        self.activity_segment_repository = activity_segment_repository
         self.event_repository = event_repository
         self.memo_repository = memo_repository
         self.screen_observation_repository = screen_observation_repository
@@ -29,7 +33,16 @@ class TimelineBuilder:
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
         timeline_date = target_date or datetime.now(UTC).date()
-        events = self.event_repository.list(db, target_date=timeline_date, limit=1000)
+        activity_segments = self.activity_segment_repository.list(
+            db,
+            target_date=timeline_date,
+            limit=1000,
+        )
+        events = [
+            event
+            for event in self.event_repository.list(db, target_date=timeline_date, limit=1000)
+            if event.source != "mac_active_window"
+        ]
         memos = self.memo_repository.list(db, target_date=timeline_date, limit=1000)
         screen_observations = self.screen_observation_repository.list(
             db,
@@ -46,7 +59,8 @@ class TimelineBuilder:
             target_date=timeline_date,
             limit=1000,
         )
-        items = [self._event_to_item(event) for event in events]
+        items = [self._activity_segment_to_item(segment) for segment in activity_segments]
+        items.extend(self._event_to_item(event) for event in events)
         items.extend(self._memo_to_item(memo) for memo in memos)
         items.extend(self._screen_observation_to_item(item) for item in screen_observations)
         for meeting in meetings:
@@ -66,6 +80,49 @@ class TimelineBuilder:
             window_title=event.window_title,
             session_id=event.session_id,
         )
+
+    def _activity_segment_to_item(self, segment: ActivitySegment) -> TimelineItem:
+        time_range = (
+            f"{segment.started_at.strftime('%H:%M:%S')}~{segment.ended_at.strftime('%H:%M:%S')}"
+        )
+        title = self._activity_title(segment.app_name, segment.window_title)
+        duration = self._duration_text(segment.duration_seconds)
+        return TimelineItem(
+            type="activity_segment",
+            id=segment.id,
+            timestamp=segment.started_at,
+            content=f"{time_range} {title} ({duration})",
+            source=segment.source,
+            app_name=segment.app_name,
+            window_title=segment.window_title,
+            session_id=segment.session_id,
+            ended_at=segment.ended_at,
+            duration_seconds=segment.duration_seconds,
+            sample_count=segment.sample_count,
+        )
+
+    def _activity_title(self, app_name: str | None, window_title: str | None) -> str:
+        title_parts = [
+            value.strip()
+            for value in [app_name or "알 수 없는 앱", window_title]
+            if value and value.strip()
+        ]
+        return " / ".join(title_parts)
+
+    def _duration_text(self, duration_seconds: int) -> str:
+        if duration_seconds <= 0:
+            return "1초 미만"
+        if duration_seconds < 60:
+            return f"{duration_seconds}초"
+
+        minutes = duration_seconds // 60
+        seconds = duration_seconds % 60
+        if minutes < 60:
+            return f"{minutes}분 {seconds:02d}초"
+
+        hours = minutes // 60
+        remaining_minutes = minutes % 60
+        return f"{hours}시간 {remaining_minutes:02d}분"
 
     def _memo_to_item(self, memo: ManualMemo) -> TimelineItem:
         return TimelineItem(
@@ -134,6 +191,7 @@ class TimelineBuilder:
 
 def get_timeline_builder() -> TimelineBuilder:
     return TimelineBuilder(
+        activity_segment_repository=ActivitySegmentRepository(),
         event_repository=WorkEventRepository(),
         memo_repository=MemoRepository(),
         screen_observation_repository=ScreenObservationRepository(),

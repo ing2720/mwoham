@@ -13,7 +13,7 @@
       <article class="timeline-item">
         <div>
           <span class="badge">
-            {% if item.type == "event" %}이벤트{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% else %}메모{% endif %}
+            {% if item.type == "event" %}이벤트{% elif item.type == "activity_segment" %}작업 구간{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% elif item.type == "memo" %}메모{% else %}{{ item.type }}{% endif %}
           </span>
         </div>
         {% if item.type == "event" %}
@@ -21,6 +21,14 @@
           <div class="item-meta">
             {{ item.timestamp }} · {{ item.source }}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
+          </div>
+        {% elif item.type == "activity_segment" %}
+          <div class="item-title">{{ item.content }}</div>
+          <div class="item-meta">
+            {{ item.timestamp }} ~ {{ item.ended_at }}
+            {% if item.app_name %} · {{ item.app_name }}{% endif %}
+            {% if item.window_title %} · {{ item.window_title }}{% endif %}
+            {% if item.duration_seconds is not none %} · {{ item.duration_seconds }}초{% endif %}
           </div>
         {% elif item.type == "screen_ocr" %}
           <div class="item-title">{{ item.content if item.content else "OCR 텍스트 없음" }}</div>

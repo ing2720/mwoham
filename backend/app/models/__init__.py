@@ -1,4 +1,5 @@
 from app.db.base import Base
+from app.models.activity_segment import ActivitySegment
 from app.models.app_setting import AppSetting
 from app.models.manual_memo import ManualMemo
 from app.models.meeting_session import MeetingSession
@@ -12,6 +13,7 @@ from app.models.work_session import WorkSession
 
 __all__ = [
     "Base",
+    "ActivitySegment",
     "AppSetting",
     "ManualMemo",
     "MeetingSession",

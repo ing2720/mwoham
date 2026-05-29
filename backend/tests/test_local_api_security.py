@@ -10,6 +10,8 @@ PROTECTED_API_ROUTES = {
     ("POST", "/recording/resume"),
     ("POST", "/recording/stop"),
     ("POST", "/events"),
+    ("POST", "/activity-segments"),
+    ("PATCH", "/activity-segments/{segment_id}"),
     ("POST", "/memos"),
     ("POST", "/screen-observations"),
     ("POST", "/meetings/start"),

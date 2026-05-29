@@ -21,19 +21,24 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var memoContent = ""
     @Published var memoStatusMessage = ""
     @Published var isSavingMemo = false
+    @Published var activeWindowTrackingStatus = "활성 창 추적 대기 중"
 
     private let localApiClient: LocalApiClient
+    private let activeWindowCollector: ActiveWindowCollector
     private var rawRecordingStatus = "unknown"
     private var sessionStartedAt: Date?
     private var statusElapsedSeconds: Int?
     private var statusReceivedAt: Date?
 
     init() {
-        self.localApiClient = LocalApiClient()
+        let localApiClient = LocalApiClient()
+        self.localApiClient = localApiClient
+        self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
     }
 
     init(localApiClient: LocalApiClient) {
         self.localApiClient = localApiClient
+        self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
     }
 
     func refresh() async {
@@ -125,6 +130,26 @@ final class BackendStatusViewModel: ObservableObject {
 
     var recordingState: String {
         rawRecordingStatus
+    }
+
+    func startActiveWindowTracking() {
+        activeWindowCollector.start(
+            isRecordingActive: { [weak self] in
+                self?.rawRecordingStatus == "active"
+            },
+            onStatusChange: { [weak self] status in
+                self?.activeWindowTrackingStatus = status
+            },
+            onSnapshot: { [weak self] snapshot in
+                self?.currentApp = snapshot.appName
+                self?.currentWindow = self?.displayValue(snapshot.windowTitle) ?? "없음"
+            }
+        )
+    }
+
+    func stopActiveWindowTracking() {
+        activeWindowCollector.stop()
+        activeWindowTrackingStatus = "활성 창 추적 대기 중"
     }
 
     func updateElapsedTime() {
@@ -330,6 +355,7 @@ struct ContentView: View {
         .frame(minWidth: 460, minHeight: 390, alignment: .topLeading)
         .padding(24)
         .task {
+            viewModel.startActiveWindowTracking()
             await viewModel.refresh()
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
