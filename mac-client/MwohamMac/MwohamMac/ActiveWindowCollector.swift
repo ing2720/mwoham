@@ -130,8 +130,12 @@ final class ActiveWindowCollector {
                 id: currentSegment.id,
                 lastSeenAt: seenAt
             )
+            guard response.saved != false, let segmentID = response.id else {
+                self.currentSegment = nil
+                return
+            }
             self.currentSegment = CurrentActivitySegment(
-                id: response.id,
+                id: segmentID,
                 snapshot: snapshot,
                 startedAt: currentSegment.startedAt
             )
@@ -145,8 +149,12 @@ final class ActiveWindowCollector {
             startedAt: seenAt,
             lastSeenAt: seenAt
         )
+        guard response.saved != false, let segmentID = response.id else {
+            currentSegment = nil
+            return
+        }
         currentSegment = CurrentActivitySegment(
-            id: response.id,
+            id: segmentID,
             snapshot: snapshot,
             startedAt: seenAt
         )

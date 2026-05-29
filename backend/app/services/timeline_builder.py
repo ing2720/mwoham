@@ -14,6 +14,7 @@ from app.repositories.memo_repository import MemoRepository
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_event_repository import WorkEventRepository
 from app.schemas.timeline import TimelineItem, TimelineResponse
+from app.services.setting_service import SettingService, get_setting_service
 
 
 class TimelineBuilder:
@@ -24,12 +25,14 @@ class TimelineBuilder:
         memo_repository: MemoRepository,
         screen_observation_repository: ScreenObservationRepository,
         meeting_repository: MeetingRepository,
+        setting_service: SettingService,
     ) -> None:
         self.activity_segment_repository = activity_segment_repository
         self.event_repository = event_repository
         self.memo_repository = memo_repository
         self.screen_observation_repository = screen_observation_repository
         self.meeting_repository = meeting_repository
+        self.setting_service = setting_service
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
         timeline_date = target_date or datetime.now(UTC).date()
@@ -38,6 +41,11 @@ class TimelineBuilder:
             target_date=timeline_date,
             limit=1000,
         )
+        activity_segments = [
+            segment
+            for segment in activity_segments
+            if not self.setting_service.is_private_app(db, segment.app_name)
+        ]
         events = [
             event
             for event in self.event_repository.list(db, target_date=timeline_date, limit=1000)
@@ -196,4 +204,5 @@ def get_timeline_builder() -> TimelineBuilder:
         memo_repository=MemoRepository(),
         screen_observation_repository=ScreenObservationRepository(),
         meeting_repository=MeetingRepository(),
+        setting_service=get_setting_service(),
     )
