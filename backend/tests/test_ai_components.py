@@ -78,6 +78,34 @@ def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
     assert "api_key=secret" not in prompt
 
 
+def test_prompt_builder_includes_activity_segment_duration() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="activity_segment",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                ended_at=datetime(2026, 5, 26, 10, 15, tzinfo=UTC),
+                app_name="Chrome",
+                window_title="PR 작성",
+                source="mac_active_window",
+                content="Chrome / PR 작성",
+                duration_seconds=900,
+                sample_count=30,
+                session_id=1,
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "ACTIVITY_SEGMENT |" in prompt
+    assert "duration_seconds=900" in prompt
+    assert "window=PR 작성" in prompt
+
+
 def test_prompt_builder_includes_meeting_transcripts() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),

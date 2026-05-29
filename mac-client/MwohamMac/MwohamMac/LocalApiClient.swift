@@ -49,6 +49,46 @@ struct MemoCreateRequest: Encodable {
     let content: String
 }
 
+struct WorkEventCreateRequest: Encodable {
+    let timestamp: String
+    let source: String
+    let appName: String?
+    let windowTitle: String?
+    let content: String
+
+    enum CodingKeys: String, CodingKey {
+        case timestamp
+        case source
+        case appName = "app_name"
+        case windowTitle = "window_title"
+        case content
+    }
+}
+
+struct ActivitySegmentCreateRequest: Encodable {
+    let appName: String?
+    let windowTitle: String?
+    let source: String
+    let startedAt: String
+    let lastSeenAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case appName = "app_name"
+        case windowTitle = "window_title"
+        case source
+        case startedAt = "started_at"
+        case lastSeenAt = "last_seen_at"
+    }
+}
+
+struct ActivitySegmentUpdateRequest: Encodable {
+    let lastSeenAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case lastSeenAt = "last_seen_at"
+    }
+}
+
 struct MemoResponse: Decodable {
     let id: Int
     let sessionId: Int?
@@ -65,6 +105,40 @@ struct MemoResponse: Decodable {
         case content
         case linkedType = "linked_type"
         case linkedId = "linked_id"
+        case createdAt = "created_at"
+    }
+}
+
+struct WorkEventCreateResponse: Decodable {
+    let id: Int
+    let saved: Bool
+    let duplicate: Bool
+}
+
+struct ActivitySegmentResponse: Decodable {
+    let id: Int
+    let sessionId: Int
+    let appName: String?
+    let windowTitle: String?
+    let source: String
+    let startedAt: String
+    let endedAt: String
+    let lastSeenAt: String
+    let durationSeconds: Int
+    let sampleCount: Int
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId = "session_id"
+        case appName = "app_name"
+        case windowTitle = "window_title"
+        case source
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
+        case lastSeenAt = "last_seen_at"
+        case durationSeconds = "duration_seconds"
+        case sampleCount = "sample_count"
         case createdAt = "created_at"
     }
 }
@@ -135,6 +209,59 @@ final class LocalApiClient {
         try await post("/memos", body: MemoCreateRequest(content: content))
     }
 
+    @discardableResult
+    func createEvent(
+        appName: String?,
+        windowTitle: String?,
+        source: String,
+        content: String,
+        timestamp: Date = Date()
+    ) async throws -> WorkEventCreateResponse {
+        try await post(
+            "/events",
+            body: WorkEventCreateRequest(
+                timestamp: Self.eventTimestampFormatter.string(from: timestamp),
+                source: source,
+                appName: appName,
+                windowTitle: windowTitle,
+                content: content
+            )
+        )
+    }
+
+    @discardableResult
+    func createActivitySegment(
+        appName: String?,
+        windowTitle: String?,
+        source: String,
+        startedAt: Date,
+        lastSeenAt: Date
+    ) async throws -> ActivitySegmentResponse {
+        try await post(
+            "/activity-segments",
+            body: ActivitySegmentCreateRequest(
+                appName: appName,
+                windowTitle: windowTitle,
+                source: source,
+                startedAt: Self.eventTimestampFormatter.string(from: startedAt),
+                lastSeenAt: Self.eventTimestampFormatter.string(from: lastSeenAt)
+            )
+        )
+    }
+
+    @discardableResult
+    func updateActivitySegment(
+        id: Int,
+        lastSeenAt: Date
+    ) async throws -> ActivitySegmentResponse {
+        try await patch(
+            "/activity-segments/\(id)",
+            body: ActivitySegmentUpdateRequest(
+                lastSeenAt: Self.eventTimestampFormatter.string(from: lastSeenAt)
+            )
+        )
+    }
+
     private func get<Response: Decodable>(_ path: String) async throws -> Response {
         var request = makeRequest(path: path)
         request.httpMethod = "GET"
@@ -156,6 +283,16 @@ final class LocalApiClient {
     private func post<Body: Encodable, Response: Decodable>(_ path: String, body: Body) async throws -> Response {
         var request = makeRequest(path: path)
         request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+
+        return try await send(request)
+    }
+
+    private func patch<Body: Encodable, Response: Decodable>(_ path: String, body: Body) async throws -> Response {
+        var request = makeRequest(path: path)
+        request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
@@ -187,4 +324,10 @@ final class LocalApiClient {
 
         return try JSONDecoder().decode(Response.self, from: data)
     }
+
+    private static let eventTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }

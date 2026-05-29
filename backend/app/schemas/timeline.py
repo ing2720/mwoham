@@ -24,6 +24,9 @@ class TimelineItem(ApiSchema):
     session_id: int | None = None
     linked_type: str | None = None
     linked_id: int | None = None
+    ended_at: DateTimeType | None = None
+    duration_seconds: int | None = None
+    sample_count: int | None = None
 
 
 class TimelineResponse(ApiSchema):

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.activity_segment import ActivitySegment
     from app.models.manual_memo import ManualMemo
     from app.models.meeting_session import MeetingSession
     from app.models.project import Project
@@ -56,6 +57,11 @@ class WorkSession(Base):
 
     project: Mapped["Project | None"] = relationship(back_populates="work_sessions")
     work_events: Mapped[list["WorkEvent"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    activity_segments: Mapped[list["ActivitySegment"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
         passive_deletes=True,

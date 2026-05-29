@@ -97,6 +97,61 @@ def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> 
     assert response.text.index("Ran pytest") < response.text.index("Document edge case")
 
 
+def test_timeline_renders_activity_segments_without_event_duplication(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/activity-segments",
+        json={
+            "started_at": datetime(2026, 5, 26, 7, 3, 22, tzinfo=UTC).isoformat(),
+            "last_seen_at": datetime(2026, 5, 26, 7, 3, 22, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "Google Chrome",
+            "window_title": "",
+        },
+    )
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 7, 3, 22, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "Google Chrome",
+            "window_title": "",
+            "content": "Google Chrome /",
+        },
+    )
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime(2026, 5, 26, 7, 5, tzinfo=UTC).isoformat(),
+            "content": "사용자 메모",
+        },
+    )
+    now = datetime.now(UTC)
+    client.post(
+        "/activity-segments",
+        json={
+            "started_at": now.isoformat(),
+            "last_seen_at": now.isoformat(),
+            "source": "mac_active_window",
+            "app_name": "PyCharm",
+            "window_title": "backend",
+        },
+    )
+
+    timeline_response = client.get("/timeline?date=2026-05-26")
+    dashboard_response = client.get("/dashboard")
+
+    assert timeline_response.status_code == 200
+    assert dashboard_response.status_code == 200
+    assert "작업 구간" in timeline_response.text
+    assert "작업 구간" in dashboard_response.text
+    assert "Google Chrome (1초 미만)" in timeline_response.text
+    assert "Google Chrome /" not in timeline_response.text
+    assert timeline_response.text.count("Google Chrome") == 2
+    assert "사용자 메모" in timeline_response.text
+    assert "메모" in timeline_response.text
+
+
 def test_timeline_renders_screen_ocr_items(client: TestClient) -> None:
     client.post("/recording/start", json={})
     client.post(

@@ -97,7 +97,12 @@ class ReportService:
             return "\n".join(lines)
 
         for item in timeline.items:
-            label = "이벤트" if item.type == "event" else "메모"
+            if item.type == "activity_segment":
+                label = "작업 구간"
+            elif item.type == "event":
+                label = "이벤트"
+            else:
+                label = "메모"
             source = f" / {item.source}" if item.source else ""
             lines.append(f"- {item.timestamp.isoformat()} [{label}{source}] {item.content}")
         return "\n".join(lines)

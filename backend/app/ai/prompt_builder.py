@@ -35,6 +35,8 @@ class PromptBuilder:
                 "",
                 "타입별 입력 의미:",
                 "- EVENT: 앱/터미널/윈도우 등에서 관찰된 작업 이벤트입니다.",
+                "- ACTIVITY_SEGMENT: 같은 앱/창이 유지된 작업 구간입니다. duration_seconds와 "
+                "started_at~ended_at을 우선 참고하세요.",
                 "- MEMO: 사용자가 직접 남긴 메모입니다.",
                 "- SCREEN_OCR: 화면 OCR 텍스트와 감지 키워드입니다. "
                 "원본 이미지는 포함하지 않았습니다.",
@@ -62,6 +64,14 @@ class PromptBuilder:
                 f"- EVENT | time={timestamp} | source={item.source or '-'} | "
                 f"app={item.app_name or '-'} | window={item.window_title or '-'} | "
                 f"content={item.content}"
+            )
+        if item.type == "activity_segment":
+            ended_at = item.ended_at.isoformat() if item.ended_at else "-"
+            return (
+                f"- ACTIVITY_SEGMENT | start={timestamp} | end={ended_at} | "
+                f"duration_seconds={item.duration_seconds or 0} | "
+                f"samples={item.sample_count or 0} | "
+                f"app={item.app_name or '-'} | window={item.window_title or '-'}"
             )
         if item.type == "memo":
             return (
