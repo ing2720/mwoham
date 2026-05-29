@@ -9,6 +9,7 @@ import SwiftUI
 
 struct MenuBarStatusView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
+    @ObservedObject var floatingWidgetController: FloatingWidgetController
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -52,6 +53,10 @@ struct MenuBarStatusView: View {
             Button("메인 창 열기") {
                 openWindow(id: "main")
                 NSApplication.shared.activate()
+            }
+
+            Button(floatingWidgetController.isVisible ? "플로팅 위젯 닫기" : "플로팅 위젯 열기") {
+                floatingWidgetController.toggle(viewModel: viewModel)
             }
 
             Button("대시보드 열기") {

@@ -123,6 +123,10 @@ final class BackendStatusViewModel: ObservableObject {
         isConnected && !isSavingMemo
     }
 
+    var recordingState: String {
+        rawRecordingStatus
+    }
+
     func updateElapsedTime() {
         recordingElapsedTime = makeElapsedTimeText(at: Date())
     }
@@ -133,6 +137,19 @@ final class BackendStatusViewModel: ObservableObject {
         }
 
         return value
+    }
+
+    private func displayRecordingStatus(_ status: String) -> String {
+        switch status {
+        case "active":
+            return "기록중"
+        case "paused":
+            return "일시정지"
+        case "stopped":
+            return "정지"
+        default:
+            return "알 수 없음"
+        }
     }
 
     private var canUseControls: Bool {
@@ -178,7 +195,7 @@ final class BackendStatusViewModel: ObservableObject {
         let receivedAt = Date()
         isConnected = snapshot.health.status == "ok"
         rawRecordingStatus = snapshot.status.status
-        recordingStatus = snapshot.status.status
+        recordingStatus = displayRecordingStatus(snapshot.status.status)
         sessionStartedAt = parseDate(snapshot.status.sessionStartedAt)
         statusElapsedSeconds = snapshot.status.elapsedSeconds
         statusReceivedAt = receivedAt
