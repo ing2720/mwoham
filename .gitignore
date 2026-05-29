@@ -19,3 +19,7 @@ backend/.ruff_cache/
 *.sqlite
 *.sqlite3
 *.db
+
+# xcodestatedata
+*.xcuserstate
+xcuserdata/
