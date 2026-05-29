@@ -78,6 +78,7 @@ struct MenuBarStatusView: View {
         }
         .task {
             viewModel.startActiveWindowTracking()
+            viewModel.startOCRCollection()
             await viewModel.refresh()
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in

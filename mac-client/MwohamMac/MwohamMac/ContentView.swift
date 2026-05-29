@@ -23,9 +23,11 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var isSavingMemo = false
     @Published var activeWindowTrackingStatus = "활성 창 추적 대기 중"
     @Published var isPrivateAppActive = false
+    @Published var ocrStatus = "OCR 대기 중"
 
     private let localApiClient: LocalApiClient
     private let activeWindowCollector: ActiveWindowCollector
+    private let ocrCollector: OCRCollector
     private var rawRecordingStatus = "unknown"
     private var sessionStartedAt: Date?
     private var statusElapsedSeconds: Int?
@@ -35,11 +37,13 @@ final class BackendStatusViewModel: ObservableObject {
         let localApiClient = LocalApiClient()
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
+        self.ocrCollector = OCRCollector(localApiClient: localApiClient)
     }
 
     init(localApiClient: LocalApiClient) {
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
+        self.ocrCollector = OCRCollector(localApiClient: localApiClient)
     }
 
     func refresh() async {
@@ -156,9 +160,31 @@ final class BackendStatusViewModel: ObservableObject {
         )
     }
 
+    func startOCRCollection() {
+        ocrCollector.start(
+            isRecordingActive: { [weak self] in
+                self?.rawRecordingStatus == "active"
+            },
+            isPrivateAppActive: { [weak self] in
+                self?.isPrivateAppActive == true
+            },
+            currentApp: { [weak self] in
+                self?.currentApp ?? "-"
+            },
+            currentWindow: { [weak self] in
+                self?.currentWindow ?? "-"
+            },
+            onStatusChange: { [weak self] status in
+                self?.ocrStatus = status
+            }
+        )
+    }
+
     func stopActiveWindowTracking() {
         activeWindowCollector.stop()
+        ocrCollector.stop()
         activeWindowTrackingStatus = "활성 창 추적 대기 중"
+        ocrStatus = "OCR 대기 중"
     }
 
     func updateElapsedTime() {
@@ -370,6 +396,7 @@ struct ContentView: View {
         .padding(24)
         .task {
             viewModel.startActiveWindowTracking()
+            viewModel.startOCRCollection()
             await viewModel.refresh()
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in

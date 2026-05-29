@@ -28,6 +28,7 @@ struct FloatingWidgetView: View {
                 FloatingStatusRow(title: "현재 기록 상태", value: viewModel.recordingStatus)
                 FloatingStatusRow(title: "기록 시간", value: viewModel.recordingElapsedTime)
                 FloatingStatusRow(title: "활성 창 추적", value: viewModel.activeWindowTrackingStatus)
+                FloatingStatusRow(title: "OCR 상태", value: viewModel.ocrStatus)
                 FloatingStatusRow(title: "현재 앱", value: viewModel.currentApp)
                 FloatingStatusRow(title: "현재 창", value: viewModel.currentWindow)
             }
@@ -36,7 +37,7 @@ struct FloatingWidgetView: View {
             recordingControls
         }
         .padding(14)
-        .frame(width: 300, height: 270, alignment: .topLeading)
+        .frame(width: 300, height: 290, alignment: .topLeading)
     }
 
     private var collapsedView: some View {

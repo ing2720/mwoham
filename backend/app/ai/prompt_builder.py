@@ -1,5 +1,6 @@
 from app.schemas.timeline import TimelineResponse
 from app.services.privacy_filter import PrivacyFilter, get_privacy_filter
+from app.services.screen_observation_summarizer import SAFE_UNCLEAR_INFERENCE
 
 
 class PromptBuilder:
@@ -35,11 +36,11 @@ class PromptBuilder:
                 "",
                 "타입별 입력 의미:",
                 "- EVENT: 앱/터미널/윈도우 등에서 관찰된 작업 이벤트입니다.",
-                "- ACTIVITY_SEGMENT: 같은 앱/창이 유지된 작업 구간입니다. duration_seconds와 "
-                "started_at~ended_at을 우선 참고하세요.",
+                "- ACTIVITY_SEGMENT: 같은 앱/창이 유지된 보조 작업 컨텍스트입니다. "
+                "주요 작업 내용 판단에는 SCREEN_OCR의 AI 추론과 MEMO를 우선 참고하세요.",
                 "- MEMO: 사용자가 직접 남긴 메모입니다.",
-                "- SCREEN_OCR: 화면 OCR 텍스트와 감지 키워드입니다. "
-                "원본 이미지는 포함하지 않았습니다.",
+                "- SCREEN_OCR: 화면 OCR 기반 AI 추론과 감지 키워드입니다. "
+                "원본 이미지는 포함하지 않았고, ai_inference를 우선 참고하세요.",
                 "- MEETING: 회의 시작/종료 등 회의 상태 이벤트입니다.",
                 "- TRANSCRIPT: 회의 전사 텍스트입니다. 원본 음성은 포함하지 않았습니다.",
                 "",
@@ -79,10 +80,13 @@ class PromptBuilder:
                 f"linked_id={item.linked_id or '-'} | content={item.content}"
             )
         if item.type == "screen_ocr":
+            ocr_excerpt = self._truncate(item.ocr_text or item.content, 300)
+            inference = self._safe_inference(item.ai_inference or item.content)
             return (
                 f"- SCREEN_OCR | time={timestamp} | app={item.app_name or '-'} | "
                 f"keywords={item.detected_keywords or []} | "
-                f"inference={item.ai_inference or '-'} | ocr_text={item.content}"
+                f"inference={inference} | "
+                f"ocr_excerpt={ocr_excerpt}"
             )
         if item.type == "meeting":
             return (
@@ -96,6 +100,47 @@ class PromptBuilder:
                 f"text={item.content}"
             )
         return f"- {item.type.upper()} | time={timestamp} | content={item.content}"
+
+    def _truncate(self, text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "..."
+
+    def _safe_inference(self, inference: str | None) -> str:
+        if not inference:
+            return "-"
+        if self._has_unbalanced_delimiter(inference):
+            return SAFE_UNCLEAR_INFERENCE
+        if not self._ends_with_complete_korean_sentence(inference):
+            return SAFE_UNCLEAR_INFERENCE
+        return inference
+
+    def _has_unbalanced_delimiter(self, text: str) -> bool:
+        delimiter_pairs = [("'", "'"), ('"', '"'), ("`", "`"), ("(", ")"), ("[", "]"), ("{", "}")]
+        for opener, closer in delimiter_pairs:
+            if opener == closer:
+                if text.count(opener) % 2 != 0:
+                    return True
+            elif text.count(opener) != text.count(closer):
+                return True
+        return False
+
+    def _ends_with_complete_korean_sentence(self, text: str) -> bool:
+        complete_endings = (
+            "합니다.",
+            "있습니다.",
+            "보입니다.",
+            "어렵습니다.",
+            "진행하고 있습니다.",
+            "확인하고 있습니다.",
+            "진행 중입니다.",
+            "확인 중입니다.",
+            "같습니다.",
+            "않습니다.",
+            "됩니다.",
+            "했습니다.",
+        )
+        return text.endswith(complete_endings)
 
 
 def get_prompt_builder() -> PromptBuilder:

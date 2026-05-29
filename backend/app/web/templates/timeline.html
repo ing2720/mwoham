@@ -31,14 +31,14 @@
             {% if item.duration_seconds is not none %} · {{ item.duration_seconds }}초{% endif %}
           </div>
         {% elif item.type == "screen_ocr" %}
-          <div class="item-title">{{ item.content if item.content else "OCR 텍스트 없음" }}</div>
+          <div class="item-title">{{ item.ai_inference if item.ai_inference else (item.content if item.content else "OCR 텍스트 없음") }}</div>
           <div class="item-meta">
             {{ item.timestamp }}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
             {% if item.detected_keywords %} · 키워드 {{ item.detected_keywords }}{% endif %}
           </div>
-          {% if item.ai_inference %}
-            <div class="item-meta">AI 추정: {{ item.ai_inference }}</div>
+          {% if item.ai_inference and item.ocr_text %}
+            <div class="item-meta">OCR 요약: {{ item.ocr_text }}</div>
           {% endif %}
         {% elif item.type == "meeting" %}
           <div class="item-title">{{ item.content }}</div>

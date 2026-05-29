@@ -11,6 +11,10 @@ from app.schemas.screen_observation import (
     ScreenObservationCreateResponse,
     ScreenObservationListResponse,
 )
+from app.services.screen_observation_summarizer import (
+    ScreenObservationSummarizer,
+    get_screen_observation_summarizer,
+)
 from app.services.setting_service import SettingService, get_setting_service
 
 
@@ -20,10 +24,12 @@ class ScreenObservationService:
         observation_repository: ScreenObservationRepository,
         session_repository: WorkSessionRepository,
         setting_service: SettingService,
+        observation_summarizer: ScreenObservationSummarizer,
     ) -> None:
         self.observation_repository = observation_repository
         self.session_repository = session_repository
         self.setting_service = setting_service
+        self.observation_summarizer = observation_summarizer
 
     def create(
         self,
@@ -31,7 +37,8 @@ class ScreenObservationService:
         request: ScreenObservationCreate,
     ) -> ScreenObservationCreateResponse:
         session = self._resolve_session(db, request.session_id)
-        if self.setting_service.is_private_app(db, request.app_name):
+        is_private_app = self.setting_service.is_private_app(db, request.app_name)
+        if is_private_app:
             request = ScreenObservationCreate(
                 session_id=request.session_id,
                 timestamp=request.timestamp,
@@ -54,6 +61,23 @@ class ScreenObservationService:
                     saved=False,
                     duplicate=True,
                 )
+
+        if not is_private_app and not request.ai_inference:
+            ai_inference = self.observation_summarizer.summarize(
+                ocr_text=request.ocr_text,
+                app_name=request.app_name,
+                window_title=request.window_title,
+            )
+            request = ScreenObservationCreate(
+                session_id=request.session_id,
+                timestamp=request.timestamp,
+                app_name=request.app_name,
+                window_title=request.window_title,
+                ocr_text=request.ocr_text,
+                detected_keywords=request.detected_keywords,
+                ai_inference=ai_inference,
+                frame_hash=request.frame_hash,
+            )
 
         observation = self.observation_repository.create(
             db,
@@ -99,4 +123,5 @@ def get_screen_observation_service() -> ScreenObservationService:
         observation_repository=ScreenObservationRepository(),
         session_repository=WorkSessionRepository(),
         setting_service=get_setting_service(),
+        observation_summarizer=get_screen_observation_summarizer(),
     )

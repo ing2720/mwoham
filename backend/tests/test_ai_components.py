@@ -6,6 +6,10 @@ from app.ai.report_content_cleaner import ReportContentCleaner
 from app.ai.summarizer import GeminiSummarizer
 from app.schemas.timeline import TimelineItem, TimelineResponse
 from app.services.privacy_filter import PrivacyFilter
+from app.services.screen_observation_summarizer import (
+    SAFE_UNCLEAR_INFERENCE,
+    ScreenObservationSummarizer,
+)
 
 
 def test_privacy_filter_masks_secret_patterns() -> None:
@@ -50,7 +54,7 @@ def test_prompt_builder_uses_only_compressed_masked_timeline() -> None:
     assert "EVENT |" in prompt
 
 
-def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
+def test_prompt_builder_prioritizes_screen_ocr_inference_and_keywords() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
         total=1,
@@ -62,7 +66,7 @@ def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
                 app_name="Chrome",
                 content="401 Unauthorized api_key=secret",
                 detected_keywords=["401", "Authorization"],
-                ai_inference="인증 설정 문제 가능성",
+                ai_inference="사용자는 인증 설정 문제를 확인하고 있습니다.",
                 session_id=1,
             )
         ],
@@ -71,14 +75,15 @@ def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "SCREEN_OCR |" in prompt
-    assert "ocr_text=401 Unauthorized" in prompt
+    assert "inference=사용자는 인증 설정 문제를 확인하고 있습니다." in prompt
+    assert "ocr_excerpt=401 Unauthorized" in prompt
     assert "401 Unauthorized" in prompt
     assert "Authorization" in prompt
-    assert "인증 설정 문제 가능성" in prompt
+    assert "사용자는 인증 설정 문제를 확인하고 있습니다." in prompt
     assert "api_key=secret" not in prompt
 
 
-def test_prompt_builder_includes_activity_segment_duration() -> None:
+def test_prompt_builder_marks_activity_segment_as_auxiliary_context() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
         total=1,
@@ -102,6 +107,7 @@ def test_prompt_builder_includes_activity_segment_duration() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "ACTIVITY_SEGMENT |" in prompt
+    assert "보조 작업 컨텍스트" in prompt
     assert "duration_seconds=900" in prompt
     assert "window=PR 작성" in prompt
 
@@ -201,6 +207,193 @@ def test_gemini_client_parses_finish_reason() -> None:
     assert result.text == "잘린 리포트"
     assert result.finish_reason == "MAX_TOKENS"
     assert result.was_truncated is True
+
+
+def test_screen_observation_summarizer_generates_ai_inference_from_ocr_text() -> None:
+    class ConfiguredClient:
+        is_configured = True
+
+        def __init__(self) -> None:
+            self.prompt = ""
+
+        def generate_text(self, prompt: str) -> str:
+            self.prompt = prompt
+            return "FastAPI 인증 오류를 확인하며 API 요청 헤더 문제를 디버깅하고 있습니다."
+
+    client = ConfiguredClient()
+    summarizer = ScreenObservationSummarizer(client=client, privacy_filter=PrivacyFilter())
+
+    inference = summarizer.summarize(
+        ocr_text="401 Unauthorized error while calling FastAPI endpoint",
+        app_name="Chrome",
+        window_title="Swagger UI",
+    )
+
+    assert inference == "FastAPI 인증 오류를 확인하며 API 요청 헤더 문제를 디버깅하고 있습니다."
+    assert "401 Unauthorized error" in client.prompt
+    assert "app_name: Chrome" in client.prompt
+    assert "window_title: Swagger UI" in client.prompt
+
+
+def test_screen_observation_summarizer_falls_back_when_gemini_fails() -> None:
+    class FailingClient:
+        is_configured = True
+
+        def generate_text(self, prompt: str) -> None:
+            return None
+
+    summarizer = ScreenObservationSummarizer(client=FailingClient(), privacy_filter=PrivacyFilter())
+
+    inference = summarizer.summarize(
+        ocr_text="pytest failure exception traceback in backend tests",
+        app_name="PyCharm",
+        window_title="test_api_flows.py",
+    )
+
+    assert inference is not None
+    assert inference == "사용자는 PyCharm에서 프로젝트 코드 변경 내용을 확인하고 있습니다."
+    assert "pytest failure exception" not in inference
+
+
+def test_screen_observation_summarizer_handles_short_ocr_text_safely() -> None:
+    class ConfiguredClient:
+        is_configured = True
+
+        def generate_text(self, prompt: str) -> str:
+            raise AssertionError("Gemini should not be called for short OCR text.")
+
+    summarizer = ScreenObservationSummarizer(
+        client=ConfiguredClient(),
+        privacy_filter=PrivacyFilter(),
+    )
+
+    assert (
+        summarizer.summarize(ocr_text="OK", app_name="Chrome", window_title=None)
+        == SAFE_UNCLEAR_INFERENCE
+    )
+
+
+def test_screen_observation_summarizer_falls_back_for_truncated_gemini_response() -> None:
+    class TruncatedClient:
+        is_configured = True
+
+        def generate_text(self, prompt: str) -> str:
+            return "사용자는 Google Chrome 브라우저에서 `127.0.0.1"
+
+    summarizer = ScreenObservationSummarizer(
+        client=TruncatedClient(),
+        privacy_filter=PrivacyFilter(),
+    )
+
+    inference = summarizer.summarize(
+        ocr_text="Mwoham dashboard recording status screen observation timeline report",
+        app_name="Google Chrome",
+        window_title="127.0.0.1:8765/dashboard",
+    )
+
+    assert (
+        inference
+        == "사용자는 Google Chrome에서 작업 기록 자동화 서비스 화면을 확인하고 있습니다."
+    )
+    assert "127.0.0.1" not in inference
+    assert inference.endswith("있습니다.")
+
+
+def test_screen_observation_summarizer_falls_back_for_open_quote_response() -> None:
+    class OpenQuoteClient:
+        is_configured = True
+
+        def generate_text(self, prompt: str) -> str:
+            return "사용자는 Google Chrome 브라우저에서 'OZ코딩스쿨 초격차 17기"
+
+    summarizer = ScreenObservationSummarizer(
+        client=OpenQuoteClient(),
+        privacy_filter=PrivacyFilter(),
+    )
+
+    inference = summarizer.summarize(
+        ocr_text="course page lesson curriculum assignment browser tab progress status",
+        app_name="Google Chrome",
+        window_title="OZ코딩스쿨 초격차 17기",
+    )
+
+    assert inference == "사용자는 Google Chrome에서 웹 화면의 작업 내용을 확인하고 있습니다."
+    assert "OZ코딩스쿨 초격차 17기" not in inference
+    assert inference.endswith("있습니다.")
+
+
+def test_screen_observation_summarizer_keeps_normal_complete_gemini_response() -> None:
+    class CompleteClient:
+        is_configured = True
+
+        def generate_text(self, prompt: str) -> str:
+            return "사용자는 PyCharm에서 FastAPI 테스트 실패 원인을 확인하고 있습니다."
+
+    summarizer = ScreenObservationSummarizer(
+        client=CompleteClient(),
+        privacy_filter=PrivacyFilter(),
+    )
+
+    inference = summarizer.summarize(
+        ocr_text="pytest failed assertion error FastAPI endpoint response mismatch",
+        app_name="PyCharm",
+        window_title="test_api_flows.py",
+    )
+
+    assert inference == "사용자는 PyCharm에서 FastAPI 테스트 실패 원인을 확인하고 있습니다."
+
+
+def test_screen_observation_summarizer_handles_noisy_mixed_ocr_safely() -> None:
+    class ConfiguredClient:
+        is_configured = True
+
+        def generate_text(self, prompt: str) -> str:
+            raise AssertionError("Gemini should not be called for noisy mixed OCR text.")
+
+    summarizer = ScreenObservationSummarizer(
+        client=ConfiguredClient(),
+        privacy_filter=PrivacyFilter(),
+    )
+
+    inference = summarizer.summarize(
+        ocr_text="\n".join(
+            [
+                "ChatGPT can make mistakes. Check important info.",
+                "nw_path_necp_check failed",
+                "UserInfo={NSDebugDescription=Connection invalid}",
+                "Google Chrome Slack Xcode PyCharm Finder Terminal",
+                "Message ChatGPT",
+            ]
+        ),
+        app_name="Google Chrome",
+        window_title="ChatGPT",
+    )
+
+    assert inference == "사용자는 Google Chrome에서 웹 화면의 작업 내용을 확인하고 있습니다."
+
+
+def test_prompt_builder_replaces_truncated_screen_inference() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="screen_ocr",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                app_name="Chrome",
+                content="사용자는 Google Chrome 브라우저에서 `127.0.0.1",
+                ocr_text="127.0.0.1 dashboard status recording",
+                ai_inference="사용자는 Google Chrome 브라우저에서 `127.0.0.1",
+                session_id=1,
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "inference=화면 내용만으로는 구체적인 작업을 판단하기 어렵습니다." in prompt
+    assert "inference=사용자는 Google Chrome 브라우저에서 `127.0.0.1" not in prompt
 
 
 def test_summarizer_does_not_call_unconfigured_client() -> None:

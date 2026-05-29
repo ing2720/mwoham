@@ -319,7 +319,7 @@ def test_timeline_today_includes_screen_ocr_items(client: TestClient) -> None:
         json={
             "timestamp": datetime(2026, 5, 26, 8, 45, tzinfo=UTC).isoformat(),
             "app_name": "Chrome",
-            "ocr_text": "OAuth callback error",
+            "ocr_text": "OAuth callback error while testing FastAPI login flow",
             "detected_keywords": ["OAuth", "error"],
         },
     )
@@ -336,7 +336,12 @@ def test_timeline_today_includes_screen_ocr_items(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert [item["type"] for item in body["items"]] == ["event", "screen_ocr", "memo"]
-    assert body["items"][1]["content"] == "OAuth callback error"
+    assert (
+        body["items"][1]["content"]
+        == "사용자는 Chrome에서 웹 화면의 작업 내용을 확인하고 있습니다."
+    )
+    assert body["items"][1]["ocr_text"] == "OAuth callback error while testing FastAPI login flow"
+    assert body["items"][1]["ai_inference"] == body["items"][1]["content"]
     assert body["items"][1]["detected_keywords"] == ["OAuth", "error"]
 
 
