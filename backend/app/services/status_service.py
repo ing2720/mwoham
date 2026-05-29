@@ -1,5 +1,8 @@
+from datetime import UTC, datetime
+
 from sqlalchemy.orm import Session
 
+from app.models.work_session import WorkSession
 from app.repositories.work_event_repository import WorkEventRepository
 from app.repositories.work_session_repository import WorkSessionRepository
 from app.schemas.status import StatusResponse
@@ -26,7 +29,19 @@ class StatusService:
             last_event_at=latest_event.timestamp if latest_event is not None else None,
             report_status="idle",
             session_id=session.id if session is not None else None,
+            session_started_at=session.started_at if session is not None else None,
+            elapsed_seconds=self._elapsed_seconds(session),
         )
+
+    def _elapsed_seconds(self, session: WorkSession | None) -> int | None:
+        if session is None:
+            return None
+
+        started_at = session.started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=UTC)
+
+        return max(0, int((datetime.now(UTC) - started_at.astimezone(UTC)).total_seconds()))
 
 
 def get_status_service() -> StatusService:

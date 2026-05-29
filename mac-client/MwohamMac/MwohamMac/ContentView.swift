@@ -14,6 +14,7 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var isConnected = false
     @Published var recordingStatus = "-"
+    @Published var recordingElapsedTime = "기록 중 아님"
     @Published var meetingMode = "-"
     @Published var currentApp = "-"
     @Published var currentWindow = "-"
@@ -24,6 +25,9 @@ final class BackendStatusViewModel: ObservableObject {
 
     private let localApiClient: LocalApiClient
     private var rawRecordingStatus = "unknown"
+    private var sessionStartedAt: Date?
+    private var statusElapsedSeconds: Int?
+    private var statusReceivedAt: Date?
 
     init() {
         self.localApiClient = LocalApiClient()
@@ -44,6 +48,7 @@ final class BackendStatusViewModel: ObservableObject {
             isConnected = false
             rawRecordingStatus = "unknown"
             recordingStatus = "-"
+            recordingElapsedTime = "기록 중 아님"
             meetingMode = "-"
             currentApp = "-"
             currentWindow = "-"
@@ -70,6 +75,10 @@ final class BackendStatusViewModel: ObservableObject {
     }
 
     func saveMemo() async {
+        guard !isSavingMemo else {
+            return
+        }
+
         let trimmedContent = memoContent.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedContent.isEmpty else {
@@ -113,6 +122,10 @@ final class BackendStatusViewModel: ObservableObject {
 
     var canSaveMemo: Bool {
         isConnected && !isSavingMemo
+    }
+
+    func updateElapsedTime() {
+        recordingElapsedTime = makeElapsedTimeText(at: Date())
     }
 
     private func displayValue(_ value: String?) -> String {
@@ -163,12 +176,74 @@ final class BackendStatusViewModel: ObservableObject {
     }
 
     private func applySnapshot(_ snapshot: BackendSnapshot) {
+        let receivedAt = Date()
         isConnected = snapshot.health.status == "ok"
         rawRecordingStatus = snapshot.status.status
         recordingStatus = snapshot.status.status
+        sessionStartedAt = parseDate(snapshot.status.sessionStartedAt)
+        statusElapsedSeconds = snapshot.status.elapsedSeconds
+        statusReceivedAt = receivedAt
+        recordingElapsedTime = makeElapsedTimeText(at: receivedAt)
         meetingMode = snapshot.status.meetingMode ? "켜짐" : "꺼짐"
         currentApp = displayValue(snapshot.status.currentApp)
         currentWindow = displayValue(snapshot.status.currentWindow)
+    }
+
+    private func makeElapsedTimeText(at now: Date) -> String {
+        switch rawRecordingStatus {
+        case "active":
+            if let sessionStartedAt {
+                return formatElapsedSeconds(Int(max(0, now.timeIntervalSince(sessionStartedAt))))
+            }
+
+            if let statusElapsedSeconds, let statusReceivedAt {
+                let elapsedSinceStatus = Int(max(0, now.timeIntervalSince(statusReceivedAt)))
+                return formatElapsedSeconds(statusElapsedSeconds + elapsedSinceStatus)
+            }
+
+            return "-"
+        case "paused":
+            if let statusElapsedSeconds {
+                return formatElapsedSeconds(statusElapsedSeconds)
+            }
+
+            if let sessionStartedAt, let statusReceivedAt {
+                return formatElapsedSeconds(Int(max(0, statusReceivedAt.timeIntervalSince(sessionStartedAt))))
+            }
+
+            return "-"
+        default:
+            return "기록 중 아님"
+        }
+    }
+
+    private func formatElapsedSeconds(_ totalSeconds: Int) -> String {
+        if totalSeconds < 60 {
+            return "\(totalSeconds)초"
+        }
+
+        let totalMinutes = totalSeconds / 60
+        if totalMinutes < 60 {
+            return "\(totalMinutes)분"
+        }
+
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        return String(format: "%d시간 %02d분", hours, minutes)
+    }
+
+    private func parseDate(_ value: String?) -> Date? {
+        guard let value else {
+            return nil
+        }
+
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalFormatter.date(from: value) {
+            return date
+        }
+
+        return ISO8601DateFormatter().date(from: value)
     }
 }
 
@@ -264,6 +339,7 @@ struct ContentView: View {
 
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 12) {
                 StatusRow(title: "현재 기록 상태", value: viewModel.recordingStatus)
+                StatusRow(title: "기록 시간", value: viewModel.recordingElapsedTime)
                 StatusRow(title: "meeting_mode", value: viewModel.meetingMode)
                 StatusRow(title: "current_app", value: viewModel.currentApp)
                 StatusRow(title: "current_window", value: viewModel.currentWindow)
@@ -319,6 +395,9 @@ struct ContentView: View {
         .padding(24)
         .task {
             await viewModel.refresh()
+        }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            viewModel.updateElapsedTime()
         }
     }
 }

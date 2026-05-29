@@ -29,6 +29,8 @@ def test_recording_lifecycle_and_status(client: TestClient) -> None:
     assert status_response.status_code == 200
     assert status_response.json()["session_id"] == session_id
     assert status_response.json()["status"] == "active"
+    assert status_response.json()["session_started_at"] is not None
+    assert isinstance(status_response.json()["elapsed_seconds"], int)
 
     stop_response = client.post("/recording/stop", json={"session_id": session_id})
     assert stop_response.status_code == 200
@@ -38,6 +40,8 @@ def test_recording_lifecycle_and_status(client: TestClient) -> None:
     final_status = client.get("/status")
     assert final_status.status_code == 200
     assert final_status.json()["status"] == "stopped"
+    assert final_status.json()["session_started_at"] is None
+    assert final_status.json()["elapsed_seconds"] is None
 
 
 def test_events_can_be_created_and_listed(client: TestClient) -> None:
