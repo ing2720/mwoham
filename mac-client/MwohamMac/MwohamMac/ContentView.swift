@@ -19,6 +19,7 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let localApiClient: LocalApiClient
+    private var rawRecordingStatus = "unknown"
 
     init() {
         self.localApiClient = LocalApiClient()
@@ -34,13 +35,10 @@ final class BackendStatusViewModel: ObservableObject {
 
         do {
             let snapshot = try await localApiClient.fetchSnapshot()
-            isConnected = snapshot.health.status == "ok"
-            recordingStatus = snapshot.status.status
-            meetingMode = snapshot.status.meetingMode ? "켜짐" : "꺼짐"
-            currentApp = displayValue(snapshot.status.currentApp)
-            currentWindow = displayValue(snapshot.status.currentWindow)
+            applySnapshot(snapshot)
         } catch {
             isConnected = false
+            rawRecordingStatus = "unknown"
             recordingStatus = "-"
             meetingMode = "-"
             currentApp = "-"
@@ -51,12 +49,112 @@ final class BackendStatusViewModel: ObservableObject {
         isLoading = false
     }
 
+    func startRecording() async {
+        await runRecordingAction(.start)
+    }
+
+    func pauseRecording() async {
+        await runRecordingAction(.pause)
+    }
+
+    func resumeRecording() async {
+        await runRecordingAction(.resume)
+    }
+
+    func stopRecording() async {
+        await runRecordingAction(.stop)
+    }
+
+    var canStartRecording: Bool {
+        canUseControls && rawRecordingStatus == "stopped"
+    }
+
+    var canPauseRecording: Bool {
+        canUseControls && rawRecordingStatus == "active"
+    }
+
+    var canResumeRecording: Bool {
+        canUseControls && rawRecordingStatus == "paused"
+    }
+
+    var canStopRecording: Bool {
+        canUseControls && (rawRecordingStatus == "active" || rawRecordingStatus == "paused")
+    }
+
     private func displayValue(_ value: String?) -> String {
         guard let value, !value.isEmpty else {
             return "없음"
         }
 
         return value
+    }
+
+    private var canUseControls: Bool {
+        isConnected && !isLoading
+    }
+
+    private func runRecordingAction(_ action: RecordingAction) async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            switch action {
+            case .start:
+                try await localApiClient.startRecording()
+            case .pause:
+                try await localApiClient.pauseRecording()
+            case .resume:
+                try await localApiClient.resumeRecording()
+            case .stop:
+                try await localApiClient.stopRecording()
+            }
+
+            let snapshot = try await localApiClient.fetchSnapshot()
+            applySnapshot(snapshot)
+        } catch {
+            errorMessage = "\(action.errorTitle) 요청 실패: \(error.localizedDescription)"
+            await refreshAfterFailedAction()
+        }
+
+        isLoading = false
+    }
+
+    private func refreshAfterFailedAction() async {
+        do {
+            let snapshot = try await localApiClient.fetchSnapshot()
+            applySnapshot(snapshot)
+        } catch {
+            isConnected = false
+        }
+    }
+
+    private func applySnapshot(_ snapshot: BackendSnapshot) {
+        isConnected = snapshot.health.status == "ok"
+        rawRecordingStatus = snapshot.status.status
+        recordingStatus = snapshot.status.status
+        meetingMode = snapshot.status.meetingMode ? "켜짐" : "꺼짐"
+        currentApp = displayValue(snapshot.status.currentApp)
+        currentWindow = displayValue(snapshot.status.currentWindow)
+    }
+}
+
+private enum RecordingAction {
+    case start
+    case pause
+    case resume
+    case stop
+
+    var errorTitle: String {
+        switch self {
+        case .start:
+            return "기록 시작"
+        case .pause:
+            return "일시정지"
+        case .resume:
+            return "재개"
+        case .stop:
+            return "기록 종료"
+        }
     }
 }
 
@@ -91,6 +189,44 @@ struct ContentView: View {
             }
 
             Divider()
+
+            HStack(spacing: 10) {
+                Button {
+                    Task {
+                        await viewModel.startRecording()
+                    }
+                } label: {
+                    Label("기록 시작", systemImage: "record.circle")
+                }
+                .disabled(!viewModel.canStartRecording)
+
+                Button {
+                    Task {
+                        await viewModel.pauseRecording()
+                    }
+                } label: {
+                    Label("일시정지", systemImage: "pause.circle")
+                }
+                .disabled(!viewModel.canPauseRecording)
+
+                Button {
+                    Task {
+                        await viewModel.resumeRecording()
+                    }
+                } label: {
+                    Label("재개", systemImage: "play.circle")
+                }
+                .disabled(!viewModel.canResumeRecording)
+
+                Button {
+                    Task {
+                        await viewModel.stopRecording()
+                    }
+                } label: {
+                    Label("기록 종료", systemImage: "stop.circle")
+                }
+                .disabled(!viewModel.canStopRecording)
+            }
 
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 12) {
                 StatusRow(title: "현재 기록 상태", value: viewModel.recordingStatus)
