@@ -9,9 +9,17 @@ import SwiftUI
 
 @main
 struct MwohamMacApp: App {
+    @StateObject private var viewModel = BackendStatusViewModel()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        WindowGroup("MwohamMac", id: "main") {
+            ContentView(viewModel: viewModel)
+        }
+
+        MenuBarExtra {
+            MenuBarStatusView(viewModel: viewModel)
+        } label: {
+            Label("Mwoham", systemImage: "record.circle")
         }
     }
 }

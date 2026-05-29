@@ -267,7 +267,11 @@ private enum RecordingAction {
 }
 
 struct ContentView: View {
-    @StateObject private var viewModel = BackendStatusViewModel()
+    @ObservedObject var viewModel: BackendStatusViewModel
+
+    init(viewModel: BackendStatusViewModel) {
+        self.viewModel = viewModel
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
