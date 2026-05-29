@@ -18,12 +18,16 @@ struct StatusResponse: Decodable {
     let currentApp: String?
     let currentWindow: String?
     let meetingMode: Bool
+    let sessionStartedAt: String?
+    let elapsedSeconds: Int?
 
     enum CodingKeys: String, CodingKey {
         case status
         case currentApp = "current_app"
         case currentWindow = "current_window"
         case meetingMode = "meeting_mode"
+        case sessionStartedAt = "session_started_at"
+        case elapsedSeconds = "elapsed_seconds"
     }
 }
 
