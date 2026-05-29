@@ -47,6 +47,26 @@ class ScreenObservationRepository:
             .limit(1)
         )
 
+    def get_latest_ai_inference_by_context(
+        self,
+        db: Session,
+        *,
+        session_id: int,
+        app_name: str | None,
+        window_title: str | None,
+    ) -> ScreenObservation | None:
+        return db.scalar(
+            select(ScreenObservation)
+            .where(
+                ScreenObservation.session_id == session_id,
+                ScreenObservation.app_name == app_name,
+                ScreenObservation.window_title == window_title,
+                ScreenObservation.ai_inference.is_not(None),
+            )
+            .order_by(ScreenObservation.timestamp.desc(), ScreenObservation.id.desc())
+            .limit(1)
+        )
+
     def list(
         self,
         db: Session,
@@ -70,6 +90,19 @@ class ScreenObservationRepository:
         target_date: date | None = None,
     ) -> int:
         filtered = self._filtered_select(session_id=session_id, target_date=target_date).subquery()
+        return db.scalar(select(func.count()).select_from(filtered)) or 0
+
+    def count_ai_inference(
+        self,
+        db: Session,
+        *,
+        target_date: date,
+    ) -> int:
+        filtered = (
+            self._filtered_select(session_id=None, target_date=target_date)
+            .where(ScreenObservation.ai_inference.is_not(None))
+            .subquery()
+        )
         return db.scalar(select(func.count()).select_from(filtered)) or 0
 
     def _filtered_select(

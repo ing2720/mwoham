@@ -2,6 +2,42 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from app.main import app
+from app.repositories.screen_observation_repository import ScreenObservationRepository
+from app.repositories.work_session_repository import WorkSessionRepository
+from app.services.screen_observation_service import (
+    ScreenObservationService,
+    get_screen_observation_service,
+)
+from app.services.setting_service import get_setting_service
+
+
+class SpyScreenObservationSummarizer:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def summarize(self, *, ocr_text, app_name, window_title):
+        self.calls += 1
+        return f"AI 요약 {self.calls}"
+
+
+def _override_screen_observation_service(
+    summarizer,
+    *,
+    enable_ai_inference: bool,
+    ai_min_interval_seconds: int = 300,
+    ai_daily_limit: int = 5,
+) -> None:
+    app.dependency_overrides[get_screen_observation_service] = lambda: ScreenObservationService(
+        observation_repository=ScreenObservationRepository(),
+        session_repository=WorkSessionRepository(),
+        setting_service=get_setting_service(),
+        observation_summarizer=summarizer,
+        enable_ai_inference=enable_ai_inference,
+        ai_min_interval_seconds=ai_min_interval_seconds,
+        ai_daily_limit=ai_daily_limit,
+    )
+
 
 def test_recording_lifecycle_and_status(client: TestClient) -> None:
     stopped_status = client.get("/status")
@@ -304,6 +340,118 @@ def test_screen_observations_are_saved_listed_and_deduplicated(client: TestClien
     assert body["items"][0]["detected_keywords"] == ["401", "Authorization"]
 
 
+def test_screen_observation_ai_inference_is_disabled_by_default(client: TestClient) -> None:
+    summarizer = SpyScreenObservationSummarizer()
+    _override_screen_observation_service(summarizer, enable_ai_inference=False)
+    client.post("/recording/start", json={})
+
+    try:
+        response = client.post(
+            "/screen-observations",
+            json={
+                "timestamp": datetime(2026, 5, 26, 14, 0, tzinfo=UTC).isoformat(),
+                "app_name": "Chrome",
+                "window_title": "Dashboard",
+                "ocr_text": "Mwoham dashboard report generation screen observation",
+                "detected_keywords": ["report"],
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_screen_observation_service, None)
+
+    assert response.status_code == 201
+    observations = client.get("/screen-observations?date=2026-05-26").json()["items"]
+    assert summarizer.calls == 0
+    assert observations[0]["ai_inference"] is None
+    assert observations[0]["ocr_text"] == "Mwoham dashboard report generation screen observation"
+
+
+def test_screen_observation_ai_inference_can_be_enabled(client: TestClient) -> None:
+    summarizer = SpyScreenObservationSummarizer()
+    _override_screen_observation_service(summarizer, enable_ai_inference=True)
+    client.post("/recording/start", json={})
+
+    try:
+        response = client.post(
+            "/screen-observations",
+            json={
+                "timestamp": datetime(2026, 5, 26, 14, 10, tzinfo=UTC).isoformat(),
+                "app_name": "Chrome",
+                "window_title": "Dashboard",
+                "ocr_text": "Mwoham dashboard report generation screen observation",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_screen_observation_service, None)
+
+    assert response.status_code == 201
+    observations = client.get("/screen-observations?date=2026-05-26").json()["items"]
+    assert summarizer.calls == 1
+    assert observations[0]["ai_inference"] == "AI 요약 1"
+
+
+def test_screen_observation_ai_inference_respects_min_interval(client: TestClient) -> None:
+    summarizer = SpyScreenObservationSummarizer()
+    _override_screen_observation_service(
+        summarizer,
+        enable_ai_inference=True,
+        ai_min_interval_seconds=300,
+    )
+    client.post("/recording/start", json={})
+
+    try:
+        for timestamp in [
+            datetime(2026, 5, 26, 14, 20, tzinfo=UTC),
+            datetime(2026, 5, 26, 14, 21, tzinfo=UTC),
+        ]:
+            client.post(
+                "/screen-observations",
+                json={
+                    "timestamp": timestamp.isoformat(),
+                    "app_name": "Chrome",
+                    "window_title": "Dashboard",
+                    "ocr_text": "Mwoham dashboard report generation screen observation",
+                    "frame_hash": f"frame-{timestamp.minute}",
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(get_screen_observation_service, None)
+
+    observations = client.get("/screen-observations?date=2026-05-26").json()["items"]
+    assert summarizer.calls == 1
+    assert [item["ai_inference"] for item in observations] == [None, "AI 요약 1"]
+
+
+def test_screen_observation_ai_inference_respects_daily_limit(client: TestClient) -> None:
+    summarizer = SpyScreenObservationSummarizer()
+    _override_screen_observation_service(
+        summarizer,
+        enable_ai_inference=True,
+        ai_min_interval_seconds=0,
+        ai_daily_limit=1,
+    )
+    client.post("/recording/start", json={})
+
+    try:
+        for index, app_name in enumerate(["Chrome", "PyCharm"], start=1):
+            client.post(
+                "/screen-observations",
+                json={
+                    "timestamp": datetime(2026, 5, 26, 14, 30 + index, tzinfo=UTC).isoformat(),
+                    "app_name": app_name,
+                    "window_title": "Work",
+                    "ocr_text": "Mwoham dashboard report generation screen observation",
+                    "frame_hash": f"daily-limit-{index}",
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(get_screen_observation_service, None)
+
+    observations = client.get("/screen-observations?date=2026-05-26").json()["items"]
+    assert summarizer.calls == 1
+    assert [item["ai_inference"] for item in observations] == [None, "AI 요약 1"]
+
+
 def test_timeline_today_includes_screen_ocr_items(client: TestClient) -> None:
     client.post("/recording/start", json={})
     client.post(
@@ -336,12 +484,9 @@ def test_timeline_today_includes_screen_ocr_items(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert [item["type"] for item in body["items"]] == ["event", "screen_ocr", "memo"]
-    assert (
-        body["items"][1]["content"]
-        == "사용자는 Chrome에서 웹 화면의 작업 내용을 확인하고 있습니다."
-    )
+    assert body["items"][1]["content"] == "OAuth callback error while testing FastAPI login flow"
     assert body["items"][1]["ocr_text"] == "OAuth callback error while testing FastAPI login flow"
-    assert body["items"][1]["ai_inference"] == body["items"][1]["content"]
+    assert body["items"][1]["ai_inference"] is None
     assert body["items"][1]["detected_keywords"] == ["OAuth", "error"]
 
 

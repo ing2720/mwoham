@@ -1,13 +1,19 @@
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class GeminiTextResult:
     text: str | None
     finish_reason: str | None = None
+    error_reason: str | None = None
+    status_code: int | None = None
+    raw_error: str | None = None
 
     @property
     def was_truncated(self) -> bool:
@@ -37,7 +43,7 @@ class GeminiClient:
 
     def generate_text_result(self, prompt: str) -> GeminiTextResult:
         if not self.api_key:
-            return GeminiTextResult(text=None)
+            return self._empty_result(error_reason="api_key_missing")
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
@@ -63,21 +69,141 @@ class GeminiClient:
                 timeout=self.timeout_seconds,
             )
             response.raise_for_status()
-        except httpx.HTTPError:
-            return GeminiTextResult(text=None)
+        except httpx.HTTPStatusError as exc:
+            raw_error = self._safe_response_text(exc.response)
+            return self._empty_result(
+                error_reason=self._http_error_reason(exc.response, raw_error),
+                status_code=exc.response.status_code,
+                raw_error=raw_error,
+            )
+        except httpx.TimeoutException as exc:
+            return self._empty_result(error_reason="timeout", raw_error=str(exc))
+        except httpx.HTTPError as exc:
+            return self._empty_result(error_reason="network_error", raw_error=str(exc))
 
-        return self._extract_result(response.json())
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            return self._empty_result(
+                error_reason="json_parse_error",
+                status_code=response.status_code,
+                raw_error=str(exc),
+            )
+
+        result = self._extract_result(payload)
+        if result.text is None:
+            return self._log_empty_result(
+                GeminiTextResult(
+                    text=None,
+                    finish_reason=result.finish_reason,
+                    error_reason=result.error_reason or "text_missing",
+                    status_code=response.status_code,
+                    raw_error=result.raw_error,
+                )
+            )
+        if result.finish_reason and result.finish_reason != "STOP":
+            logger.warning(
+                "Gemini response finishReason is not STOP: reason=%s model=%s finish_reason=%s",
+                result.error_reason or "non_stop_finish_reason",
+                self.model,
+                result.finish_reason,
+            )
+
+        return result
 
     def _extract_text(self, payload: dict[str, Any]) -> str | None:
         return self._extract_result(payload).text
 
     def _extract_result(self, payload: dict[str, Any]) -> GeminiTextResult:
+        prompt_feedback = payload.get("promptFeedback") or {}
+        block_reason = prompt_feedback.get("blockReason")
+        if block_reason:
+            return GeminiTextResult(
+                text=None,
+                error_reason="safety_block",
+                raw_error=f"blockReason={block_reason}",
+            )
+
         candidates = payload.get("candidates") or []
         if not candidates:
-            return GeminiTextResult(text=None)
+            return GeminiTextResult(text=None, error_reason="candidates_missing")
         candidate = candidates[0]
-        parts = candidate.get("content", {}).get("parts", [])
+        finish_reason = candidate.get("finishReason")
+        if finish_reason and finish_reason != "STOP":
+            error_reason = "non_stop_finish_reason"
+            if finish_reason in {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST"}:
+                error_reason = "safety_block"
+        else:
+            error_reason = None
+
+        content = candidate.get("content")
+        if not isinstance(content, dict):
+            return GeminiTextResult(
+                text=None,
+                finish_reason=finish_reason,
+                error_reason="content_missing",
+            )
+
+        parts = content.get("parts") or []
+        if not parts:
+            return GeminiTextResult(
+                text=None,
+                finish_reason=finish_reason,
+                error_reason="parts_missing",
+            )
+
         text_parts = [part.get("text", "") for part in parts if part.get("text")]
         text = "\n".join(text_parts).strip()
-        finish_reason = candidate.get("finishReason")
-        return GeminiTextResult(text=text or None, finish_reason=finish_reason)
+        if not text:
+            return GeminiTextResult(
+                text=None,
+                finish_reason=finish_reason,
+                error_reason="text_missing",
+            )
+        return GeminiTextResult(text=text, finish_reason=finish_reason, error_reason=error_reason)
+
+    def _empty_result(
+        self,
+        *,
+        error_reason: str,
+        status_code: int | None = None,
+        raw_error: str | None = None,
+    ) -> GeminiTextResult:
+        return self._log_empty_result(
+            GeminiTextResult(
+                text=None,
+                error_reason=error_reason,
+                status_code=status_code,
+                raw_error=raw_error,
+            )
+        )
+
+    def _log_empty_result(self, result: GeminiTextResult) -> GeminiTextResult:
+        logger.warning(
+            "Gemini generate_text returned empty: reason=%s model=%s status_code=%s "
+            "finish_reason=%s raw_error=%s",
+            result.error_reason,
+            self.model,
+            result.status_code,
+            result.finish_reason,
+            self._truncate_log_value(result.raw_error),
+        )
+        return result
+
+    def _safe_response_text(self, response: httpx.Response) -> str:
+        try:
+            return response.text
+        except RuntimeError:
+            return "<response body unavailable>"
+
+    def _http_error_reason(self, response: httpx.Response, raw_error: str) -> str:
+        if response.status_code == 429 or "RESOURCE_EXHAUSTED" in raw_error:
+            return "quota_exceeded"
+        return "http_status_error"
+
+    def _truncate_log_value(self, value: str | None, limit: int = 500) -> str | None:
+        if value is None:
+            return None
+        if len(value) <= limit:
+            return value
+        return value[:limit] + "...<truncated>"

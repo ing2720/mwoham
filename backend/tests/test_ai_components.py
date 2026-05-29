@@ -1,5 +1,8 @@
 from datetime import UTC, date, datetime
 
+import httpx
+import pytest
+
 from app.ai.gemini_client import GeminiClient
 from app.ai.prompt_builder import PromptBuilder
 from app.ai.report_content_cleaner import ReportContentCleaner
@@ -190,6 +193,128 @@ def test_gemini_client_returns_none_without_api_key() -> None:
     client = GeminiClient(api_key=None, model="gemini-2.5-flash")
 
     assert client.generate_text("hello") is None
+    assert client.generate_text_result("hello").error_reason == "api_key_missing"
+
+
+def test_gemini_client_generate_text_keeps_existing_text_interface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(*args, **kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {"parts": [{"text": "정상 응답입니다."}]},
+                    }
+                ]
+            },
+            request=httpx.Request("POST", "https://example.test"),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    client = GeminiClient(api_key="test-api-key", model="gemini-2.5-flash")
+
+    assert client.generate_text("hello") == "정상 응답입니다."
+
+
+def test_gemini_client_handles_http_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(*args, **kwargs):
+        return httpx.Response(
+            400,
+            json={"error": {"status": "INVALID_ARGUMENT", "message": "bad model"}},
+            request=httpx.Request("POST", "https://example.test"),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = GeminiClient(api_key="test-api-key", model="bad-model").generate_text_result("hello")
+
+    assert result.text is None
+    assert result.error_reason == "http_status_error"
+    assert result.status_code == 400
+    assert "INVALID_ARGUMENT" in (result.raw_error or "")
+
+
+def test_gemini_client_classifies_quota_exceeded_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(*args, **kwargs):
+        return httpx.Response(
+            429,
+            json={"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota exceeded"}},
+            request=httpx.Request("POST", "https://example.test"),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = GeminiClient(api_key="test-api-key", model="gemini-2.5-flash").generate_text_result(
+        "hello"
+    )
+
+    assert result.text is None
+    assert result.error_reason == "quota_exceeded"
+    assert result.status_code == 429
+
+
+def test_gemini_client_handles_json_parse_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(*args, **kwargs):
+        return httpx.Response(
+            200,
+            text="not-json",
+            request=httpx.Request("POST", "https://example.test"),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = GeminiClient(api_key="test-api-key", model="gemini-2.5-flash").generate_text_result(
+        "hello"
+    )
+
+    assert result.text is None
+    assert result.error_reason == "json_parse_error"
+    assert result.status_code == 200
+
+
+def test_gemini_client_handles_missing_candidates() -> None:
+    result = GeminiClient(api_key="token", model="gemini-2.5-flash")._extract_result({})
+
+    assert result.text is None
+    assert result.error_reason == "candidates_missing"
+
+
+def test_gemini_client_handles_missing_parts() -> None:
+    payload = {"candidates": [{"finishReason": "STOP", "content": {}}]}
+
+    result = GeminiClient(api_key="token", model="gemini-2.5-flash")._extract_result(payload)
+
+    assert result.text is None
+    assert result.error_reason == "parts_missing"
+
+
+def test_gemini_client_handles_missing_text() -> None:
+    payload = {"candidates": [{"finishReason": "STOP", "content": {"parts": [{}]}}]}
+
+    result = GeminiClient(api_key="token", model="gemini-2.5-flash")._extract_result(payload)
+
+    assert result.text is None
+    assert result.error_reason == "text_missing"
+
+
+def test_gemini_client_handles_safety_block() -> None:
+    payload = {"promptFeedback": {"blockReason": "SAFETY"}}
+
+    result = GeminiClient(api_key="token", model="gemini-2.5-flash")._extract_result(payload)
+
+    assert result.text is None
+    assert result.error_reason == "safety_block"
+    assert "SAFETY" in (result.raw_error or "")
 
 
 def test_gemini_client_parses_finish_reason() -> None:
@@ -206,6 +331,7 @@ def test_gemini_client_parses_finish_reason() -> None:
 
     assert result.text == "잘린 리포트"
     assert result.finish_reason == "MAX_TOKENS"
+    assert result.error_reason == "non_stop_finish_reason"
     assert result.was_truncated is True
 
 
