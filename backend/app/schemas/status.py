@@ -11,3 +11,5 @@ class StatusResponse(ApiSchema):
     last_event_at: datetime | None = None
     report_status: str = "idle"
     session_id: int | None = None
+    session_started_at: datetime | None = None
+    elapsed_seconds: int | None = None
