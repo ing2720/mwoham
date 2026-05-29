@@ -22,6 +22,7 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var memoStatusMessage = ""
     @Published var isSavingMemo = false
     @Published var activeWindowTrackingStatus = "활성 창 추적 대기 중"
+    @Published var isPrivateAppActive = false
 
     private let localApiClient: LocalApiClient
     private let activeWindowCollector: ActiveWindowCollector
@@ -141,8 +142,16 @@ final class BackendStatusViewModel: ObservableObject {
                 self?.activeWindowTrackingStatus = status
             },
             onSnapshot: { [weak self] snapshot in
+                self?.isPrivateAppActive = false
                 self?.currentApp = snapshot.appName
                 self?.currentWindow = self?.displayValue(snapshot.windowTitle) ?? "없음"
+            },
+            onPrivateAppChange: { [weak self] isActive in
+                self?.isPrivateAppActive = isActive
+                if isActive {
+                    self?.currentApp = "비공개 앱"
+                    self?.currentWindow = "비공개 앱 사용 중"
+                }
             }
         )
     }
@@ -226,8 +235,13 @@ final class BackendStatusViewModel: ObservableObject {
         statusReceivedAt = receivedAt
         recordingElapsedTime = makeElapsedTimeText(at: receivedAt)
         meetingMode = snapshot.status.meetingMode ? "켜짐" : "꺼짐"
-        currentApp = displayValue(snapshot.status.currentApp)
-        currentWindow = displayValue(snapshot.status.currentWindow)
+        if isPrivateAppActive {
+            currentApp = "비공개 앱"
+            currentWindow = "비공개 앱 사용 중"
+        } else {
+            currentApp = displayValue(snapshot.status.currentApp)
+            currentWindow = displayValue(snapshot.status.currentWindow)
+        }
     }
 
     private func makeElapsedTimeText(at now: Date) -> String {

@@ -89,6 +89,27 @@ struct ActivitySegmentUpdateRequest: Encodable {
     }
 }
 
+struct PrivateAppResponse: Decodable {
+    let id: Int
+    let appName: String
+    let matchType: String
+    let isEnabled: Bool
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case appName = "app_name"
+        case matchType = "match_type"
+        case isEnabled = "is_enabled"
+        case createdAt = "created_at"
+    }
+}
+
+struct PrivateAppListResponse: Decodable {
+    let items: [PrivateAppResponse]
+    let total: Int
+}
+
 struct MemoResponse: Decodable {
     let id: Int
     let sessionId: Int?
@@ -209,6 +230,11 @@ final class LocalApiClient {
     @discardableResult
     func createMemo(content: String) async throws -> MemoResponse {
         try await post("/memos", body: MemoCreateRequest(content: content))
+    }
+
+    func fetchPrivateApps() async throws -> [PrivateAppResponse] {
+        let response: PrivateAppListResponse = try await get("/settings/private-apps")
+        return response.items
     }
 
     @discardableResult
