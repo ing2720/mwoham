@@ -52,7 +52,7 @@ struct FloatingWidgetView: View {
                 .lineLimit(1)
                 .frame(minWidth: 46, alignment: .leading)
 
-            Text(viewModel.recordingElapsedTime)
+            Text(viewModel.isPrivateAppActive ? "비공개" : viewModel.recordingElapsedTime)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

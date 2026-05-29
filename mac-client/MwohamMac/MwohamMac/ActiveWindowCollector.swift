@@ -28,6 +28,9 @@ final class ActiveWindowCollector {
     private var activationObserver: NSObjectProtocol?
     private var currentSegment: CurrentActivitySegment?
     private var lastVisibleSnapshot: ActiveWindowSnapshot?
+    private var privateApps: [PrivateAppResponse] = []
+    private var lastPrivateAppsRefreshAt: Date?
+    private let privateAppsRefreshInterval: TimeInterval = 60
 
     init(localApiClient: LocalApiClient, pollingInterval: TimeInterval = 2) {
         self.localApiClient = localApiClient
@@ -37,7 +40,8 @@ final class ActiveWindowCollector {
     func start(
         isRecordingActive: @escaping @MainActor () -> Bool,
         onStatusChange: @escaping @MainActor (String) -> Void,
-        onSnapshot: @escaping @MainActor (ActiveWindowSnapshot) -> Void
+        onSnapshot: @escaping @MainActor (ActiveWindowSnapshot) -> Void,
+        onPrivateAppChange: @escaping @MainActor (Bool) -> Void
     ) {
         guard pollingTask == nil else {
             return
@@ -53,7 +57,8 @@ final class ActiveWindowCollector {
                 await self?.collectIfNeeded(
                     isRecordingActive: isRecordingActive,
                     onStatusChange: onStatusChange,
-                    onSnapshot: onSnapshot
+                    onSnapshot: onSnapshot,
+                    onPrivateAppChange: onPrivateAppChange
                 )
             }
         }
@@ -67,7 +72,8 @@ final class ActiveWindowCollector {
                 await collectIfNeeded(
                     isRecordingActive: isRecordingActive,
                     onStatusChange: onStatusChange,
-                    onSnapshot: onSnapshot
+                    onSnapshot: onSnapshot,
+                    onPrivateAppChange: onPrivateAppChange
                 )
 
                 do {
@@ -88,18 +94,24 @@ final class ActiveWindowCollector {
         activationObserver = nil
         currentSegment = nil
         lastVisibleSnapshot = nil
+        privateApps = []
+        lastPrivateAppsRefreshAt = nil
     }
 
     private func collectIfNeeded(
         isRecordingActive: @escaping @MainActor () -> Bool,
         onStatusChange: @escaping @MainActor (String) -> Void,
-        onSnapshot: @escaping @MainActor (ActiveWindowSnapshot) -> Void
+        onSnapshot: @escaping @MainActor (ActiveWindowSnapshot) -> Void,
+        onPrivateAppChange: @escaping @MainActor (Bool) -> Void
     ) async {
         guard isRecordingActive() else {
             onStatusChange("기록 중일 때 활성 창 추적")
+            onPrivateAppChange(false)
             currentSegment = nil
             return
         }
+
+        await refreshPrivateAppsIfNeeded()
 
         guard let snapshot = collectActiveWindowSnapshot() else {
             onStatusChange("활성 창 정보를 확인할 수 없습니다.")
@@ -112,6 +124,14 @@ final class ActiveWindowCollector {
             return
         }
 
+        if isPrivateApp(snapshot.appName) {
+            onPrivateAppChange(true)
+            onStatusChange("비공개 앱 사용 중")
+            currentSegment = nil
+            return
+        }
+
+        onPrivateAppChange(false)
         onSnapshot(snapshot)
         lastVisibleSnapshot = snapshot
         onStatusChange("활성 창 추적 중")
@@ -160,6 +180,21 @@ final class ActiveWindowCollector {
         )
     }
 
+    private func refreshPrivateAppsIfNeeded() async {
+        let now = Date()
+        if let lastPrivateAppsRefreshAt,
+           now.timeIntervalSince(lastPrivateAppsRefreshAt) < privateAppsRefreshInterval {
+            return
+        }
+
+        do {
+            privateApps = try await localApiClient.fetchPrivateApps().filter(\.isEnabled)
+            lastPrivateAppsRefreshAt = now
+        } catch {
+            lastPrivateAppsRefreshAt = now
+        }
+    }
+
     private func collectActiveWindowSnapshot() -> ActiveWindowSnapshot? {
         guard let application = NSWorkspace.shared.frontmostApplication else {
             return nil
@@ -177,6 +212,31 @@ final class ActiveWindowCollector {
         let ownDisplayName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
         let candidates = [ownName, ownDisplayName, "MwohamMac", "Mwoham"].compactMap(trimmed)
         return candidates.contains(snapshot.appName)
+    }
+
+    private func isPrivateApp(_ appName: String) -> Bool {
+        privateApps.contains { privateApp in
+            matches(appName: appName, pattern: privateApp.appName, matchType: privateApp.matchType)
+        }
+    }
+
+    private func matches(appName: String, pattern: String, matchType: String) -> Bool {
+        switch matchType {
+        case "exact":
+            return appName == pattern
+        case "contains":
+            return appName.localizedCaseInsensitiveContains(pattern)
+        case "regex":
+            do {
+                let regex = try NSRegularExpression(pattern: pattern)
+                let range = NSRange(appName.startIndex..<appName.endIndex, in: appName)
+                return regex.firstMatch(in: appName, range: range) != nil
+            } catch {
+                return false
+            }
+        default:
+            return false
+        }
     }
 
     private func accessibilityWindowTitle(for processID: pid_t) -> String? {
