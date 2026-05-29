@@ -6,6 +6,7 @@ from app.ai.report_content_cleaner import ReportContentCleaner
 from app.ai.summarizer import GeminiSummarizer
 from app.schemas.timeline import TimelineItem, TimelineResponse
 from app.services.privacy_filter import PrivacyFilter
+from app.services.screen_observation_summarizer import ScreenObservationSummarizer
 
 
 def test_privacy_filter_masks_secret_patterns() -> None:
@@ -50,7 +51,7 @@ def test_prompt_builder_uses_only_compressed_masked_timeline() -> None:
     assert "EVENT |" in prompt
 
 
-def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
+def test_prompt_builder_prioritizes_screen_ocr_inference_and_keywords() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
         total=1,
@@ -71,14 +72,15 @@ def test_prompt_builder_includes_screen_ocr_text_and_keywords() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "SCREEN_OCR |" in prompt
-    assert "ocr_text=401 Unauthorized" in prompt
+    assert "inference=인증 설정 문제 가능성" in prompt
+    assert "ocr_excerpt=401 Unauthorized" in prompt
     assert "401 Unauthorized" in prompt
     assert "Authorization" in prompt
     assert "인증 설정 문제 가능성" in prompt
     assert "api_key=secret" not in prompt
 
 
-def test_prompt_builder_includes_activity_segment_duration() -> None:
+def test_prompt_builder_marks_activity_segment_as_auxiliary_context() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
         total=1,
@@ -102,6 +104,7 @@ def test_prompt_builder_includes_activity_segment_duration() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "ACTIVITY_SEGMENT |" in prompt
+    assert "보조 작업 컨텍스트" in prompt
     assert "duration_seconds=900" in prompt
     assert "window=PR 작성" in prompt
 
@@ -201,6 +204,67 @@ def test_gemini_client_parses_finish_reason() -> None:
     assert result.text == "잘린 리포트"
     assert result.finish_reason == "MAX_TOKENS"
     assert result.was_truncated is True
+
+
+def test_screen_observation_summarizer_generates_ai_inference_from_ocr_text() -> None:
+    class ConfiguredClient:
+        is_configured = True
+
+        def __init__(self) -> None:
+            self.prompt = ""
+
+        def generate_text(self, prompt: str) -> str:
+            self.prompt = prompt
+            return "FastAPI 인증 오류를 확인하며 API 요청 헤더 문제를 디버깅하고 있습니다."
+
+    client = ConfiguredClient()
+    summarizer = ScreenObservationSummarizer(client=client, privacy_filter=PrivacyFilter())
+
+    inference = summarizer.summarize(
+        ocr_text="401 Unauthorized error while calling FastAPI endpoint",
+        app_name="Chrome",
+        window_title="Swagger UI",
+    )
+
+    assert inference == "FastAPI 인증 오류를 확인하며 API 요청 헤더 문제를 디버깅하고 있습니다."
+    assert "401 Unauthorized error" in client.prompt
+    assert "app_name: Chrome" in client.prompt
+    assert "window_title: Swagger UI" in client.prompt
+
+
+def test_screen_observation_summarizer_falls_back_when_gemini_fails() -> None:
+    class FailingClient:
+        is_configured = True
+
+        def generate_text(self, prompt: str) -> None:
+            return None
+
+    summarizer = ScreenObservationSummarizer(client=FailingClient(), privacy_filter=PrivacyFilter())
+
+    inference = summarizer.summarize(
+        ocr_text="pytest failure exception traceback in backend tests",
+        app_name="PyCharm",
+        window_title="test_api_flows.py",
+    )
+
+    assert inference is not None
+    assert "PyCharm / test_api_flows.py" in inference
+    assert "pytest failure exception" in inference
+
+
+def test_screen_observation_summarizer_skips_short_ocr_text() -> None:
+    class ConfiguredClient:
+        is_configured = True
+
+        def generate_text(self, prompt: str) -> str:
+            raise AssertionError("Gemini should not be called for short OCR text.")
+
+    summarizer = ScreenObservationSummarizer(
+        client=ConfiguredClient(),
+        privacy_filter=PrivacyFilter(),
+    )
+
+    assert summarizer.summarize(ocr_text="OK", app_name="Chrome", window_title=None) is None
 
 
 def test_summarizer_does_not_call_unconfigured_client() -> None:

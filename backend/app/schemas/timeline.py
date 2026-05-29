@@ -16,6 +16,7 @@ class TimelineItem(ApiSchema):
     app_name: str | None = None
     window_title: str | None = None
     detected_keywords: list[str] | dict[str, Any] | None = None
+    ocr_text: str | None = None
     ai_inference: str | None = None
     frame_hash: str | None = None
     meeting_id: int | None = None

@@ -14,10 +14,14 @@ import Vision
 final class OCRCollector {
     private let localApiClient: LocalApiClient
     private let pollingInterval: TimeInterval
+    private let minimumOCRConfidence: Float = 0.55
+    private let maximumSpecialCharacterRatio = 0.55
+    private let minimumMeaningfulCharacterCount = 12
+    private let maximumOCRTextLength = 4_000
     private var pollingTask: Task<Void, Never>?
     private var lastFrameHash: String?
 
-    init(localApiClient: LocalApiClient, pollingInterval: TimeInterval = 15) {
+    init(localApiClient: LocalApiClient, pollingInterval: TimeInterval = 5) {
         self.localApiClient = localApiClient
         self.pollingInterval = pollingInterval
     }
@@ -96,10 +100,15 @@ final class OCRCollector {
         do {
             let image = try await captureScreenImage()
 
-            let ocrText = try await recognizeText(in: image)
-            let normalizedText = normalizeOCRText(ocrText)
-            guard !normalizedText.isEmpty else {
-                onStatusChange("OCR 대기 중")
+            let recognizedLines = try await recognizeText(in: image)
+            guard !recognizedLines.isEmpty else {
+                onStatusChange("OCR 품질 낮음")
+                return
+            }
+
+            let normalizedText = normalizeOCRText(recognizedLines.map(\.text))
+            guard hasMeaningfulText(normalizedText) else {
+                onStatusChange("OCR 텍스트 부족")
                 return
             }
 
@@ -118,7 +127,7 @@ final class OCRCollector {
                 frameHash: frameHash
             )
             lastFrameHash = frameHash
-            onStatusChange("OCR 대기 중")
+            onStatusChange("OCR 저장됨")
         } catch {
             onStatusChange("OCR 오류")
         }
@@ -167,7 +176,7 @@ final class OCRCollector {
         }
     }
 
-    private func recognizeText(in image: CGImage) async throws -> String {
+    private func recognizeText(in image: CGImage) async throws -> [OCRLineCandidate] {
         try await withCheckedThrowingContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
                 if let error {
@@ -176,12 +185,17 @@ final class OCRCollector {
                 }
 
                 let observations = request.results as? [VNRecognizedTextObservation] ?? []
-                let text = observations
-                    .compactMap { $0.topCandidates(1).first?.string }
-                    .joined(separator: "\n")
-                continuation.resume(returning: text)
+                let lines = observations.compactMap { observation -> OCRLineCandidate? in
+                    guard let candidate = observation.topCandidates(1).first,
+                          candidate.confidence >= self.minimumOCRConfidence else {
+                        return nil
+                    }
+
+                    return OCRLineCandidate(text: candidate.string, confidence: candidate.confidence)
+                }
+                continuation.resume(returning: lines)
             }
-            request.recognitionLevel = .fast
+            request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
             request.recognitionLanguages = ["ko-KR", "en-US"]
 
@@ -194,12 +208,75 @@ final class OCRCollector {
         }
     }
 
-    private func normalizeOCRText(_ text: String) -> String {
+    private func normalizeOCRText(_ lines: [String]) -> String {
+        var seenLines = Set<String>()
+        var normalizedLines: [String] = []
+
+        for rawLine in lines.flatMap({ $0.components(separatedBy: .newlines) }) {
+            let line = normalizeWhitespace(rawLine)
+
+            guard !line.isEmpty,
+                  !line.contains("￿"),
+                  line.count > 2,
+                  specialCharacterRatio(in: line) <= maximumSpecialCharacterRatio,
+                  !seenLines.contains(line) else {
+                continue
+            }
+
+            seenLines.insert(line)
+            normalizedLines.append(line)
+        }
+
+        return limitedText(from: normalizedLines)
+    }
+
+    private func normalizeWhitespace(_ text: String) -> String {
         text
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
-            .joined(separator: "\n")
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func specialCharacterRatio(in text: String) -> Double {
+        let scalars = text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }
+        guard !scalars.isEmpty else {
+            return 1
+        }
+
+        let specialCount = scalars.filter { scalar in
+            !scalar.properties.isAlphabetic && !CharacterSet.decimalDigits.contains(scalar)
+        }.count
+
+        return Double(specialCount) / Double(scalars.count)
+    }
+
+    private func limitedText(from lines: [String]) -> String {
+        var result = ""
+
+        for line in lines {
+            let separator = result.isEmpty ? "" : "\n"
+            let nextText = result + separator + line
+
+            if nextText.count > maximumOCRTextLength {
+                let remainingCount = maximumOCRTextLength - result.count - separator.count
+                if remainingCount > 0 {
+                    result += separator + line.prefix(remainingCount)
+                }
+                break
+            }
+
+            result = nextText
+        }
+
+        return result
+    }
+
+    private func hasMeaningfulText(_ text: String) -> Bool {
+        let meaningfulCharacterCount = text.unicodeScalars.filter {
+            $0.properties.isAlphabetic || CharacterSet.decimalDigits.contains($0)
+        }.count
+        return meaningfulCharacterCount >= minimumMeaningfulCharacterCount
     }
 
     private func hashText(_ text: String) -> String {
@@ -208,7 +285,19 @@ final class OCRCollector {
     }
 
     private func detectKeywords(in text: String) -> [String]? {
-        let keywordCandidates = ["error", "failed", "exception", "token", "api", "오류", "실패", "인증"]
+        let keywordCandidates = [
+            "error",
+            "exception",
+            "pytest",
+            "ruff",
+            "alembic",
+            "migration",
+            "api",
+            "gemini",
+            "xcode",
+            "swift",
+            "fastapi"
+        ]
         let loweredText = text.lowercased()
         let keywords = keywordCandidates.filter { loweredText.contains($0.lowercased()) }
         return keywords.isEmpty ? nil : keywords
@@ -234,6 +323,11 @@ final class OCRCollector {
         let candidates = [ownName, ownDisplayName, "MwohamMac", "Mwoham"].compactMap { $0 }
         return candidates.contains(activeName)
     }
+}
+
+private struct OCRLineCandidate {
+    let text: String
+    let confidence: Float
 }
 
 private enum OCRError: Error {

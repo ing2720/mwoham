@@ -90,7 +90,9 @@
               {% if item.type == "event" %}이벤트{% elif item.type == "activity_segment" %}작업 구간{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% elif item.type == "memo" %}메모{% else %}{{ item.type }}{% endif %}
             </span>
           </div>
-          <div class="item-title">{{ item.content }}</div>
+          <div class="item-title">
+            {% if item.type == "screen_ocr" and item.ai_inference %}{{ item.ai_inference }}{% else %}{{ item.content }}{% endif %}
+          </div>
           <div class="item-meta">
             {{ item.timestamp }}
             {% if item.ended_at %} ~ {{ item.ended_at }}{% endif %}

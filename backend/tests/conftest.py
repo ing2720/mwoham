@@ -15,7 +15,15 @@ from app.db.session import get_db
 from app.main import app
 from app.models import Base
 from app.repositories.report_repository import ReportRepository
+from app.repositories.screen_observation_repository import ScreenObservationRepository
+from app.repositories.work_session_repository import WorkSessionRepository
 from app.services.report_service import ReportService, get_report_service
+from app.services.screen_observation_service import (
+    ScreenObservationService,
+    get_screen_observation_service,
+)
+from app.services.screen_observation_summarizer import ScreenObservationSummarizer
+from app.services.setting_service import get_setting_service
 from app.services.timeline_builder import get_timeline_builder
 
 
@@ -57,6 +65,9 @@ def client(db_engine: Engine) -> Generator[TestClient]:
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_report_service] = _build_unconfigured_report_service
+    app.dependency_overrides[get_screen_observation_service] = (
+        _build_unconfigured_screen_observation_service
+    )
     try:
         yield TestClient(app)
     finally:
@@ -71,5 +82,17 @@ def _build_unconfigured_report_service() -> ReportService:
         summarizer=GeminiSummarizer(
             client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
             prompt_builder=get_prompt_builder(),
+        ),
+    )
+
+
+def _build_unconfigured_screen_observation_service() -> ScreenObservationService:
+    return ScreenObservationService(
+        observation_repository=ScreenObservationRepository(),
+        session_repository=WorkSessionRepository(),
+        setting_service=get_setting_service(),
+        observation_summarizer=ScreenObservationSummarizer(
+            client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
+            privacy_filter=get_prompt_builder().privacy_filter,
         ),
     )
