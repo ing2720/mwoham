@@ -157,7 +157,7 @@ def test_prompt_builder_groups_concrete_work_evidence_by_time() -> None:
 
     assert "PRIORITY_MEMOS:" in prompt
     assert "WORK_EVIDENCE_BY_TIME:" in prompt
-    assert "WORK_BLOCK | time_range=01:30~02:00" in prompt
+    assert "WORK_BLOCK | time_range=10:30~11:00" in prompt
     assert "Gemini quota 절약 정책 적용" in prompt
     assert "ENABLE_SCREEN_OBSERVATION_AI_INFERENCE=false" in prompt
     assert "pytest tests/test_report_api.py" in prompt

@@ -1,8 +1,8 @@
-from datetime import UTC, date, datetime
-from zoneinfo import ZoneInfo
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.timezone import KST, as_utc, now_kst, utc_range_for_kst_date
 from app.models.activity_segment import ActivitySegment
 from app.models.manual_memo import ManualMemo
 from app.models.meeting_session import MeetingSession
@@ -19,7 +19,7 @@ from app.services.setting_service import SettingService, get_setting_service
 
 
 class TimelineBuilder:
-    KST = ZoneInfo("Asia/Seoul")
+    KST = KST
     SELF_SERVICE_MARKERS = (
         "127.0.0.1:8765",
         "localhost:8765",
@@ -47,7 +47,7 @@ class TimelineBuilder:
         self.setting_service = setting_service
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
-        timeline_date = target_date or datetime.now(UTC).date()
+        timeline_date = target_date or now_kst().date()
         events = [
             event
             for event in self.event_repository.list(db, target_date=timeline_date, limit=1000)
@@ -91,7 +91,7 @@ class TimelineBuilder:
         db: Session,
         target_date: date | None = None,
     ) -> TimelineResponse:
-        timeline_date = target_date or datetime.now(UTC).date()
+        timeline_date = target_date or now_kst().date()
         activity_segments = self.activity_segment_repository.list(
             db,
             target_date=timeline_date,
@@ -132,6 +132,38 @@ class TimelineBuilder:
         items.extend(self._transcript_to_item(transcript) for transcript in transcripts)
         items.sort(key=lambda item: item.timestamp)
         return TimelineResponse(date=timeline_date, items=items, total=len(items))
+
+    def build_detail_for_kst_date(
+        self,
+        db: Session,
+        target_date: date,
+    ) -> TimelineResponse:
+        utc_start, utc_end = utc_range_for_kst_date(target_date)
+        utc_dates = {utc_start.date(), utc_end.date()}
+
+        items_by_key: dict[tuple[str, int], TimelineItem] = {}
+        for utc_date in utc_dates:
+            timeline = self.build_detail_for_date(db, target_date=utc_date)
+            for item in timeline.items:
+                if self._item_overlaps_range(item, start=utc_start, end=utc_end):
+                    items_by_key[(item.type, item.id)] = item
+
+        items = sorted(items_by_key.values(), key=lambda item: item.timestamp)
+        return TimelineResponse(date=target_date, items=items, total=len(items))
+
+    def _item_overlaps_range(
+        self,
+        item: TimelineItem,
+        *,
+        start: datetime,
+        end: datetime,
+    ) -> bool:
+        item_start = self._as_utc(item.timestamp)
+        item_end = self._as_utc(item.ended_at) if item.ended_at else item_start
+        return item_start <= end and item_end >= start
+
+    def _as_utc(self, value: datetime) -> datetime:
+        return as_utc(value)
 
     def _event_to_item(self, event: WorkEvent) -> TimelineItem:
         return TimelineItem(
@@ -271,9 +303,7 @@ class TimelineBuilder:
         return excerpt[:limit].rstrip() + "..."
 
     def _as_aware_utc(self, value: datetime) -> datetime:
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
+        return as_utc(value)
 
     def _format_kst_clock(self, value: datetime) -> str:
         return self._as_aware_utc(value).astimezone(self.KST).strftime("%H:%M:%S")

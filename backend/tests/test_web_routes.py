@@ -229,7 +229,7 @@ def test_timeline_renders_meeting_and_transcript_items(client: TestClient) -> No
         },
     )
 
-    response = client.get("/timeline?date=2026-05-26")
+    response = client.get("/timeline?date=2026-05-27")
 
     assert response.status_code == 200
     assert "회의" in response.text

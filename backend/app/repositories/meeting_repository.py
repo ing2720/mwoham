@@ -1,8 +1,9 @@
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from app.core.timezone import utc_range_for_kst_date
 from app.models.meeting_session import MeetingSession
 from app.models.voice_transcript import VoiceTranscript
 from app.schemas.meeting import MeetingStartRequest
@@ -111,8 +112,7 @@ class MeetingRepository:
         if session_id is not None:
             statement = statement.where(MeetingSession.session_id == session_id)
         if target_date is not None:
-            start = datetime.combine(target_date, time.min, tzinfo=UTC)
-            end = datetime.combine(target_date, time.max, tzinfo=UTC)
+            start, end = utc_range_for_kst_date(target_date)
             statement = statement.where(
                 MeetingSession.started_at >= start,
                 MeetingSession.started_at <= end,
@@ -129,8 +129,7 @@ class MeetingRepository:
         if meeting_id is not None:
             statement = statement.where(VoiceTranscript.meeting_id == meeting_id)
         if target_date is not None:
-            start = datetime.combine(target_date, time.min, tzinfo=UTC)
-            end = datetime.combine(target_date, time.max, tzinfo=UTC)
+            start, end = utc_range_for_kst_date(target_date)
             statement = statement.where(
                 VoiceTranscript.timestamp >= start,
                 VoiceTranscript.timestamp <= end,
