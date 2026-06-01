@@ -60,4 +60,49 @@
       {% endfor %}
     </div>
   </section>
+
+  <section class="panel" style="margin-top: 16px;">
+    <h2>데이터 초기화</h2>
+
+    {% if reset_scope %}
+      <div class="item" style="margin-bottom: 14px;">
+        <div class="item-title">
+          {{ "삭제 완료" if reset_deleted == "true" else "삭제 미실행" }}
+        </div>
+        <div class="item-meta">
+          범위: {{ reset_scope }} · 대상: {{ reset_counts }}
+        </div>
+      </div>
+    {% endif %}
+
+    <form
+      class="form-grid"
+      method="post"
+      action="/settings/dev-data/reset"
+      onsubmit="return confirm('선택한 개발/테스트 데이터를 삭제합니다. 계속할까요?');"
+    >
+      <div class="form-row">
+        <label>범위
+          <select name="scope">
+            <option value="today">오늘 기록</option>
+            <option value="all">전체 기록</option>
+          </select>
+        </label>
+        <label>대상
+          <select name="target">
+            <option value="all-targets">전체 대상</option>
+            <option value="reports">리포트만</option>
+            <option value="screen_observations">화면 관찰만</option>
+            <option value="activity_segments">작업 구간만</option>
+            <option value="manual_memos">메모만</option>
+            <option value="work_events">이벤트만</option>
+          </select>
+        </label>
+      </div>
+      <input type="hidden" name="confirm_delete" value="on">
+      <div class="button-row">
+        <button type="submit">데이터 초기화 실행</button>
+      </div>
+    </form>
+  </section>
 {% endblock %}

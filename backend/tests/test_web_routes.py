@@ -260,6 +260,7 @@ def test_settings_page_renders_settings_and_private_apps(client: TestClient) -> 
     assert "기록 제외 앱" in response.text
     assert "제외 앱 추가" in response.text
     assert "삭제" in response.text
+    assert "데이터 초기화" in response.text
 
 
 def test_settings_private_app_forms_add_and_delete(client: TestClient) -> None:
@@ -281,6 +282,69 @@ def test_settings_private_app_forms_add_and_delete(client: TestClient) -> None:
 
     assert delete_response.status_code == 200
     assert "Slack" not in delete_response.text
+
+
+def test_settings_dev_data_reset_form_uses_confirmation_dialog(client: TestClient) -> None:
+    response = client.get("/settings", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert "confirm(" in response.text
+    assert "선택한 개발/테스트 데이터를 삭제합니다." in response.text
+    assert 'name="confirm_delete" value="on"' in response.text
+
+
+def test_settings_dev_data_reset_can_still_dry_run_without_confirm_value(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 10, 0, tzinfo=UTC).isoformat(),
+            "source": "terminal",
+            "content": "초기화 dry-run 확인",
+        },
+    )
+    client.post("/reports/daily", json={"date": "2026-05-26"})
+
+    response = client.post(
+        "/settings/dev-data/reset",
+        data={"scope": "all", "target": "reports"},
+        headers={"accept": "text/html"},
+    )
+
+    assert response.status_code == 200
+    assert "삭제 미실행" in response.text
+    assert client.get("/reports").json()["total"] == 1
+
+
+def test_settings_dev_data_reset_deletes_selected_target(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 10, 0, tzinfo=UTC).isoformat(),
+            "source": "terminal",
+            "content": "리포트만 삭제 후 남을 이벤트",
+        },
+    )
+    client.post("/reports/daily", json={"date": "2026-05-26"})
+
+    response = client.post(
+        "/settings/dev-data/reset",
+        data={
+            "scope": "all",
+            "target": "reports",
+            "confirm_delete": "on",
+        },
+        headers={"accept": "text/html"},
+    )
+
+    assert response.status_code == 200
+    assert "삭제 완료" in response.text
+    assert "reports:1" in response.text
+    assert client.get("/reports").json()["total"] == 0
+    assert "리포트만 삭제 후 남을 이벤트" in client.get("/timeline?date=2026-05-26").text
 
 
 def test_reports_page_and_detail_render_generated_report(client: TestClient) -> None:
