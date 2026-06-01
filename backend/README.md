@@ -96,6 +96,8 @@ LOCAL_API_TOKEN=""
 
 2차 MVP 실사용 검증 절차는 [QA_CHECKLIST.md](../docs/QA_CHECKLIST.md)를 참고하세요.
 
+Xcode 없이 지인 테스트용 앱을 실행하는 절차는 [TESTER_INSTALL_GUIDE.md](../docs/TESTER_INSTALL_GUIDE.md)를 참고하세요.
+
 ## Migration
 
 ```bash

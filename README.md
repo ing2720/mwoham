@@ -67,6 +67,7 @@ uv run python scripts/seed_sample_data.py --reset
 - [Backend README](backend/README.md)
 - [Development Guide](DEVELOPMENT.md)
 - [2차 MVP QA Checklist](docs/QA_CHECKLIST.md)
+- [Tester Install Guide](docs/TESTER_INSTALL_GUIDE.md)
 
 ## 주의사항
 
