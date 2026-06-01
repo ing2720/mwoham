@@ -4,6 +4,16 @@ from app.services.screen_observation_summarizer import SAFE_UNCLEAR_INFERENCE
 
 
 class PromptBuilder:
+    SELF_SERVICE_MARKERS = (
+        "127.0.0.1:8765",
+        "localhost:8765",
+        "대시보드 - 뭐함",
+        "타임라인 - 뭐함",
+        "리포트 - 뭐함",
+        "설정 - 뭐함",
+        "작업 기록 자동화 서비스",
+    )
+
     def __init__(self, privacy_filter: PrivacyFilter) -> None:
         self.privacy_filter = privacy_filter
 
@@ -53,9 +63,19 @@ class PromptBuilder:
         if not timeline.items:
             return f"DATE: {timeline.date.isoformat()}\nEMPTY: 기록된 작업이 없습니다."
 
-        lines = [f"DATE: {timeline.date.isoformat()}", f"TOTAL_ITEMS: {timeline.total}"]
-        for item in timeline.items:
+        report_items = [
+            item
+            for item in timeline.items
+            if item.type != "activity_segment" and not self._is_self_service_screen_item(item)
+        ]
+        activity_segments = [item for item in timeline.items if item.type == "activity_segment"]
+
+        lines = [f"DATE: {timeline.date.isoformat()}", f"TOTAL_ITEMS: {len(report_items)}"]
+        for item in report_items:
             lines.append(self._format_timeline_item(item))
+        environment_summary = self._format_activity_environment_summary(activity_segments)
+        if environment_summary:
+            lines.append(environment_summary)
         return "\n".join(lines)
 
     def _format_timeline_item(self, item) -> str:
@@ -100,6 +120,39 @@ class PromptBuilder:
                 f"text={item.content}"
             )
         return f"- {item.type.upper()} | time={timestamp} | content={item.content}"
+
+    def _format_activity_environment_summary(self, items) -> str:
+        if not items:
+            return ""
+
+        duration_by_environment: dict[str, int] = {}
+        for item in items:
+            environment = " / ".join(
+                value
+                for value in [item.app_name or "알 수 없는 앱", item.window_title]
+                if value
+            )
+            duration_by_environment[environment] = duration_by_environment.get(environment, 0) + (
+                item.duration_seconds or 0
+            )
+
+        summaries = sorted(
+            duration_by_environment.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:5]
+        summary_text = "; ".join(
+            f"{environment} {duration_seconds}초"
+            for environment, duration_seconds in summaries
+        )
+        return f"- ACTIVITY_ENVIRONMENT_SUMMARY | {summary_text}"
+
+    def _is_self_service_screen_item(self, item) -> bool:
+        if item.type != "screen_ocr":
+            return False
+        values = [item.app_name, item.window_title, item.content, item.ocr_text, item.ai_inference]
+        combined_text = "\n".join(value for value in values if value).lower()
+        return any(marker.lower() in combined_text for marker in self.SELF_SERVICE_MARKERS)
 
     def _truncate(self, text: str, limit: int) -> str:
         if len(text) <= limit:

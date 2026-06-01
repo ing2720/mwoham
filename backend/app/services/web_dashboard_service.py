@@ -25,7 +25,23 @@ class WebDashboardService:
         }
 
     def get_timeline_context(self, db: Session, target_date: date | None = None) -> dict[str, Any]:
-        return {"timeline": self.timeline_builder.build_for_date(db, target_date=target_date)}
+        return {
+            "timeline": self.timeline_builder.build_for_date(db, target_date=target_date),
+            "is_detail": False,
+        }
+
+    def get_detail_timeline_context(
+        self,
+        db: Session,
+        target_date: date | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "timeline": self.timeline_builder.build_detail_for_date(
+                db,
+                target_date=target_date,
+            ),
+            "is_detail": True,
+        }
 
 
 def get_web_dashboard_service() -> WebDashboardService:

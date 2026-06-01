@@ -72,6 +72,33 @@ def test_dashboard_forms_drive_recording_event_and_memo_flow(client: TestClient)
     assert "stopped" in stop_response.text
 
 
+def test_dashboard_recent_timeline_uses_basic_timeline(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/activity-segments",
+        json={
+            "started_at": datetime(2026, 5, 26, 7, 3, 22, tzinfo=UTC).isoformat(),
+            "last_seen_at": datetime(2026, 5, 26, 7, 3, 25, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "Google Chrome",
+            "window_title": "Dashboard",
+        },
+    )
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime.now(UTC).isoformat(),
+            "content": "대시보드 기본 타임라인 확인",
+        },
+    )
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "대시보드 기본 타임라인 확인" in response.text
+    assert "작업 구간" not in response.text
+
+
 def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> None:
     client.post("/recording/start", json={})
     client.post(
@@ -97,7 +124,9 @@ def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> 
     assert response.text.index("Ran pytest") < response.text.index("Document edge case")
 
 
-def test_timeline_renders_activity_segments_without_event_duplication(client: TestClient) -> None:
+def test_timeline_detail_renders_activity_segments_without_event_duplication(
+    client: TestClient,
+) -> None:
     client.post("/recording/start", json={})
     client.post(
         "/activity-segments",
@@ -139,15 +168,17 @@ def test_timeline_renders_activity_segments_without_event_duplication(client: Te
     )
 
     timeline_response = client.get("/timeline?date=2026-05-26")
+    detail_response = client.get("/timeline/detail?date=2026-05-26")
     dashboard_response = client.get("/dashboard")
 
     assert timeline_response.status_code == 200
+    assert detail_response.status_code == 200
     assert dashboard_response.status_code == 200
-    assert "작업 구간" in timeline_response.text
-    assert "작업 구간" in dashboard_response.text
-    assert "Google Chrome (1초 미만)" in timeline_response.text
-    assert "Google Chrome /" not in timeline_response.text
-    assert timeline_response.text.count("Google Chrome") == 2
+    assert "작업 구간" not in timeline_response.text
+    assert "작업 구간" in detail_response.text
+    assert "작업 구간" not in dashboard_response.text
+    assert "Google Chrome (1초 미만)" in detail_response.text
+    assert "Google Chrome /" not in detail_response.text
     assert "사용자 메모" in timeline_response.text
     assert "메모" in timeline_response.text
 
@@ -169,8 +200,8 @@ def test_timeline_renders_screen_ocr_items(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert "화면 OCR" in response.text
-    assert "로그인 실패 화면" in response.text
     assert "인증 흐름 확인 필요" in response.text
+    assert "로그인 실패 화면" not in response.text
 
 
 def test_timeline_renders_meeting_and_transcript_items(client: TestClient) -> None:

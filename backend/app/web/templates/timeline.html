@@ -1,12 +1,20 @@
 {% extends "base.html" %}
 
-{% block title %}타임라인 - 뭐함{% endblock %}
+{% block title %}{% if is_detail %}상세 타임라인{% else %}타임라인{% endif %} - 뭐함{% endblock %}
 
 {% block content %}
   <div class="page-title">
-    <h1>타임라인</h1>
+    <h1>{% if is_detail %}상세 타임라인{% else %}타임라인{% endif %}</h1>
     <span class="muted">{{ timeline.date }}</span>
+    {% if is_detail %}
+      <a class="badge" href="/timeline{% if timeline.date %}?date={{ timeline.date }}{% endif %}">기본 타임라인</a>
+    {% else %}
+      <a class="badge" href="/timeline/detail{% if timeline.date %}?date={{ timeline.date }}{% endif %}">상세 타임라인</a>
+    {% endif %}
   </div>
+  {% if is_detail %}
+    <p class="muted">개발/검증용 원시 로그 확인 화면입니다.</p>
+  {% endif %}
 
   <section class="timeline">
     {% for item in timeline.items %}
@@ -31,14 +39,14 @@
             {% if item.duration_seconds is not none %} · {{ item.duration_seconds }}초{% endif %}
           </div>
         {% elif item.type == "screen_ocr" %}
-          <div class="item-title">{{ item.ai_inference if item.ai_inference else (item.content if item.content else "OCR 텍스트 없음") }}</div>
+          <div class="item-title">{{ item.content if item.content else "화면 텍스트 수집됨" }}</div>
           <div class="item-meta">
             {{ item.timestamp }}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
             {% if item.detected_keywords %} · 키워드 {{ item.detected_keywords }}{% endif %}
           </div>
-          {% if item.ai_inference and item.ocr_text %}
-            <div class="item-meta">OCR 요약: {{ item.ocr_text }}</div>
+          {% if is_detail and item.ocr_text %}
+            <div class="item-meta">OCR 발췌: {{ item.ocr_text }}</div>
           {% endif %}
         {% elif item.type == "meeting" %}
           <div class="item-title">{{ item.content }}</div>

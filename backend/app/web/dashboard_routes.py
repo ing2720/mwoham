@@ -52,6 +52,21 @@ def timeline(
     )
 
 
+@router.get("/timeline/detail")
+def timeline_detail(
+    request: Request,
+    target_date: Annotated[date | None, Query(alias="date")] = None,
+    db: Session = Depends(get_db),
+    service: WebDashboardService = Depends(get_web_dashboard_service),
+):
+    context = service.get_detail_timeline_context(db, target_date=target_date)
+    return templates.TemplateResponse(
+        request,
+        "timeline.html",
+        {"active_page": "timeline_detail", **context},
+    )
+
+
 @router.post("/dashboard/recording/start")
 async def start_recording_from_dashboard(
     request: Request,
