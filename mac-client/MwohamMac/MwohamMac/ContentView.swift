@@ -6,6 +6,7 @@
 //
 
 import Combine
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -135,6 +136,18 @@ final class BackendStatusViewModel: ObservableObject {
 
     var recordingState: String {
         rawRecordingStatus
+    }
+
+    var backendAddressText: String {
+        "http://127.0.0.1:8765"
+    }
+
+    var dashboardURL: URL {
+        URL(string: "\(backendAddressText)/dashboard")!
+    }
+
+    func openDashboard() {
+        NSWorkspace.shared.open(dashboardURL)
     }
 
     func startActiveWindowTracking() {
@@ -370,6 +383,22 @@ struct ContentView: View {
                     Label("새로고침", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isLoading)
+
+                Button {
+                    viewModel.openDashboard()
+                } label: {
+                    Label("대시보드 열기", systemImage: "safari")
+                }
+            }
+
+            if !viewModel.isConnected {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("로컬 서버가 실행 중인지 확인해 주세요.")
+                    Text("주소: \(viewModel.backendAddressText)")
+                        .textSelection(.enabled)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
 
             Divider()
