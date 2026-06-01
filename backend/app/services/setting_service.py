@@ -1,5 +1,3 @@
-import re
-
 from sqlalchemy.orm import Session
 
 from app.repositories.setting_repository import SettingRepository
@@ -11,11 +9,17 @@ from app.schemas.setting import (
     SettingsPatchRequest,
     SettingsResponse,
 )
+from app.services.private_app_matcher import PrivateAppMatcher, get_private_app_matcher
 
 
 class SettingService:
-    def __init__(self, repository: SettingRepository) -> None:
+    def __init__(
+        self,
+        repository: SettingRepository,
+        private_app_matcher: PrivateAppMatcher | None = None,
+    ) -> None:
         self.repository = repository
+        self.private_app_matcher = private_app_matcher or get_private_app_matcher()
 
     def get_settings(self, db: Session) -> SettingsResponse:
         items = self.repository.list_settings(db)
@@ -45,25 +49,14 @@ class SettingService:
         )
 
     def is_private_app(self, db: Session, app_name: str | None) -> bool:
-        if not app_name:
-            return False
-        for private_app in self.repository.list_private_apps(db, enabled_only=True):
-            if self._matches(app_name, private_app.app_name, private_app.match_type):
-                return True
-        return False
-
-    def _matches(self, app_name: str, pattern: str, match_type: str) -> bool:
-        if match_type == "exact":
-            return app_name == pattern
-        if match_type == "contains":
-            return pattern.lower() in app_name.lower()
-        if match_type == "regex":
-            try:
-                return re.search(pattern, app_name) is not None
-            except re.error:
-                return False
-        return False
+        return self.private_app_matcher.is_private_app(
+            app_name,
+            self.repository.list_private_apps(db, enabled_only=True),
+        )
 
 
 def get_setting_service() -> SettingService:
-    return SettingService(repository=SettingRepository())
+    return SettingService(
+        repository=SettingRepository(),
+        private_app_matcher=get_private_app_matcher(),
+    )

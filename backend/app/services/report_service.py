@@ -9,7 +9,7 @@ from app.ai.report_content_cleaner import ReportContentCleaner, get_report_conte
 from app.ai.summarizer import GeminiSummarizer
 from app.core.config import settings
 from app.core.exceptions import ResourceNotFoundError
-from app.core.timezone import now_kst, utc_range_for_kst_date
+from app.core.timezone import get_kst_day_range_as_utc, parse_date_or_today_kst
 from app.models.report import Report
 from app.repositories.report_repository import ReportRepository
 from app.schemas.report import DailyReportCreate, ReportListResponse, ReportResponse, ReportUpdate
@@ -38,7 +38,7 @@ class ReportService:
         self.fallback_builder = fallback_builder or get_report_fallback_builder()
 
     def create_daily_report(self, db: Session, request: DailyReportCreate) -> ReportResponse:
-        target_date = request.date or now_kst().date()
+        target_date = parse_date_or_today_kst(request.date)
         timeline = self.timeline_builder.build_detail_for_kst_date(db, target_date=target_date)
         generated_content = self.summarizer.summarize_daily_report(timeline)
         cleaned_content = (
@@ -81,7 +81,7 @@ class ReportService:
     def list_today_reports(
         self, db: Session, target_date: date | None = None
     ) -> ReportListResponse:
-        report_date = target_date or now_kst().date()
+        report_date = parse_date_or_today_kst(target_date)
         return self.list_reports(db, target_date=report_date, mode=None, limit=100)
 
     def get_report(self, db: Session, report_id: int) -> ReportResponse:
@@ -102,7 +102,7 @@ class ReportService:
         return ReportResponse.model_validate(self.repository.update(db, report))
 
     def _source_range_for_kst_date(self, target_date: date) -> tuple[datetime, datetime]:
-        return utc_range_for_kst_date(target_date)
+        return get_kst_day_range_as_utc(target_date)
 
 
 def get_report_service() -> ReportService:

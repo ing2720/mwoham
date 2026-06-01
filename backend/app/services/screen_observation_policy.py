@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.core.timezone import as_kst, as_utc
+from app.core.timezone import as_kst, as_utc, parse_date_or_today_kst
 from app.models.work_session import WorkSession
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.schemas.screen_observation import ScreenObservationCreate
@@ -34,7 +34,7 @@ class ScreenObservationInferencePolicy:
 
         inference_count = self.observation_repository.count_ai_inference(
             db,
-            target_date=as_kst(request.timestamp).date(),
+            target_date=parse_date_or_today_kst(as_kst(request.timestamp).date()),
         )
         if inference_count >= self.ai_daily_limit:
             return False

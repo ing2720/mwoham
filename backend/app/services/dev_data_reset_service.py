@@ -4,7 +4,7 @@ from datetime import date, datetime
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session
 
-from app.core.timezone import now_kst, utc_range_for_kst_date
+from app.core.timezone import get_kst_day_range_as_utc, parse_date_or_today_kst
 from app.models.activity_segment import ActivitySegment
 from app.models.manual_memo import ManualMemo
 from app.models.report import Report
@@ -50,7 +50,7 @@ class DevDataResetService:
         if not targets:
             return ResetDevDataResult(counts={}, deleted=False, scope_label="none")
 
-        target_date = options.target_date or now_kst().date()
+        target_date = parse_date_or_today_kst(options.target_date)
         scope = self._resolve_scope(options, target_date=target_date)
         counts = {target: self._count_target(db, target=target, scope=scope) for target in targets}
 
@@ -83,7 +83,7 @@ class DevDataResetService:
 
     def _resolve_scope(self, options: ResetDevDataOptions, *, target_date: date) -> "_DeleteScope":
         if options.today:
-            start, end = utc_range_for_kst_date(target_date)
+            start, end = get_kst_day_range_as_utc(target_date)
             return _DeleteScope(
                 label=f"today:{target_date.isoformat()} KST",
                 start=start,
@@ -125,7 +125,7 @@ class DevDataResetService:
             if scope.start is None or scope.end is None:
                 return ActivitySegment, []
             return ActivitySegment, [
-                ActivitySegment.started_at <= scope.end,
+                ActivitySegment.started_at < scope.end,
                 ActivitySegment.ended_at >= scope.start,
             ]
         if target == "work_events":
@@ -137,7 +137,7 @@ class DevDataResetService:
     def _timestamp_conditions(self, column, *, scope: "_DeleteScope") -> list:
         if scope.start is None or scope.end is None:
             return []
-        return [column >= scope.start, column <= scope.end]
+        return [column >= scope.start, column < scope.end]
 
 
 @dataclass(frozen=True)

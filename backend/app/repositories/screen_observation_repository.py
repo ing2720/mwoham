@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from app.core.timezone import utc_range_for_kst_date
+from app.core.timezone import get_kst_day_range_as_utc
 from app.models.screen_observation import ScreenObservation
 from app.schemas.screen_observation import ScreenObservationCreate
 
@@ -116,9 +116,9 @@ class ScreenObservationRepository:
         if session_id is not None:
             statement = statement.where(ScreenObservation.session_id == session_id)
         if target_date is not None:
-            start, end = utc_range_for_kst_date(target_date)
+            start, end = get_kst_day_range_as_utc(target_date)
             statement = statement.where(
                 ScreenObservation.timestamp >= start,
-                ScreenObservation.timestamp <= end,
+                ScreenObservation.timestamp < end,
             )
         return statement

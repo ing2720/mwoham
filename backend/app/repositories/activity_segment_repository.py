@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from app.core.timezone import utc_range_for_kst_date
+from app.core.timezone import get_kst_day_range_as_utc
 from app.models.activity_segment import ActivitySegment
 from app.schemas.activity_segment import ActivitySegmentCreate
 
@@ -107,9 +107,9 @@ class ActivitySegmentRepository:
         if session_id is not None:
             statement = statement.where(ActivitySegment.session_id == session_id)
         if target_date is not None:
-            start, end = utc_range_for_kst_date(target_date)
+            start, end = get_kst_day_range_as_utc(target_date)
             statement = statement.where(
-                ActivitySegment.started_at <= end,
+                ActivitySegment.started_at < end,
                 ActivitySegment.ended_at >= start,
             )
         if source is not None:

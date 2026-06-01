@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from app.core.timezone import utc_range_for_kst_date
+from app.core.timezone import get_kst_day_range_as_utc
 from app.models.manual_memo import ManualMemo
 from app.schemas.memo import MemoCreate
 
@@ -57,6 +57,6 @@ class MemoRepository:
         if session_id is not None:
             statement = statement.where(ManualMemo.session_id == session_id)
         if target_date is not None:
-            start, end = utc_range_for_kst_date(target_date)
-            statement = statement.where(ManualMemo.timestamp >= start, ManualMemo.timestamp <= end)
+            start, end = get_kst_day_range_as_utc(target_date)
+            statement = statement.where(ManualMemo.timestamp >= start, ManualMemo.timestamp < end)
         return statement

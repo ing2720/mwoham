@@ -16,11 +16,18 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
     session = _create_session(db)
     inside = datetime(2026, 5, 31, 16, 0, tzinfo=UTC)
     outside = datetime(2026, 5, 31, 14, 30, tzinfo=UTC)
+    next_day_boundary = datetime(2026, 6, 1, 15, 0, tzinfo=UTC)
 
     _create_report(db, report_date=date(2026, 6, 1), title="today report")
     _create_report(db, report_date=date(2026, 5, 31), title="previous report")
     _create_event(db, session_id=session.id, timestamp=inside, content="inside event")
     _create_event(db, session_id=session.id, timestamp=outside, content="outside event")
+    _create_event(
+        db,
+        session_id=session.id,
+        timestamp=next_day_boundary,
+        content="next day boundary event",
+    )
     _create_memo(db, session_id=session.id, timestamp=inside, content="inside memo")
     _create_memo(db, session_id=session.id, timestamp=outside, content="outside memo")
     _create_observation(db, session_id=session.id, timestamp=inside, text="inside screen")
@@ -42,11 +49,13 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
         "manual_memos": 1,
     }
     assert _count(db, Report) == 1
-    assert _count(db, WorkEvent) == 1
+    assert _count(db, WorkEvent) == 2
     assert _count(db, ManualMemo) == 1
     assert _count(db, ScreenObservation) == 1
     assert _count(db, ActivitySegment) == 1
-    assert db.scalar(select(WorkEvent.content)) == "outside event"
+    assert {
+        event.content for event in db.scalars(select(WorkEvent).order_by(WorkEvent.timestamp))
+    } == {"outside event", "next day boundary event"}
 
 
 def test_reset_dev_data_reports_only_deletes_reports_only(db: Session) -> None:

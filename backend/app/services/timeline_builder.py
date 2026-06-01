@@ -2,7 +2,12 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
-from app.core.timezone import KST, as_utc, now_kst, utc_range_for_kst_date
+from app.core.timezone import (
+    as_utc,
+    format_datetime_kst,
+    get_kst_day_range_as_utc,
+    parse_date_or_today_kst,
+)
 from app.models.activity_segment import ActivitySegment
 from app.models.manual_memo import ManualMemo
 from app.models.meeting_session import MeetingSession
@@ -20,8 +25,6 @@ from app.services.setting_service import SettingService, get_setting_service
 
 
 class TimelineBuilder:
-    KST = KST
-
     def __init__(
         self,
         activity_segment_repository: ActivitySegmentRepository,
@@ -41,7 +44,7 @@ class TimelineBuilder:
         self.self_observation_filter = self_observation_filter
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
-        timeline_date = target_date or now_kst().date()
+        timeline_date = parse_date_or_today_kst(target_date)
         events = [
             event
             for event in self.event_repository.list(db, target_date=timeline_date, limit=1000)
@@ -55,7 +58,7 @@ class TimelineBuilder:
                 target_date=timeline_date,
                 limit=1000,
             )
-            if not self._is_self_service_observation(observation)
+            if not self._should_hide_screen_observation(db, observation)
         ]
         meetings = self.meeting_repository.list_meetings(
             db,
@@ -85,7 +88,7 @@ class TimelineBuilder:
         db: Session,
         target_date: date | None = None,
     ) -> TimelineResponse:
-        timeline_date = target_date or now_kst().date()
+        timeline_date = parse_date_or_today_kst(target_date)
         activity_segments = self.activity_segment_repository.list(
             db,
             target_date=timeline_date,
@@ -102,11 +105,15 @@ class TimelineBuilder:
             if event.source != "mac_active_window"
         ]
         memos = self.memo_repository.list(db, target_date=timeline_date, limit=1000)
-        screen_observations = self.screen_observation_repository.list(
-            db,
-            target_date=timeline_date,
-            limit=1000,
-        )
+        screen_observations = [
+            observation
+            for observation in self.screen_observation_repository.list(
+                db,
+                target_date=timeline_date,
+                limit=1000,
+            )
+            if not self.setting_service.is_private_app(db, observation.app_name)
+        ]
         meetings = self.meeting_repository.list_meetings(
             db,
             target_date=timeline_date,
@@ -132,7 +139,7 @@ class TimelineBuilder:
         db: Session,
         target_date: date,
     ) -> TimelineResponse:
-        utc_start, utc_end = utc_range_for_kst_date(target_date)
+        utc_start, utc_end = get_kst_day_range_as_utc(target_date)
         utc_dates = {utc_start.date(), utc_end.date()}
 
         items_by_key: dict[tuple[str, int], TimelineItem] = {}
@@ -154,7 +161,7 @@ class TimelineBuilder:
     ) -> bool:
         item_start = self._as_utc(item.timestamp)
         item_end = self._as_utc(item.ended_at) if item.ended_at else item_start
-        return item_start <= end and item_end >= start
+        return item_start < end and item_end >= start
 
     def _as_utc(self, value: datetime) -> datetime:
         return as_utc(value)
@@ -287,6 +294,16 @@ class TimelineBuilder:
         ]
         return self.self_observation_filter.is_self_service_values(values)
 
+    def _should_hide_screen_observation(
+        self,
+        db: Session,
+        observation: ScreenObservation,
+    ) -> bool:
+        return self.setting_service.is_private_app(
+            db,
+            observation.app_name,
+        ) or self._is_self_service_observation(observation)
+
     def _ocr_excerpt(self, text: str | None, limit: int = 160) -> str:
         if not text:
             return ""
@@ -299,7 +316,7 @@ class TimelineBuilder:
         return as_utc(value)
 
     def _format_kst_clock(self, value: datetime) -> str:
-        return self._as_aware_utc(value).astimezone(self.KST).strftime("%H:%M:%S")
+        return format_datetime_kst(value, "%H:%M:%S")
 
     def _meeting_to_items(self, meeting: MeetingSession) -> list[TimelineItem]:
         title = meeting.title or "회의"
