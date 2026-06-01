@@ -74,8 +74,11 @@ APP_HOST="127.0.0.1"
 APP_PORT="8765"
 DATABASE_URL="sqlite:///./data/mwoham.sqlite3"
 GEMINI_API_KEY=""
-GEMINI_MODEL="gemini-2.5-flash"
+GEMINI_MODEL="gemini-2.5-flash-lite"
 GEMINI_MAX_OUTPUT_TOKENS="8192"
+ENABLE_SCREEN_OBSERVATION_AI_INFERENCE="false"
+SCREEN_AI_MIN_INTERVAL_SECONDS="300"
+SCREEN_AI_DAILY_LIMIT="5"
 REPORT_EXPORT_DIR="exports/reports"
 LOCAL_API_TOKEN=""
 ```
@@ -83,8 +86,17 @@ LOCAL_API_TOKEN=""
 - `GEMINI_API_KEY`: Gemini API 키입니다. 비어 있으면 Gemini 호출 없이 placeholder 리포트를 생성합니다.
 - `GEMINI_MODEL`: 사용할 Gemini 모델명입니다.
 - `GEMINI_MAX_OUTPUT_TOKENS`: Gemini 리포트 생성 응답의 최대 토큰 수입니다.
+- `ENABLE_SCREEN_OBSERVATION_AI_INFERENCE`: 개별 화면 관찰 저장 시 Gemini 해석 호출 여부입니다. 기본값은 `false`입니다.
+- `SCREEN_AI_MIN_INTERVAL_SECONDS`: 같은 앱/창에서 화면 관찰 AI 해석을 다시 호출하기 전 최소 간격입니다.
+- `SCREEN_AI_DAILY_LIMIT`: 화면 관찰 AI 해석의 일일 호출 제한입니다.
 - `LOCAL_API_TOKEN`: 설정하면 보호 API에 Bearer 토큰 인증이 필요합니다.
 - `REPORT_EXPORT_DIR`: Markdown/PDF export 파일 저장 경로입니다.
+
+## QA 체크리스트
+
+2차 MVP 실사용 검증 절차는 [QA_CHECKLIST.md](../docs/QA_CHECKLIST.md)를 참고하세요.
+
+Xcode 없이 지인 테스트용 앱을 실행하는 절차는 [TESTER_INSTALL_GUIDE.md](../docs/TESTER_INSTALL_GUIDE.md)를 참고하세요.
 
 ## Migration
 

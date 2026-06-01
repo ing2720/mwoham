@@ -1,5 +1,10 @@
 # Local/internal documents
-docs/
+docs/*
+!docs/QA_CHECKLIST.md
+!docs/TESTER_INSTALL_GUIDE.md
+
+# Build and tester distribution artifacts
+dist/
 
 # Backend local environment and runtime files
 backend/.env
