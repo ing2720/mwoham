@@ -309,6 +309,8 @@ def test_reports_page_and_detail_render_generated_report(client: TestClient) -> 
     assert 'name="format" value="pdf"' in detail_response.text
     assert "상세 리포트" in detail_response.text
     assert "시스템" in detail_response.text
+    assert "<h2>요약</h2>" in detail_response.text
+    assert "## 요약" not in detail_response.text
 
 
 def test_web_report_create_form_redirects_to_detail(client: TestClient) -> None:

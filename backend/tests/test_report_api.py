@@ -229,6 +229,69 @@ def test_daily_report_placeholder_does_not_dump_raw_timeline(client: TestClient)
     assert "raw event 5" not in content
 
 
+def test_daily_report_placeholder_uses_specific_memo_and_ocr_candidates(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime(2026, 5, 26, 1, 30, tzinfo=UTC).isoformat(),
+            "content": "OCR 수집 주기를 10초로 조정하고 Gemini quota 절약 정책 적용",
+        },
+    )
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 1, 40, tzinfo=UTC).isoformat(),
+            "app_name": "PyCharm",
+            "window_title": "report_service.py",
+            "ocr_text": "\n".join(
+                [
+                    "ENABLE_SCREEN_OBSERVATION_AI_INFERENCE=false",
+                    "SCREEN_AI_DAILY_LIMIT=5",
+                    "uv run pytest",
+                ]
+            ),
+            "detected_keywords": ["Gemini", "quota", "pytest"],
+            "frame_hash": "specific-report-fallback",
+        },
+    )
+
+    response = client.post("/reports/daily", json={"date": "2026-05-26"})
+
+    assert response.status_code == 201
+    content = response.json()["content"]
+    assert "## 작업 후보" in content
+    assert "OCR 수집 주기를 10초로 조정" in content
+    assert "ENABLE_SCREEN_OBSERVATION_AI_INFERENCE=false" in content
+    assert "uv run pytest" in content
+    assert "Swift/API/FastAPI 관련 작업" not in content
+
+
+def test_daily_report_placeholder_excludes_self_service_screen_ocr(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 1, 40, tzinfo=UTC).isoformat(),
+            "app_name": "Google Chrome",
+            "window_title": "대시보드 - 뭐함",
+            "ocr_text": "127.0.0.1:8765 작업 기록 자동화 서비스",
+            "frame_hash": "self-service-report-fallback",
+        },
+    )
+
+    response = client.post("/reports/daily", json={"date": "2026-05-26"})
+
+    assert response.status_code == 201
+    content = response.json()["content"]
+    assert "127.0.0.1:8765" not in content
+    assert "작업 기록 자동화 서비스" not in content
+
+
 def test_export_report_to_markdown(client: TestClient, tmp_path) -> None:
     app.dependency_overrides[get_report_export_service] = lambda: ReportExportService(
         repository=ReportRepository(),

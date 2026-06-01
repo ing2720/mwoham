@@ -55,6 +55,7 @@ def test_prompt_builder_uses_only_compressed_masked_timeline() -> None:
     assert "[MASKED]" in prompt
     assert "deploy" in prompt
     assert "EVENT |" in prompt
+    assert "앱 이름을 작업 내용으로 착각하지 마세요." in prompt
 
 
 def test_prompt_builder_prioritizes_screen_ocr_inference_and_keywords() -> None:
@@ -113,6 +114,55 @@ def test_prompt_builder_summarizes_activity_segments_as_auxiliary_context() -> N
     assert "ACTIVITY_ENVIRONMENT_SUMMARY |" in prompt
     assert "보조 작업 컨텍스트" in prompt
     assert "Chrome / PR 작성 900초" in prompt
+
+
+def test_prompt_builder_groups_concrete_work_evidence_by_time() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=3,
+        items=[
+            TimelineItem(
+                type="memo",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 31, tzinfo=UTC),
+                content="Gemini quota 절약 정책 적용",
+            ),
+            TimelineItem(
+                type="screen_ocr",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 1, 35, tzinfo=UTC),
+                app_name="PyCharm",
+                content="화면 텍스트 수집됨",
+                ocr_text="\n".join(
+                    [
+                        "ENABLE_SCREEN_OBSERVATION_AI_INFERENCE=false",
+                        "SCREEN_AI_MIN_INTERVAL_SECONDS=300",
+                        "pytest tests/test_report_api.py",
+                        "ChatGPT can make mistakes. Check important info.",
+                    ]
+                ),
+                detected_keywords=["pytest", "Gemini", "quota"],
+            ),
+            TimelineItem(
+                type="event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 2, 3, tzinfo=UTC),
+                source="terminal",
+                content="xcodebuild Release package tester bundle",
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "PRIORITY_MEMOS:" in prompt
+    assert "WORK_EVIDENCE_BY_TIME:" in prompt
+    assert "WORK_BLOCK | time_range=01:30~02:00" in prompt
+    assert "Gemini quota 절약 정책 적용" in prompt
+    assert "ENABLE_SCREEN_OBSERVATION_AI_INFERENCE=false" in prompt
+    assert "pytest tests/test_report_api.py" in prompt
+    assert "ChatGPT can make mistakes" not in prompt
+    assert "xcodebuild Release package tester bundle" in prompt
 
 
 def test_prompt_builder_excludes_self_service_screen_ocr() -> None:
