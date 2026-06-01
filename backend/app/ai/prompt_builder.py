@@ -1,13 +1,15 @@
 import re
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+from app.core.timezone import KST, as_kst
 from app.schemas.timeline import TimelineResponse
 from app.services.privacy_filter import PrivacyFilter, get_privacy_filter
 from app.services.screen_observation_summarizer import SAFE_UNCLEAR_INFERENCE
 
 
 class PromptBuilder:
+    KST = KST
     SELF_SERVICE_MARKERS = (
         "127.0.0.1:8765",
         "localhost:8765",
@@ -37,11 +39,16 @@ class PromptBuilder:
     )
     OCR_NOISE_MARKERS = (
         "chatgpt can make mistakes",
+        "chatgpt는 실수를 할 수",
         "nw_path_necp_check",
         "nsdebugdescription",
         "userinfo={",
         "connection invalid",
         "message chatgpt",
+        "무엇이든 물어보세요",
+        "공유된 ",
+        "tb 사용",
+        "order by",
     )
 
     def __init__(self, privacy_filter: PrivacyFilter) -> None:
@@ -136,7 +143,7 @@ class PromptBuilder:
         return "\n".join(lines)
 
     def _format_timeline_item(self, item) -> str:
-        timestamp = item.timestamp.isoformat()
+        timestamp = self._format_kst_time(item.timestamp)
         if item.type == "event":
             return (
                 f"- EVENT | time={timestamp} | source={item.source or '-'} | "
@@ -144,7 +151,7 @@ class PromptBuilder:
                 f"content={item.content}"
             )
         if item.type == "activity_segment":
-            ended_at = item.ended_at.isoformat() if item.ended_at else "-"
+            ended_at = self._format_kst_time(item.ended_at) if item.ended_at else "-"
             return (
                 f"- ACTIVITY_SEGMENT | start={timestamp} | end={ended_at} | "
                 f"duration_seconds={item.duration_seconds or 0} | "
@@ -184,7 +191,12 @@ class PromptBuilder:
             evidence = self._extract_item_evidence(item)
             if not evidence:
                 continue
-            bucket_start = item.timestamp.replace(minute=(item.timestamp.minute // 30) * 30)
+            local_timestamp = self._as_kst(item.timestamp)
+            bucket_start = local_timestamp.replace(
+                minute=(local_timestamp.minute // 30) * 30,
+                second=0,
+                microsecond=0,
+            )
             bucket_end = bucket_start + timedelta(minutes=30)
             key = f"{bucket_start.strftime('%H:%M')}~{bucket_end.strftime('%H:%M')}"
             if evidence not in grouped[key]:
@@ -306,6 +318,12 @@ class PromptBuilder:
         if alpha_numeric_count == 0:
             return True
         return alpha_numeric_count / max(len(text), 1) < 0.35
+
+    def _format_kst_time(self, value: datetime) -> str:
+        return self._as_kst(value).strftime("%Y-%m-%d %H:%M")
+
+    def _as_kst(self, value: datetime) -> datetime:
+        return as_kst(value)
 
     def _extract_work_keywords(self, text: str | None) -> list[str]:
         if not text:

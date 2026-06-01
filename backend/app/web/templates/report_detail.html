@@ -21,7 +21,7 @@
     </div>
     <h2>본문</h2>
     <div class="item-meta">
-      유형: {{ report.mode | report_mode_label }} · 생성 주체: {{ report.created_by | created_by_label }} · 수정: {{ report.updated_at }}
+      유형: {{ report.mode | report_mode_label }} · 생성 주체: {{ report.created_by | created_by_label }} · 수정: {{ report.updated_at | kst_time }}
     </div>
     <div class="markdown-body">{{ report.content | markdown }}</div>
   </section>

@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.ai.report_content_cleaner import ReportContentCleaner, get_report_conte
 from app.ai.summarizer import GeminiSummarizer
 from app.core.config import settings
 from app.core.exceptions import ResourceNotFoundError
+from app.core.timezone import KST, as_kst, now_kst, utc_range_for_kst_date
 from app.models.report import Report
 from app.repositories.report_repository import ReportRepository
 from app.schemas.report import DailyReportCreate, ReportListResponse, ReportResponse, ReportUpdate
@@ -20,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class ReportService:
+    KST = KST
+
     def __init__(
         self,
         repository: ReportRepository,
@@ -33,8 +36,8 @@ class ReportService:
         self.content_cleaner = content_cleaner or get_report_content_cleaner()
 
     def create_daily_report(self, db: Session, request: DailyReportCreate) -> ReportResponse:
-        target_date = request.date or datetime.now(UTC).date()
-        timeline = self.timeline_builder.build_detail_for_date(db, target_date=target_date)
+        target_date = request.date or now_kst().date()
+        timeline = self.timeline_builder.build_detail_for_kst_date(db, target_date=target_date)
         generated_content = self.summarizer.summarize_daily_report(timeline)
         cleaned_content = (
             self.content_cleaner.clean(generated_content) if generated_content else None
@@ -48,14 +51,15 @@ class ReportService:
                 getattr(self.summarizer, "last_finish_reason", None),
                 getattr(self.summarizer, "last_was_truncated", False),
             )
+        source_range_start, source_range_end = self._source_range_for_kst_date(target_date)
         report = Report(
             project_id=request.project_id,
             date=target_date,
             mode=request.mode,
             title=f"{target_date.isoformat()} 일일 작업 리포트",
             content=cleaned_content or self._build_placeholder_content(timeline),
-            source_range_start=datetime.combine(target_date, time.min, tzinfo=UTC),
-            source_range_end=datetime.combine(target_date, time.max, tzinfo=UTC),
+            source_range_start=source_range_start,
+            source_range_end=source_range_end,
             created_by="ai" if cleaned_content else "system",
         )
         return ReportResponse.model_validate(self.repository.create(db, report))
@@ -75,7 +79,7 @@ class ReportService:
     def list_today_reports(
         self, db: Session, target_date: date | None = None
     ) -> ReportListResponse:
-        report_date = target_date or datetime.now(UTC).date()
+        report_date = target_date or now_kst().date()
         return self.list_reports(db, target_date=report_date, mode=None, limit=100)
 
     def get_report(self, db: Session, report_id: int) -> ReportResponse:
@@ -162,7 +166,7 @@ class ReportService:
         return [item_formatter(item) for item in items[:limit]]
 
     def _format_default_placeholder_item(self, item) -> str:
-        return f"- {item.timestamp.strftime('%H:%M')} {item.content}"
+        return f"- {self._format_kst_clock(item.timestamp)} {item.content}"
 
     def _format_screen_observation_placeholder(self, item) -> str:
         content = item.ai_inference or self._build_ocr_evidence_snippet(
@@ -170,7 +174,7 @@ class ReportService:
         )
         if not content:
             content = "화면 텍스트 수집됨"
-        return f"- {item.timestamp.strftime('%H:%M')} {content}"
+        return f"- {self._format_kst_clock(item.timestamp)} {content}"
 
     def _format_environment_placeholder_items(
         self,
@@ -201,18 +205,22 @@ class ReportService:
     def _build_work_candidates(self, memos, screen_observations, events) -> list[str]:
         candidates: list[str] = []
         for item in memos:
-            candidates.append(f"{item.timestamp.strftime('%H:%M')} 메모: {item.content}")
+            candidates.append(f"{self._format_kst_clock(item.timestamp)} 메모: {item.content}")
         for item in screen_observations:
             evidence = item.ai_inference or self._build_ocr_evidence_snippet(
                 item.ocr_text or item.content
             )
             if evidence:
-                candidates.append(f"{item.timestamp.strftime('%H:%M')} 화면 단서: {evidence}")
+                candidates.append(
+                    f"{self._format_kst_clock(item.timestamp)} 화면 단서: {evidence}"
+                )
         for item in events:
             if item.source == "mac_active_window":
                 continue
             if self._extract_work_keywords(item.content) or len(item.content.strip()) >= 12:
-                candidates.append(f"{item.timestamp.strftime('%H:%M')} 이벤트: {item.content}")
+                candidates.append(
+                    f"{self._format_kst_clock(item.timestamp)} 이벤트: {item.content}"
+                )
 
         deduplicated: list[str] = []
         seen: set[str] = set()
@@ -248,10 +256,15 @@ class ReportService:
             marker in lowered
             for marker in [
                 "chatgpt can make mistakes",
+                "chatgpt는 실수를 할 수",
                 "nw_path_necp_check",
                 "nsdebugdescription",
                 "userinfo={",
                 "connection invalid",
+                "무엇이든 물어보세요",
+                "공유된 ",
+                "tb 사용",
+                "order by",
             ]
         ):
             return True
@@ -309,6 +322,12 @@ class ReportService:
         if len(text) <= limit:
             return text
         return text[:limit].rstrip() + "..."
+
+    def _format_kst_clock(self, value: datetime) -> str:
+        return as_kst(value).strftime("%H:%M")
+
+    def _source_range_for_kst_date(self, target_date: date) -> tuple[datetime, datetime]:
+        return utc_range_for_kst_date(target_date)
 
 
 def get_report_service() -> ReportService:

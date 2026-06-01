@@ -292,6 +292,34 @@ def test_daily_report_placeholder_excludes_self_service_screen_ocr(
     assert "작업 기록 자동화 서비스" not in content
 
 
+def test_daily_report_uses_kst_day_range_for_source_items(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 31, 16, 10, tzinfo=UTC).isoformat(),
+            "source": "terminal",
+            "content": "KST 6월 1일 새벽 release package 검증",
+        },
+    )
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 31, 14, 50, tzinfo=UTC).isoformat(),
+            "source": "terminal",
+            "content": "KST 5월 31일 밤 이전 작업",
+        },
+    )
+
+    response = client.post("/reports/daily", json={"date": "2026-06-01"})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["date"] == "2026-06-01"
+    assert "KST 6월 1일 새벽 release package 검증" in body["content"]
+    assert "KST 5월 31일 밤 이전 작업" not in body["content"]
+
+
 def test_export_report_to_markdown(client: TestClient, tmp_path) -> None:
     app.dependency_overrides[get_report_export_service] = lambda: ReportExportService(
         repository=ReportRepository(),

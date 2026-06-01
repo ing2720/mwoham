@@ -1,9 +1,10 @@
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.exceptions import ResourceNotFoundError
+from app.core.timezone import as_kst, as_utc
 from app.models.work_session import WorkSession
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_session_repository import WorkSessionRepository
@@ -142,7 +143,7 @@ class ScreenObservationService:
 
         inference_count = self.observation_repository.count_ai_inference(
             db,
-            target_date=request.timestamp.date(),
+            target_date=as_kst(request.timestamp).date(),
         )
         if inference_count >= self.ai_daily_limit:
             return False
@@ -163,9 +164,7 @@ class ScreenObservationService:
         return elapsed_seconds >= self.ai_min_interval_seconds
 
     def _as_aware_utc(self, value: datetime) -> datetime:
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
+        return as_utc(value)
 
 
 def get_screen_observation_service() -> ScreenObservationService:
