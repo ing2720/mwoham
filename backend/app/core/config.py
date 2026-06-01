@@ -10,8 +10,11 @@ class Settings(BaseSettings):
     app_port: int = 8765
     database_url: str = "sqlite:///./data/mwoham.sqlite3"
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-2.5-flash-lite"
     gemini_max_output_tokens: int = 8192
+    enable_screen_observation_ai_inference: bool = False
+    screen_ai_min_interval_seconds: int = 300
+    screen_ai_daily_limit: int = 5
     report_export_dir: str = "exports/reports"
     local_api_token: str | None = None
 

@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, date, datetime, time
 
 from sqlalchemy.orm import Session
@@ -13,6 +14,8 @@ from app.repositories.report_repository import ReportRepository
 from app.schemas.report import DailyReportCreate, ReportListResponse, ReportResponse, ReportUpdate
 from app.schemas.timeline import TimelineResponse
 from app.services.timeline_builder import TimelineBuilder, get_timeline_builder
+
+logger = logging.getLogger(__name__)
 
 
 class ReportService:
@@ -35,6 +38,15 @@ class ReportService:
         cleaned_content = (
             self.content_cleaner.clean(generated_content) if generated_content else None
         )
+        if cleaned_content is None:
+            logger.warning(
+                "Daily report is falling back to placeholder: date=%s reason=%s "
+                "finish_reason=%s was_truncated=%s",
+                target_date.isoformat(),
+                getattr(self.summarizer, "last_error_reason", None),
+                getattr(self.summarizer, "last_finish_reason", None),
+                getattr(self.summarizer, "last_was_truncated", False),
+            )
         report = Report(
             project_id=request.project_id,
             date=target_date,
@@ -83,29 +95,45 @@ class ReportService:
         return ReportResponse.model_validate(self.repository.update(db, report))
 
     def _build_placeholder_content(self, timeline: TimelineResponse) -> str:
+        memos = [item for item in timeline.items if item.type == "memo"]
+        screen_observations = [item for item in timeline.items if item.type == "screen_ocr"]
+        activity_segments = [item for item in timeline.items if item.type == "activity_segment"]
+        events = [item for item in timeline.items if item.type == "event"]
         lines = [
             f"# {timeline.date.isoformat()} 일일 작업 리포트",
             "",
             "## 요약",
             f"- 오늘 수집된 타임라인 항목은 총 {timeline.total}개입니다.",
-            "- 이 리포트는 Gemini 연동 전 placeholder로 생성되었습니다.",
+            "- Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다.",
             "",
-            "## 타임라인",
+            "## 주요 메모",
         ]
         if not timeline.items:
             lines.append("- 기록된 이벤트나 메모가 없습니다.")
             return "\n".join(lines)
 
-        for item in timeline.items:
-            if item.type == "activity_segment":
-                label = "작업 구간"
-            elif item.type == "event":
-                label = "이벤트"
-            else:
-                label = "메모"
-            source = f" / {item.source}" if item.source else ""
-            lines.append(f"- {item.timestamp.isoformat()} [{label}{source}] {item.content}")
+        lines.extend(self._format_placeholder_items(memos, empty_text="주요 메모가 없습니다."))
+        lines.extend(["", "## 주요 화면 관찰"])
+        lines.extend(
+            self._format_placeholder_items(
+                screen_observations,
+                empty_text="주요 화면 관찰이 없습니다.",
+            )
+        )
+        lines.extend(["", "## 주요 작업 환경"])
+        environment_items = activity_segments or events
+        lines.extend(
+            self._format_placeholder_items(
+                environment_items,
+                empty_text="주요 작업 환경 정보가 없습니다.",
+            )
+        )
         return "\n".join(lines)
+
+    def _format_placeholder_items(self, items, *, empty_text: str, limit: int = 5) -> list[str]:
+        if not items:
+            return [f"- {empty_text}"]
+        return [f"- {item.timestamp.strftime('%H:%M')} {item.content}" for item in items[:limit]]
 
 
 def get_report_service() -> ReportService:

@@ -25,6 +25,19 @@ class StubSummarizer:
         return self.content
 
 
+class QuotaExceededSummarizer:
+    last_error_reason = "quota_exceeded"
+    last_finish_reason = None
+    last_was_truncated = False
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def summarize_daily_report(self, timeline):
+        self.calls += 1
+        return None
+
+
 class FakePdfGenerator:
     def generate(self, report, output_path) -> None:
         output_path.write_bytes(b"%PDF-1.4\n% fake test pdf\n")
@@ -55,9 +68,12 @@ def test_daily_report_api_uses_timeline_placeholder_content(client: TestClient) 
     created = create_response.json()
     assert created["date"] == "2026-05-26"
     assert created["created_by"] == "system"
-    assert "placeholder" in created["content"]
+    assert "Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다." in created["content"]
     assert "리포트 서비스 뼈대 구현" in created["content"]
     assert "Gemini는 아직 호출하지 않음" in created["content"]
+    assert "## 주요 메모" in created["content"]
+    assert "## 주요 화면 관찰" in created["content"]
+    assert "## 주요 작업 환경" in created["content"]
 
     today_response = client.get("/reports/today?date=2026-05-26")
     assert today_response.status_code == 200
@@ -165,7 +181,52 @@ def test_daily_report_falls_back_when_mocked_gemini_returns_none(client: TestCli
     assert response.status_code == 201
     body = response.json()
     assert body["created_by"] == "system"
-    assert "placeholder" in body["content"]
+    assert "Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다." in body["content"]
+
+
+def test_daily_report_falls_back_when_gemini_quota_is_exceeded(client: TestClient) -> None:
+    original_service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=GeminiSummarizer(
+            client=GeminiClient(api_key=None, model="gemini-2.5-flash"),
+            prompt_builder=get_prompt_builder(),
+        ),
+    )
+    summarizer = QuotaExceededSummarizer()
+    original_service.summarizer = summarizer
+    app.dependency_overrides[get_report_service] = lambda: original_service
+    try:
+        response = client.post("/reports/daily", json={"date": "2026-05-26"})
+    finally:
+        app.dependency_overrides.pop(get_report_service, None)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["created_by"] == "system"
+    assert "Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다." in body["content"]
+    assert summarizer.calls == 1
+
+
+def test_daily_report_placeholder_does_not_dump_raw_timeline(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    for index in range(20):
+        client.post(
+            "/events",
+            json={
+                "timestamp": datetime(2026, 5, 26, 10, index, tzinfo=UTC).isoformat(),
+                "source": "window",
+                "content": f"raw event {index}",
+            },
+        )
+
+    response = client.post("/reports/daily", json={"date": "2026-05-26"})
+
+    assert response.status_code == 201
+    content = response.json()["content"]
+    assert "raw event 0" in content
+    assert "raw event 4" in content
+    assert "raw event 5" not in content
 
 
 def test_export_report_to_markdown(client: TestClient, tmp_path) -> None:

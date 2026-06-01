@@ -21,7 +21,7 @@ final class OCRCollector {
     private var pollingTask: Task<Void, Never>?
     private var lastFrameHash: String?
 
-    init(localApiClient: LocalApiClient, pollingInterval: TimeInterval = 5) {
+    init(localApiClient: LocalApiClient, pollingInterval: TimeInterval = 10) {
         self.localApiClient = localApiClient
         self.pollingInterval = pollingInterval
     }

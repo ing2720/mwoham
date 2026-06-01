@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import ResourceNotFoundError
 from app.models.work_session import WorkSession
 from app.repositories.screen_observation_repository import ScreenObservationRepository
@@ -25,11 +26,17 @@ class ScreenObservationService:
         session_repository: WorkSessionRepository,
         setting_service: SettingService,
         observation_summarizer: ScreenObservationSummarizer,
+        enable_ai_inference: bool = settings.enable_screen_observation_ai_inference,
+        ai_min_interval_seconds: int = settings.screen_ai_min_interval_seconds,
+        ai_daily_limit: int = settings.screen_ai_daily_limit,
     ) -> None:
         self.observation_repository = observation_repository
         self.session_repository = session_repository
         self.setting_service = setting_service
         self.observation_summarizer = observation_summarizer
+        self.enable_ai_inference = enable_ai_inference
+        self.ai_min_interval_seconds = ai_min_interval_seconds
+        self.ai_daily_limit = ai_daily_limit
 
     def create(
         self,
@@ -62,7 +69,11 @@ class ScreenObservationService:
                     duplicate=True,
                 )
 
-        if not is_private_app and not request.ai_inference:
+        if (
+            not is_private_app
+            and not request.ai_inference
+            and self._should_generate_ai_inference(db, session=session, request=request)
+        ):
             ai_inference = self.observation_summarizer.summarize(
                 ocr_text=request.ocr_text,
                 app_name=request.app_name,
@@ -117,6 +128,45 @@ class ScreenObservationService:
             raise ResourceNotFoundError("Active recording session not found.")
         return session
 
+    def _should_generate_ai_inference(
+        self,
+        db: Session,
+        *,
+        session: WorkSession,
+        request: ScreenObservationCreate,
+    ) -> bool:
+        if not self.enable_ai_inference:
+            return False
+        if self.ai_daily_limit <= 0:
+            return False
+
+        inference_count = self.observation_repository.count_ai_inference(
+            db,
+            target_date=request.timestamp.date(),
+        )
+        if inference_count >= self.ai_daily_limit:
+            return False
+
+        latest_observation = self.observation_repository.get_latest_ai_inference_by_context(
+            db,
+            session_id=session.id,
+            app_name=request.app_name,
+            window_title=request.window_title,
+        )
+        if latest_observation is None:
+            return True
+
+        elapsed_seconds = (
+            self._as_aware_utc(request.timestamp)
+            - self._as_aware_utc(latest_observation.timestamp)
+        ).total_seconds()
+        return elapsed_seconds >= self.ai_min_interval_seconds
+
+    def _as_aware_utc(self, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
 
 def get_screen_observation_service() -> ScreenObservationService:
     return ScreenObservationService(
@@ -124,4 +174,7 @@ def get_screen_observation_service() -> ScreenObservationService:
         session_repository=WorkSessionRepository(),
         setting_service=get_setting_service(),
         observation_summarizer=get_screen_observation_summarizer(),
+        enable_ai_inference=settings.enable_screen_observation_ai_inference,
+        ai_min_interval_seconds=settings.screen_ai_min_interval_seconds,
+        ai_daily_limit=settings.screen_ai_daily_limit,
     )
