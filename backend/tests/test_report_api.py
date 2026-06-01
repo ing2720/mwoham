@@ -316,6 +316,8 @@ def test_daily_report_uses_kst_day_range_for_source_items(client: TestClient) ->
     assert response.status_code == 201
     body = response.json()
     assert body["date"] == "2026-06-01"
+    assert body["source_range_start"] == "2026-05-31T15:00:00"
+    assert body["source_range_end"] == "2026-06-01T15:00:00"
     assert "KST 6월 1일 새벽 release package 검증" in body["content"]
     assert "KST 5월 31일 밤 이전 작업" not in body["content"]
 

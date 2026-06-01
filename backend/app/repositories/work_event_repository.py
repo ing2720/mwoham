@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from app.core.timezone import utc_range_for_kst_date
+from app.core.timezone import get_kst_day_range_as_utc
 from app.models.work_event import WorkEvent
 from app.schemas.work_event import WorkEventCreate
 
@@ -82,8 +82,8 @@ class WorkEventRepository:
         if session_id is not None:
             statement = statement.where(WorkEvent.session_id == session_id)
         if target_date is not None:
-            start, end = utc_range_for_kst_date(target_date)
-            statement = statement.where(WorkEvent.timestamp >= start, WorkEvent.timestamp <= end)
+            start, end = get_kst_day_range_as_utc(target_date)
+            statement = statement.where(WorkEvent.timestamp >= start, WorkEvent.timestamp < end)
         if source is not None:
             statement = statement.where(WorkEvent.source == source)
         return statement

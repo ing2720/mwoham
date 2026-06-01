@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_session_repository import WorkSessionRepository
+from app.services.screen_observation_policy import ScreenObservationInferencePolicy
 from app.services.screen_observation_service import (
     ScreenObservationService,
     get_screen_observation_service,
@@ -28,14 +29,18 @@ def _override_screen_observation_service(
     ai_min_interval_seconds: int = 300,
     ai_daily_limit: int = 5,
 ) -> None:
+    observation_repository = ScreenObservationRepository()
     app.dependency_overrides[get_screen_observation_service] = lambda: ScreenObservationService(
-        observation_repository=ScreenObservationRepository(),
+        observation_repository=observation_repository,
         session_repository=WorkSessionRepository(),
         setting_service=get_setting_service(),
         observation_summarizer=summarizer,
-        enable_ai_inference=enable_ai_inference,
-        ai_min_interval_seconds=ai_min_interval_seconds,
-        ai_daily_limit=ai_daily_limit,
+        inference_policy=ScreenObservationInferencePolicy(
+            observation_repository=observation_repository,
+            enable_ai_inference=enable_ai_inference,
+            ai_min_interval_seconds=ai_min_interval_seconds,
+            ai_daily_limit=ai_daily_limit,
+        ),
     )
 
 
@@ -683,6 +688,88 @@ def test_private_app_regex_match_minimizes_event(client: TestClient) -> None:
 
     event = client.get("/events?date=2026-05-26").json()["items"][0]
     assert event["content"] == "비공개 앱 사용 중"
+
+
+def test_invalid_private_app_regex_does_not_block_storage(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "[", "match_type": "regex", "is_enabled": True},
+    )
+
+    response = client.post(
+        "/activity-segments",
+        json={
+            "started_at": datetime(2026, 5, 26, 12, 10, tzinfo=UTC).isoformat(),
+            "last_seen_at": datetime(2026, 5, 26, 12, 10, 2, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "app_name": "BankSecure",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["saved"] is True
+
+
+def test_private_screen_observation_is_excluded_from_timeline(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/settings/private-apps",
+        json={"app_name": "Kakao", "match_type": "contains", "is_enabled": True},
+    )
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 12, 20, tzinfo=UTC).isoformat(),
+            "app_name": "KakaoTalk",
+            "window_title": "친구와의 대화",
+            "ocr_text": "민감한 화면 텍스트",
+        },
+    )
+
+    basic_response = client.get("/timeline/today?date=2026-05-26")
+    detail_response = client.get("/timeline/today/detail?date=2026-05-26")
+
+    assert basic_response.status_code == 200
+    assert detail_response.status_code == 200
+    assert basic_response.json()["items"] == []
+    assert detail_response.json()["items"] == []
+
+
+def test_screen_observation_ai_daily_limit_uses_kst_date(client: TestClient) -> None:
+    summarizer = SpyScreenObservationSummarizer()
+    _override_screen_observation_service(
+        summarizer,
+        enable_ai_inference=True,
+        ai_min_interval_seconds=0,
+        ai_daily_limit=1,
+    )
+    client.post("/recording/start", json={})
+
+    try:
+        for timestamp, frame_hash in [
+            (datetime(2026, 5, 31, 14, 50, tzinfo=UTC), "kst-previous-day"),
+            (datetime(2026, 5, 31, 15, 10, tzinfo=UTC), "kst-target-day"),
+            (datetime(2026, 5, 31, 16, 10, tzinfo=UTC), "kst-target-day-second"),
+        ]:
+            client.post(
+                "/screen-observations",
+                json={
+                    "timestamp": timestamp.isoformat(),
+                    "app_name": "Chrome",
+                    "window_title": frame_hash,
+                    "ocr_text": "report timeline OCR quota test",
+                    "frame_hash": frame_hash,
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(get_screen_observation_service, None)
+
+    previous_day = client.get("/screen-observations?date=2026-05-31").json()["items"]
+    target_day = client.get("/screen-observations?date=2026-06-01").json()["items"]
+    assert summarizer.calls == 2
+    assert [item["ai_inference"] for item in previous_day] == ["AI 요약 1"]
+    assert [item["ai_inference"] for item in target_day] == [None, "AI 요약 2"]
 
 
 def test_meeting_lifecycle_and_transcripts(client: TestClient) -> None:

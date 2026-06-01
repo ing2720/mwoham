@@ -9,18 +9,25 @@ from app.models.report import Report
 from app.models.screen_observation import ScreenObservation
 from app.models.work_event import WorkEvent
 from app.models.work_session import WorkSession
-from scripts.reset_dev_data import ResetDevDataOptions, reset_dev_data
+from app.services.dev_data_reset_service import ResetDevDataOptions, get_dev_data_reset_service
 
 
 def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
     session = _create_session(db)
     inside = datetime(2026, 5, 31, 16, 0, tzinfo=UTC)
     outside = datetime(2026, 5, 31, 14, 30, tzinfo=UTC)
+    next_day_boundary = datetime(2026, 6, 1, 15, 0, tzinfo=UTC)
 
     _create_report(db, report_date=date(2026, 6, 1), title="today report")
     _create_report(db, report_date=date(2026, 5, 31), title="previous report")
     _create_event(db, session_id=session.id, timestamp=inside, content="inside event")
     _create_event(db, session_id=session.id, timestamp=outside, content="outside event")
+    _create_event(
+        db,
+        session_id=session.id,
+        timestamp=next_day_boundary,
+        content="next day boundary event",
+    )
     _create_memo(db, session_id=session.id, timestamp=inside, content="inside memo")
     _create_memo(db, session_id=session.id, timestamp=outside, content="outside memo")
     _create_observation(db, session_id=session.id, timestamp=inside, text="inside screen")
@@ -28,7 +35,7 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
     _create_segment(db, session_id=session.id, started_at=inside)
     _create_segment(db, session_id=session.id, started_at=outside)
 
-    result = reset_dev_data(
+    result = get_dev_data_reset_service().reset(
         db,
         ResetDevDataOptions(today=True, yes=True, target_date=date(2026, 6, 1)),
     )
@@ -42,11 +49,13 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
         "manual_memos": 1,
     }
     assert _count(db, Report) == 1
-    assert _count(db, WorkEvent) == 1
+    assert _count(db, WorkEvent) == 2
     assert _count(db, ManualMemo) == 1
     assert _count(db, ScreenObservation) == 1
     assert _count(db, ActivitySegment) == 1
-    assert db.scalar(select(WorkEvent.content)) == "outside event"
+    assert {
+        event.content for event in db.scalars(select(WorkEvent).order_by(WorkEvent.timestamp))
+    } == {"outside event", "next day boundary event"}
 
 
 def test_reset_dev_data_reports_only_deletes_reports_only(db: Session) -> None:
@@ -54,7 +63,10 @@ def test_reset_dev_data_reports_only_deletes_reports_only(db: Session) -> None:
     _create_report(db, report_date=date(2026, 6, 1), title="report")
     _create_event(db, session_id=session.id, timestamp=datetime(2026, 6, 1, tzinfo=UTC))
 
-    result = reset_dev_data(db, ResetDevDataOptions(reports_only=True, yes=True))
+    result = get_dev_data_reset_service().reset(
+        db,
+        ResetDevDataOptions(reports_only=True, yes=True),
+    )
 
     assert result.counts == {"reports": 1}
     assert _count(db, Report) == 0
@@ -66,7 +78,7 @@ def test_reset_dev_data_without_yes_does_not_delete(db: Session) -> None:
     _create_report(db, report_date=date(2026, 6, 1), title="report")
     _create_event(db, session_id=session.id, timestamp=datetime(2026, 6, 1, tzinfo=UTC))
 
-    result = reset_dev_data(db, ResetDevDataOptions(all_data=True))
+    result = get_dev_data_reset_service().reset(db, ResetDevDataOptions(all_data=True))
 
     assert result.deleted is False
     assert result.counts["reports"] == 1
@@ -84,7 +96,10 @@ def test_reset_dev_data_all_yes_deletes_target_data(db: Session) -> None:
     _create_observation(db, session_id=session.id, timestamp=timestamp)
     _create_segment(db, session_id=session.id, started_at=timestamp)
 
-    result = reset_dev_data(db, ResetDevDataOptions(all_data=True, yes=True))
+    result = get_dev_data_reset_service().reset(
+        db,
+        ResetDevDataOptions(all_data=True, yes=True),
+    )
 
     assert result.deleted is True
     assert all(count == 1 for count in result.counts.values())

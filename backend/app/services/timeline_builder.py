@@ -2,7 +2,12 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
-from app.core.timezone import KST, as_utc, now_kst, utc_range_for_kst_date
+from app.core.timezone import (
+    as_utc,
+    format_datetime_kst,
+    get_kst_day_range_as_utc,
+    parse_date_or_today_kst,
+)
 from app.models.activity_segment import ActivitySegment
 from app.models.manual_memo import ManualMemo
 from app.models.meeting_session import MeetingSession
@@ -15,21 +20,11 @@ from app.repositories.memo_repository import MemoRepository
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_event_repository import WorkEventRepository
 from app.schemas.timeline import TimelineItem, TimelineResponse
+from app.services.self_observation_filter import SelfObservationFilter, get_self_observation_filter
 from app.services.setting_service import SettingService, get_setting_service
 
 
 class TimelineBuilder:
-    KST = KST
-    SELF_SERVICE_MARKERS = (
-        "127.0.0.1:8765",
-        "localhost:8765",
-        "대시보드 - 뭐함",
-        "타임라인 - 뭐함",
-        "리포트 - 뭐함",
-        "설정 - 뭐함",
-        "작업 기록 자동화 서비스",
-    )
-
     def __init__(
         self,
         activity_segment_repository: ActivitySegmentRepository,
@@ -38,6 +33,7 @@ class TimelineBuilder:
         screen_observation_repository: ScreenObservationRepository,
         meeting_repository: MeetingRepository,
         setting_service: SettingService,
+        self_observation_filter: SelfObservationFilter,
     ) -> None:
         self.activity_segment_repository = activity_segment_repository
         self.event_repository = event_repository
@@ -45,9 +41,10 @@ class TimelineBuilder:
         self.screen_observation_repository = screen_observation_repository
         self.meeting_repository = meeting_repository
         self.setting_service = setting_service
+        self.self_observation_filter = self_observation_filter
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
-        timeline_date = target_date or now_kst().date()
+        timeline_date = parse_date_or_today_kst(target_date)
         events = [
             event
             for event in self.event_repository.list(db, target_date=timeline_date, limit=1000)
@@ -61,7 +58,7 @@ class TimelineBuilder:
                 target_date=timeline_date,
                 limit=1000,
             )
-            if not self._is_self_service_observation(observation)
+            if not self._should_hide_screen_observation(db, observation)
         ]
         meetings = self.meeting_repository.list_meetings(
             db,
@@ -91,7 +88,7 @@ class TimelineBuilder:
         db: Session,
         target_date: date | None = None,
     ) -> TimelineResponse:
-        timeline_date = target_date or now_kst().date()
+        timeline_date = parse_date_or_today_kst(target_date)
         activity_segments = self.activity_segment_repository.list(
             db,
             target_date=timeline_date,
@@ -108,11 +105,15 @@ class TimelineBuilder:
             if event.source != "mac_active_window"
         ]
         memos = self.memo_repository.list(db, target_date=timeline_date, limit=1000)
-        screen_observations = self.screen_observation_repository.list(
-            db,
-            target_date=timeline_date,
-            limit=1000,
-        )
+        screen_observations = [
+            observation
+            for observation in self.screen_observation_repository.list(
+                db,
+                target_date=timeline_date,
+                limit=1000,
+            )
+            if not self.setting_service.is_private_app(db, observation.app_name)
+        ]
         meetings = self.meeting_repository.list_meetings(
             db,
             target_date=timeline_date,
@@ -138,7 +139,7 @@ class TimelineBuilder:
         db: Session,
         target_date: date,
     ) -> TimelineResponse:
-        utc_start, utc_end = utc_range_for_kst_date(target_date)
+        utc_start, utc_end = get_kst_day_range_as_utc(target_date)
         utc_dates = {utc_start.date(), utc_end.date()}
 
         items_by_key: dict[tuple[str, int], TimelineItem] = {}
@@ -160,7 +161,7 @@ class TimelineBuilder:
     ) -> bool:
         item_start = self._as_utc(item.timestamp)
         item_end = self._as_utc(item.ended_at) if item.ended_at else item_start
-        return item_start <= end and item_end >= start
+        return item_start < end and item_end >= start
 
     def _as_utc(self, value: datetime) -> datetime:
         return as_utc(value)
@@ -291,8 +292,17 @@ class TimelineBuilder:
             observation.ocr_text,
             observation.ai_inference,
         ]
-        combined_text = "\n".join(value for value in values if value).lower()
-        return any(marker.lower() in combined_text for marker in self.SELF_SERVICE_MARKERS)
+        return self.self_observation_filter.is_self_service_values(values)
+
+    def _should_hide_screen_observation(
+        self,
+        db: Session,
+        observation: ScreenObservation,
+    ) -> bool:
+        return self.setting_service.is_private_app(
+            db,
+            observation.app_name,
+        ) or self._is_self_service_observation(observation)
 
     def _ocr_excerpt(self, text: str | None, limit: int = 160) -> str:
         if not text:
@@ -306,7 +316,7 @@ class TimelineBuilder:
         return as_utc(value)
 
     def _format_kst_clock(self, value: datetime) -> str:
-        return self._as_aware_utc(value).astimezone(self.KST).strftime("%H:%M:%S")
+        return format_datetime_kst(value, "%H:%M:%S")
 
     def _meeting_to_items(self, meeting: MeetingSession) -> list[TimelineItem]:
         title = meeting.title or "회의"
@@ -356,4 +366,5 @@ def get_timeline_builder() -> TimelineBuilder:
         screen_observation_repository=ScreenObservationRepository(),
         meeting_repository=MeetingRepository(),
         setting_service=get_setting_service(),
+        self_observation_filter=get_self_observation_filter(),
     )
