@@ -19,6 +19,12 @@ struct ConnectionMessageView: View {
                 systemImage: isConnected ? "checkmark.circle.fill" : "xmark.circle.fill"
             )
             .foregroundStyle(isConnected ? .green : .red)
+
+            if !isConnected {
+                Text("로컬 서버가 실행 중인지 확인해 주세요.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

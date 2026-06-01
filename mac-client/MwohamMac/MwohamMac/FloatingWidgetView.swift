@@ -24,6 +24,14 @@ struct FloatingWidgetView: View {
         VStack(alignment: .leading, spacing: 12) {
             headerView
 
+            if !viewModel.isConnected {
+                Text("로컬 서버 확인: \(viewModel.backendAddressText)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
             VStack(alignment: .leading, spacing: 6) {
                 FloatingStatusRow(title: "현재 기록 상태", value: viewModel.recordingStatus)
                 FloatingStatusRow(title: "기록 시간", value: viewModel.recordingElapsedTime)
@@ -53,7 +61,7 @@ struct FloatingWidgetView: View {
                 .lineLimit(1)
                 .frame(minWidth: 46, alignment: .leading)
 
-            Text(viewModel.isPrivateAppActive ? "비공개" : viewModel.recordingElapsedTime)
+            Text(collapsedDetailText)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -104,6 +112,18 @@ struct FloatingWidgetView: View {
             .buttonStyle(.borderless)
             .help(isCollapsed ? "펼치기" : "접기")
         }
+    }
+
+    private var collapsedDetailText: String {
+        if !viewModel.isConnected {
+            return "연결 실패"
+        }
+
+        if viewModel.isPrivateAppActive {
+            return "비공개"
+        }
+
+        return viewModel.recordingElapsedTime
     }
 
     @ViewBuilder

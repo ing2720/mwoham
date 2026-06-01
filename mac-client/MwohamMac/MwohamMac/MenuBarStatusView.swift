@@ -14,7 +14,11 @@ struct MenuBarStatusView: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("백엔드: \(viewModel.isConnected ? "연결됨" : "연결 실패")")
+            Text(viewModel.isConnected ? "백엔드 연결됨" : "백엔드 연결 실패")
+            if !viewModel.isConnected {
+                Text("로컬 서버가 실행 중인지 확인해 주세요.")
+                Text("주소: \(viewModel.backendAddressText)")
+            }
             Text("현재 기록 상태: \(viewModel.recordingStatus)")
             Text("기록 시간: \(viewModel.recordingElapsedTime)")
 
@@ -60,7 +64,7 @@ struct MenuBarStatusView: View {
             }
 
             Button("대시보드 열기") {
-                openDashboard()
+                viewModel.openDashboard()
             }
 
             Button("새로고침") {
@@ -86,11 +90,4 @@ struct MenuBarStatusView: View {
         }
     }
 
-    private func openDashboard() {
-        guard let url = URL(string: "http://127.0.0.1:8765/dashboard") else {
-            return
-        }
-
-        NSWorkspace.shared.open(url)
-    }
 }
