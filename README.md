@@ -2,7 +2,7 @@
 
 뭐함은 macOS에서 사용자의 작업 흐름을 로컬에 기록하고, Gemini를 이용해 일일 업무 리포트로 정리하는 개인용 작업 기록 에이전트입니다.
 
-현재 구현 범위는 백엔드 중심입니다. FastAPI, SQLAlchemy, Alembic, SQLite, Jinja2 Templates 기반으로 로컬 API와 웹 대시보드를 제공합니다.
+현재 구현 범위는 macOS SwiftUI 클라이언트와 FastAPI 백엔드 기반 2차 MVP입니다. 로컬 API, 웹 대시보드, 메뉴바/플로팅 위젯, 활성 앱/창 구간 추적, OCR 수집, 일일 리포트 생성을 제공합니다.
 
 ## 현재 기능
 
@@ -66,9 +66,9 @@ uv run python scripts/seed_sample_data.py --reset
 
 - [Backend README](backend/README.md)
 - [Development Guide](DEVELOPMENT.md)
+- [2차 MVP QA Checklist](docs/QA_CHECKLIST.md)
 
 ## 주의사항
 
 - `.env`, `backend/data/`, `backend/exports/`, SQLite DB 파일은 git에 포함하지 않습니다.
-- Swift 코드는 아직 이 저장소 범위에서 구현하지 않습니다.
 - 실제 Gemini 호출 테스트는 수동 확인이 필요할 때만 수행하고, 자동 테스트에서는 mock/fallback 중심으로 검증합니다.

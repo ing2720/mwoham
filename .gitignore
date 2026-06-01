@@ -1,5 +1,6 @@
 # Local/internal documents
-docs/
+docs/*
+!docs/QA_CHECKLIST.md
 
 # Backend local environment and runtime files
 backend/.env
