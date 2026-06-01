@@ -1,3 +1,7 @@
+import re
+from collections import defaultdict
+from datetime import timedelta
+
 from app.schemas.timeline import TimelineResponse
 from app.services.privacy_filter import PrivacyFilter, get_privacy_filter
 from app.services.screen_observation_summarizer import SAFE_UNCLEAR_INFERENCE
@@ -12,6 +16,32 @@ class PromptBuilder:
         "리포트 - 뭐함",
         "설정 - 뭐함",
         "작업 기록 자동화 서비스",
+    )
+    WORK_HINT_KEYWORDS = (
+        "pytest",
+        "ruff",
+        "alembic",
+        "xcodebuild",
+        "quota",
+        "gemini",
+        "ocr",
+        "timeline",
+        "report",
+        "pdf",
+        "release",
+        "package",
+        "fastapi",
+        "swift",
+        "api",
+        "migration",
+    )
+    OCR_NOISE_MARKERS = (
+        "chatgpt can make mistakes",
+        "nw_path_necp_check",
+        "nsdebugdescription",
+        "userinfo={",
+        "connection invalid",
+        "message chatgpt",
     )
 
     def __init__(self, privacy_filter: PrivacyFilter) -> None:
@@ -35,6 +65,12 @@ class PromptBuilder:
                 "- 'Codex 앱에서', 'Chrome 앱에서', 'VSCode 앱에서'처럼 앱이 업무 주체인 듯한 "
                 "표현을 피하세요.",
                 "- 앱 이름보다 실제 작업 내용, 결정사항, 문제 해결 과정을 중심으로 요약하세요.",
+                "- 앱 이름을 작업 내용으로 착각하지 마세요. 앱 이름은 작업 환경 보조 정보입니다.",
+                "- Swift, API, FastAPI 같은 기술명만 나열하지 말고, 관찰된 메모와 화면 단서에 "
+                "기반해 구체 작업 단위로 작성하세요.",
+                "- 시간대별 작업 흐름은 앱 사용 시간이 아니라 실제로 진행한 작업 후보 중심으로 "
+                "작성하세요.",
+                "- 근거가 부족한 섹션은 '확인된 내용 없음.'으로 작성하세요.",
                 "- 아래 섹션 순서를 지키세요.",
                 "",
                 "리포트 구조:",
@@ -70,8 +106,29 @@ class PromptBuilder:
         ]
         activity_segments = [item for item in timeline.items if item.type == "activity_segment"]
 
-        lines = [f"DATE: {timeline.date.isoformat()}", f"TOTAL_ITEMS: {len(report_items)}"]
+        lines = [
+            f"DATE: {timeline.date.isoformat()}",
+            f"TOTAL_ITEMS: {len(report_items)}",
+            "NOTE: ActivitySegment는 주요 작업 환경 보조 정보이며 "
+            "작업 내용의 직접 근거가 아닙니다.",
+        ]
+        memo_lines = [
+            self._format_timeline_item(item)
+            for item in report_items
+            if item.type == "memo"
+        ]
+        if memo_lines:
+            lines.append("PRIORITY_MEMOS:")
+            lines.extend(memo_lines[:10])
+
+        evidence_lines = self._format_work_evidence_by_time(report_items)
+        if evidence_lines:
+            lines.append("WORK_EVIDENCE_BY_TIME:")
+            lines.extend(evidence_lines)
+
         for item in report_items:
+            if item.type == "memo":
+                continue
             lines.append(self._format_timeline_item(item))
         environment_summary = self._format_activity_environment_summary(activity_segments)
         if environment_summary:
@@ -100,7 +157,7 @@ class PromptBuilder:
                 f"linked_id={item.linked_id or '-'} | content={item.content}"
             )
         if item.type == "screen_ocr":
-            ocr_excerpt = self._truncate(item.ocr_text or item.content, 300)
+            ocr_excerpt = self._build_ocr_evidence_snippet(item.ocr_text or item.content)
             inference = self._safe_inference(item.ai_inference or item.content)
             return (
                 f"- SCREEN_OCR | time={timestamp} | app={item.app_name or '-'} | "
@@ -120,6 +177,84 @@ class PromptBuilder:
                 f"text={item.content}"
             )
         return f"- {item.type.upper()} | time={timestamp} | content={item.content}"
+
+    def _format_work_evidence_by_time(self, items) -> list[str]:
+        grouped: dict[str, list[str]] = defaultdict(list)
+        for item in items:
+            evidence = self._extract_item_evidence(item)
+            if not evidence:
+                continue
+            bucket_start = item.timestamp.replace(minute=(item.timestamp.minute // 30) * 30)
+            bucket_end = bucket_start + timedelta(minutes=30)
+            key = f"{bucket_start.strftime('%H:%M')}~{bucket_end.strftime('%H:%M')}"
+            if evidence not in grouped[key]:
+                grouped[key].append(evidence)
+
+        lines: list[str] = []
+        for time_range in sorted(grouped):
+            evidence_text = " / ".join(grouped[time_range][:5])
+            lines.append(f"- WORK_BLOCK | time_range={time_range} | evidence={evidence_text}")
+        return lines[:12]
+
+    def _extract_item_evidence(self, item) -> str:
+        if item.type == "memo":
+            return f"메모: {self._truncate(item.content, 140)}"
+        if item.type == "screen_ocr":
+            inference = self._safe_inference(item.ai_inference or "")
+            snippet = self._build_ocr_evidence_snippet(item.ocr_text or item.content)
+            keywords = self._extract_work_keywords(
+                " ".join(
+                    value
+                    for value in [
+                        item.content,
+                        item.ocr_text,
+                        item.ai_inference,
+                        " ".join(item.detected_keywords or [])
+                        if isinstance(item.detected_keywords, list)
+                        else "",
+                    ]
+                    if value
+                )
+            )
+            if inference != "-":
+                return f"화면 관찰: {inference}"
+            if snippet:
+                keyword_text = f" keywords={keywords}" if keywords else ""
+                return f"화면 단서: {snippet}{keyword_text}"
+            return ""
+        if item.type == "event" and item.source != "mac_active_window":
+            keywords = self._extract_work_keywords(item.content)
+            if keywords or self._looks_like_work_evidence(item.content):
+                return f"이벤트: {self._truncate(item.content, 140)}"
+        if item.type == "transcript":
+            return f"회의 전사: {self._truncate(item.content, 140)}"
+        return ""
+
+    def _build_ocr_evidence_snippet(self, text: str | None, *, limit: int = 180) -> str:
+        if not text:
+            return ""
+        lines: list[str] = []
+        seen: set[str] = set()
+        for raw_line in text.splitlines():
+            line = self._normalize_ocr_line(raw_line)
+            if not line or self._is_noise_line(line) or self._is_self_service_text(line):
+                continue
+            line_key = line.lower()
+            if line_key in seen:
+                continue
+            seen.add(line_key)
+            lines.append(line)
+            if len(" / ".join(lines)) >= limit:
+                break
+
+        if not lines:
+            return ""
+
+        prioritized = sorted(
+            lines,
+            key=lambda line: (not self._extract_work_keywords(line), len(line)),
+        )
+        return self._truncate(" / ".join(prioritized[:4]), limit)
 
     def _format_activity_environment_summary(self, items) -> str:
         if not items:
@@ -152,7 +287,36 @@ class PromptBuilder:
             return False
         values = [item.app_name, item.window_title, item.content, item.ocr_text, item.ai_inference]
         combined_text = "\n".join(value for value in values if value).lower()
-        return any(marker.lower() in combined_text for marker in self.SELF_SERVICE_MARKERS)
+        return self._is_self_service_text(combined_text)
+
+    def _is_self_service_text(self, text: str) -> bool:
+        lowered = text.lower()
+        return any(marker.lower() in lowered for marker in self.SELF_SERVICE_MARKERS)
+
+    def _normalize_ocr_line(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text).strip(" -|·•\t")
+
+    def _is_noise_line(self, text: str) -> bool:
+        lowered = text.lower()
+        if len(text) <= 2:
+            return True
+        if any(marker in lowered for marker in self.OCR_NOISE_MARKERS):
+            return True
+        alpha_numeric_count = sum(char.isalnum() for char in text)
+        if alpha_numeric_count == 0:
+            return True
+        return alpha_numeric_count / max(len(text), 1) < 0.35
+
+    def _extract_work_keywords(self, text: str | None) -> list[str]:
+        if not text:
+            return []
+        lowered = text.lower()
+        return [keyword for keyword in self.WORK_HINT_KEYWORDS if keyword in lowered]
+
+    def _looks_like_work_evidence(self, text: str | None) -> bool:
+        if not text:
+            return False
+        return len(text.strip()) >= 12
 
     def _truncate(self, text: str, limit: int) -> str:
         if len(text) <= limit:
