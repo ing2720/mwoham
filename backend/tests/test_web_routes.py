@@ -32,6 +32,7 @@ def test_dashboard_renders_status_events_and_memos(client: TestClient) -> None:
     assert "active" in response.text
     assert "Edited dashboard route" in response.text
     assert "Check timeline merge" in response.text
+    assert ".000000" not in response.text
     assert "기록 시작" in response.text
     assert "개발용 이벤트 입력" in response.text
     assert "메모 입력" in response.text

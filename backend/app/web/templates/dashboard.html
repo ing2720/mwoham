@@ -16,7 +16,7 @@
         <div>세션: {{ status.session_id if status.session_id else "없음" }}</div>
         <div>현재 앱: {{ status.current_app if status.current_app else "없음" }}</div>
         <div>현재 창: {{ status.current_window if status.current_window else "없음" }}</div>
-        <div>마지막 이벤트: {{ status.last_event_at if status.last_event_at else "없음" }}</div>
+        <div>마지막 이벤트: {{ status.last_event_at | kst_time if status.last_event_at else "없음" }}</div>
       </div>
       <div class="button-row" style="margin-top: 14px;">
         <form method="post" action="/dashboard/recording/start">
