@@ -1,10 +1,9 @@
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.exceptions import ResourceNotFoundError
-from app.core.timezone import as_kst, as_utc
 from app.models.work_session import WorkSession
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_session_repository import WorkSessionRepository
@@ -13,6 +12,7 @@ from app.schemas.screen_observation import (
     ScreenObservationCreateResponse,
     ScreenObservationListResponse,
 )
+from app.services.screen_observation_policy import ScreenObservationInferencePolicy
 from app.services.screen_observation_summarizer import (
     ScreenObservationSummarizer,
     get_screen_observation_summarizer,
@@ -27,17 +27,18 @@ class ScreenObservationService:
         session_repository: WorkSessionRepository,
         setting_service: SettingService,
         observation_summarizer: ScreenObservationSummarizer,
-        enable_ai_inference: bool = settings.enable_screen_observation_ai_inference,
-        ai_min_interval_seconds: int = settings.screen_ai_min_interval_seconds,
-        ai_daily_limit: int = settings.screen_ai_daily_limit,
+        inference_policy: ScreenObservationInferencePolicy | None = None,
     ) -> None:
         self.observation_repository = observation_repository
         self.session_repository = session_repository
         self.setting_service = setting_service
         self.observation_summarizer = observation_summarizer
-        self.enable_ai_inference = enable_ai_inference
-        self.ai_min_interval_seconds = ai_min_interval_seconds
-        self.ai_daily_limit = ai_daily_limit
+        self.inference_policy = inference_policy or ScreenObservationInferencePolicy(
+            observation_repository=observation_repository,
+            enable_ai_inference=settings.enable_screen_observation_ai_inference,
+            ai_min_interval_seconds=settings.screen_ai_min_interval_seconds,
+            ai_daily_limit=settings.screen_ai_daily_limit,
+        )
 
     def create(
         self,
@@ -73,7 +74,7 @@ class ScreenObservationService:
         if (
             not is_private_app
             and not request.ai_inference
-            and self._should_generate_ai_inference(db, session=session, request=request)
+            and self.inference_policy.should_generate(db, session=session, request=request)
         ):
             ai_inference = self.observation_summarizer.summarize(
                 ocr_text=request.ocr_text,
@@ -129,51 +130,17 @@ class ScreenObservationService:
             raise ResourceNotFoundError("Active recording session not found.")
         return session
 
-    def _should_generate_ai_inference(
-        self,
-        db: Session,
-        *,
-        session: WorkSession,
-        request: ScreenObservationCreate,
-    ) -> bool:
-        if not self.enable_ai_inference:
-            return False
-        if self.ai_daily_limit <= 0:
-            return False
-
-        inference_count = self.observation_repository.count_ai_inference(
-            db,
-            target_date=as_kst(request.timestamp).date(),
-        )
-        if inference_count >= self.ai_daily_limit:
-            return False
-
-        latest_observation = self.observation_repository.get_latest_ai_inference_by_context(
-            db,
-            session_id=session.id,
-            app_name=request.app_name,
-            window_title=request.window_title,
-        )
-        if latest_observation is None:
-            return True
-
-        elapsed_seconds = (
-            self._as_aware_utc(request.timestamp)
-            - self._as_aware_utc(latest_observation.timestamp)
-        ).total_seconds()
-        return elapsed_seconds >= self.ai_min_interval_seconds
-
-    def _as_aware_utc(self, value: datetime) -> datetime:
-        return as_utc(value)
-
-
 def get_screen_observation_service() -> ScreenObservationService:
+    observation_repository = ScreenObservationRepository()
     return ScreenObservationService(
-        observation_repository=ScreenObservationRepository(),
+        observation_repository=observation_repository,
         session_repository=WorkSessionRepository(),
         setting_service=get_setting_service(),
         observation_summarizer=get_screen_observation_summarizer(),
-        enable_ai_inference=settings.enable_screen_observation_ai_inference,
-        ai_min_interval_seconds=settings.screen_ai_min_interval_seconds,
-        ai_daily_limit=settings.screen_ai_daily_limit,
+        inference_policy=ScreenObservationInferencePolicy(
+            observation_repository=observation_repository,
+            enable_ai_inference=settings.enable_screen_observation_ai_inference,
+            ai_min_interval_seconds=settings.screen_ai_min_interval_seconds,
+            ai_daily_limit=settings.screen_ai_daily_limit,
+        ),
     )

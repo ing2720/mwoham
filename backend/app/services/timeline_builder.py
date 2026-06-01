@@ -15,20 +15,12 @@ from app.repositories.memo_repository import MemoRepository
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_event_repository import WorkEventRepository
 from app.schemas.timeline import TimelineItem, TimelineResponse
+from app.services.self_observation_filter import SelfObservationFilter, get_self_observation_filter
 from app.services.setting_service import SettingService, get_setting_service
 
 
 class TimelineBuilder:
     KST = KST
-    SELF_SERVICE_MARKERS = (
-        "127.0.0.1:8765",
-        "localhost:8765",
-        "대시보드 - 뭐함",
-        "타임라인 - 뭐함",
-        "리포트 - 뭐함",
-        "설정 - 뭐함",
-        "작업 기록 자동화 서비스",
-    )
 
     def __init__(
         self,
@@ -38,6 +30,7 @@ class TimelineBuilder:
         screen_observation_repository: ScreenObservationRepository,
         meeting_repository: MeetingRepository,
         setting_service: SettingService,
+        self_observation_filter: SelfObservationFilter,
     ) -> None:
         self.activity_segment_repository = activity_segment_repository
         self.event_repository = event_repository
@@ -45,6 +38,7 @@ class TimelineBuilder:
         self.screen_observation_repository = screen_observation_repository
         self.meeting_repository = meeting_repository
         self.setting_service = setting_service
+        self.self_observation_filter = self_observation_filter
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
         timeline_date = target_date or now_kst().date()
@@ -291,8 +285,7 @@ class TimelineBuilder:
             observation.ocr_text,
             observation.ai_inference,
         ]
-        combined_text = "\n".join(value for value in values if value).lower()
-        return any(marker.lower() in combined_text for marker in self.SELF_SERVICE_MARKERS)
+        return self.self_observation_filter.is_self_service_values(values)
 
     def _ocr_excerpt(self, text: str | None, limit: int = 160) -> str:
         if not text:
@@ -356,4 +349,5 @@ def get_timeline_builder() -> TimelineBuilder:
         screen_observation_repository=ScreenObservationRepository(),
         meeting_repository=MeetingRepository(),
         setting_service=get_setting_service(),
+        self_observation_filter=get_self_observation_filter(),
     )

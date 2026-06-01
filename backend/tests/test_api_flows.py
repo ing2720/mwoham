@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_session_repository import WorkSessionRepository
+from app.services.screen_observation_policy import ScreenObservationInferencePolicy
 from app.services.screen_observation_service import (
     ScreenObservationService,
     get_screen_observation_service,
@@ -28,14 +29,18 @@ def _override_screen_observation_service(
     ai_min_interval_seconds: int = 300,
     ai_daily_limit: int = 5,
 ) -> None:
+    observation_repository = ScreenObservationRepository()
     app.dependency_overrides[get_screen_observation_service] = lambda: ScreenObservationService(
-        observation_repository=ScreenObservationRepository(),
+        observation_repository=observation_repository,
         session_repository=WorkSessionRepository(),
         setting_service=get_setting_service(),
         observation_summarizer=summarizer,
-        enable_ai_inference=enable_ai_inference,
-        ai_min_interval_seconds=ai_min_interval_seconds,
-        ai_daily_limit=ai_daily_limit,
+        inference_policy=ScreenObservationInferencePolicy(
+            observation_repository=observation_repository,
+            enable_ai_inference=enable_ai_inference,
+            ai_min_interval_seconds=ai_min_interval_seconds,
+            ai_daily_limit=ai_daily_limit,
+        ),
     )
 
 

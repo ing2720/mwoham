@@ -6,19 +6,14 @@ from app.core.timezone import KST, as_kst
 from app.schemas.timeline import TimelineResponse
 from app.services.privacy_filter import PrivacyFilter, get_privacy_filter
 from app.services.screen_observation_summarizer import SAFE_UNCLEAR_INFERENCE
+from app.services.self_observation_filter import (
+    SelfObservationFilter,
+    get_self_observation_filter,
+)
 
 
 class PromptBuilder:
     KST = KST
-    SELF_SERVICE_MARKERS = (
-        "127.0.0.1:8765",
-        "localhost:8765",
-        "대시보드 - 뭐함",
-        "타임라인 - 뭐함",
-        "리포트 - 뭐함",
-        "설정 - 뭐함",
-        "작업 기록 자동화 서비스",
-    )
     WORK_HINT_KEYWORDS = (
         "pytest",
         "ruff",
@@ -51,8 +46,13 @@ class PromptBuilder:
         "order by",
     )
 
-    def __init__(self, privacy_filter: PrivacyFilter) -> None:
+    def __init__(
+        self,
+        privacy_filter: PrivacyFilter,
+        self_observation_filter: SelfObservationFilter | None = None,
+    ) -> None:
         self.privacy_filter = privacy_filter
+        self.self_observation_filter = self_observation_filter or get_self_observation_filter()
 
     def build_daily_report_prompt(self, timeline: TimelineResponse) -> str:
         compressed_timeline = self._compress_timeline(timeline)
@@ -298,12 +298,10 @@ class PromptBuilder:
         if item.type != "screen_ocr":
             return False
         values = [item.app_name, item.window_title, item.content, item.ocr_text, item.ai_inference]
-        combined_text = "\n".join(value for value in values if value).lower()
-        return self._is_self_service_text(combined_text)
+        return self.self_observation_filter.is_self_service_values(values)
 
     def _is_self_service_text(self, text: str) -> bool:
-        lowered = text.lower()
-        return any(marker.lower() in lowered for marker in self.SELF_SERVICE_MARKERS)
+        return self.self_observation_filter.is_self_service_text(text)
 
     def _normalize_ocr_line(self, text: str) -> str:
         return re.sub(r"\s+", " ", text).strip(" -|·•\t")
@@ -379,4 +377,7 @@ class PromptBuilder:
 
 
 def get_prompt_builder() -> PromptBuilder:
-    return PromptBuilder(privacy_filter=get_privacy_filter())
+    return PromptBuilder(
+        privacy_filter=get_privacy_filter(),
+        self_observation_filter=get_self_observation_filter(),
+    )

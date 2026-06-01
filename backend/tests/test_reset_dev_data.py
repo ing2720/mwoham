@@ -9,7 +9,7 @@ from app.models.report import Report
 from app.models.screen_observation import ScreenObservation
 from app.models.work_event import WorkEvent
 from app.models.work_session import WorkSession
-from scripts.reset_dev_data import ResetDevDataOptions, reset_dev_data
+from app.services.dev_data_reset_service import ResetDevDataOptions, get_dev_data_reset_service
 
 
 def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
@@ -28,7 +28,7 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
     _create_segment(db, session_id=session.id, started_at=inside)
     _create_segment(db, session_id=session.id, started_at=outside)
 
-    result = reset_dev_data(
+    result = get_dev_data_reset_service().reset(
         db,
         ResetDevDataOptions(today=True, yes=True, target_date=date(2026, 6, 1)),
     )
@@ -54,7 +54,10 @@ def test_reset_dev_data_reports_only_deletes_reports_only(db: Session) -> None:
     _create_report(db, report_date=date(2026, 6, 1), title="report")
     _create_event(db, session_id=session.id, timestamp=datetime(2026, 6, 1, tzinfo=UTC))
 
-    result = reset_dev_data(db, ResetDevDataOptions(reports_only=True, yes=True))
+    result = get_dev_data_reset_service().reset(
+        db,
+        ResetDevDataOptions(reports_only=True, yes=True),
+    )
 
     assert result.counts == {"reports": 1}
     assert _count(db, Report) == 0
@@ -66,7 +69,7 @@ def test_reset_dev_data_without_yes_does_not_delete(db: Session) -> None:
     _create_report(db, report_date=date(2026, 6, 1), title="report")
     _create_event(db, session_id=session.id, timestamp=datetime(2026, 6, 1, tzinfo=UTC))
 
-    result = reset_dev_data(db, ResetDevDataOptions(all_data=True))
+    result = get_dev_data_reset_service().reset(db, ResetDevDataOptions(all_data=True))
 
     assert result.deleted is False
     assert result.counts["reports"] == 1
@@ -84,7 +87,10 @@ def test_reset_dev_data_all_yes_deletes_target_data(db: Session) -> None:
     _create_observation(db, session_id=session.id, timestamp=timestamp)
     _create_segment(db, session_id=session.id, started_at=timestamp)
 
-    result = reset_dev_data(db, ResetDevDataOptions(all_data=True, yes=True))
+    result = get_dev_data_reset_service().reset(
+        db,
+        ResetDevDataOptions(all_data=True, yes=True),
+    )
 
     assert result.deleted is True
     assert all(count == 1 for count in result.counts.values())

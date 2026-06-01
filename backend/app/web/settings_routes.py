@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.setting import PrivateAppCreate
+from app.services.dev_data_reset_service import ResetDevDataOptions, get_dev_data_reset_service
 from app.services.setting_service import SettingService, get_setting_service
-from scripts.reset_dev_data import ResetDevDataOptions, reset_dev_data
 
 router = APIRouter(tags=["web"])
 
@@ -51,7 +51,7 @@ async def reset_dev_data_from_settings(
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     form = await request.form()
-    result = reset_dev_data(db, _build_reset_options_from_form(form))
+    result = get_dev_data_reset_service().reset(db, _build_reset_options_from_form(form))
     counts = ", ".join(f"{target}:{count}" for target, count in result.counts.items())
     query = urlencode(
         {
