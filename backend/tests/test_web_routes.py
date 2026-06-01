@@ -122,6 +122,8 @@ def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> 
     assert response.status_code == 200
     assert "타임라인" in response.text
     assert response.text.index("Ran pytest") < response.text.index("Document edge case")
+    assert "2026-05-26 17:30" in response.text
+    assert "2026-05-26T08:30" not in response.text
 
 
 def test_timeline_detail_renders_activity_segments_without_event_duplication(
@@ -178,6 +180,7 @@ def test_timeline_detail_renders_activity_segments_without_event_duplication(
     assert "작업 구간" in detail_response.text
     assert "작업 구간" not in dashboard_response.text
     assert "Google Chrome (1초 미만)" in detail_response.text
+    assert "16:03:22~16:03:22" in detail_response.text
     assert "Google Chrome /" not in detail_response.text
     assert "사용자 메모" in timeline_response.text
     assert "메모" in timeline_response.text

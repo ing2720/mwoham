@@ -27,13 +27,13 @@
         {% if item.type == "event" %}
           <div class="item-title">{{ item.content }}</div>
           <div class="item-meta">
-            {{ item.timestamp }} · {{ item.source }}
+            {{ item.timestamp | kst_time }} · {{ item.source }}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
           </div>
         {% elif item.type == "activity_segment" %}
           <div class="item-title">{{ item.content }}</div>
           <div class="item-meta">
-            {{ item.timestamp }} ~ {{ item.ended_at }}
+            {{ item.timestamp | kst_time }} ~ {{ item.ended_at | kst_time }}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
             {% if item.window_title %} · {{ item.window_title }}{% endif %}
             {% if item.duration_seconds is not none %} · {{ item.duration_seconds }}초{% endif %}
@@ -41,7 +41,7 @@
         {% elif item.type == "screen_ocr" %}
           <div class="item-title">{{ item.content if item.content else "화면 텍스트 수집됨" }}</div>
           <div class="item-meta">
-            {{ item.timestamp }}
+            {{ item.timestamp | kst_time }}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
             {% if item.detected_keywords %} · 키워드 {{ item.detected_keywords }}{% endif %}
           </div>
@@ -51,7 +51,7 @@
         {% elif item.type == "meeting" %}
           <div class="item-title">{{ item.content }}</div>
           <div class="item-meta">
-            {{ item.timestamp }}
+            {{ item.timestamp | kst_time }}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
           </div>
           {% if item.ai_inference %}
@@ -60,12 +60,12 @@
         {% elif item.type == "transcript" %}
           <div class="item-title">{{ item.content }}</div>
           <div class="item-meta">
-            {{ item.timestamp }}
+            {{ item.timestamp | kst_time }}
             {% if item.speaker %} · {{ item.speaker }}{% endif %}
           </div>
         {% else %}
           <div class="item-title">{{ item.content }}</div>
-          <div class="item-meta">{{ item.timestamp }}</div>
+          <div class="item-meta">{{ item.timestamp | kst_time }}</div>
         {% endif %}
       </article>
     {% else %}

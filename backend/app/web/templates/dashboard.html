@@ -94,8 +94,8 @@
             {% if item.type == "screen_ocr" and item.ai_inference %}{{ item.ai_inference }}{% else %}{{ item.content }}{% endif %}
           </div>
           <div class="item-meta">
-            {{ item.timestamp }}
-            {% if item.ended_at %} ~ {{ item.ended_at }}{% endif %}
+            {{ item.timestamp | kst_time }}
+            {% if item.ended_at %} ~ {{ item.ended_at | kst_time }}{% endif %}
             {% if item.source %} · {{ item.source }}{% endif %}
             {% if item.app_name %} · {{ item.app_name }}{% endif %}
             {% if item.window_title %} · {{ item.window_title }}{% endif %}

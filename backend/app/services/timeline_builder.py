@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from app.services.setting_service import SettingService, get_setting_service
 
 
 class TimelineBuilder:
+    KST = ZoneInfo("Asia/Seoul")
     SELF_SERVICE_MARKERS = (
         "127.0.0.1:8765",
         "localhost:8765",
@@ -145,7 +147,8 @@ class TimelineBuilder:
 
     def _activity_segment_to_item(self, segment: ActivitySegment) -> TimelineItem:
         time_range = (
-            f"{segment.started_at.strftime('%H:%M:%S')}~{segment.ended_at.strftime('%H:%M:%S')}"
+            f"{self._format_kst_clock(segment.started_at)}~"
+            f"{self._format_kst_clock(segment.ended_at)}"
         )
         title = self._activity_title(segment.app_name, segment.window_title)
         duration = self._duration_text(segment.duration_seconds)
@@ -271,6 +274,9 @@ class TimelineBuilder:
         if value.tzinfo is None:
             return value.replace(tzinfo=UTC)
         return value.astimezone(UTC)
+
+    def _format_kst_clock(self, value: datetime) -> str:
+        return self._as_aware_utc(value).astimezone(self.KST).strftime("%H:%M:%S")
 
     def _meeting_to_items(self, meeting: MeetingSession) -> list[TimelineItem]:
         title = meeting.title or "회의"
