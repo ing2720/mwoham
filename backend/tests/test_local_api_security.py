@@ -35,6 +35,7 @@ WEB_FORM_ROUTES = {
     ("POST", "/reports/daily/create"),
     ("POST", "/settings/private-apps/add"),
     ("POST", "/settings/private-apps/delete"),
+    ("POST", "/settings/dev-data/reset"),
 }
 
 

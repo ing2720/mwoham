@@ -35,6 +35,9 @@ def get_settings(
                 "active_page": "settings",
                 "settings": settings_response.items,
                 "private_apps": private_apps.items,
+                "reset_scope": request.query_params.get("reset_scope"),
+                "reset_deleted": request.query_params.get("reset_deleted"),
+                "reset_counts": request.query_params.get("reset_counts"),
             },
         )
     return settings_response

@@ -131,6 +131,27 @@ uv run python scripts/seed_sample_data.py --reset
 
 `--reset`은 이전 샘플 데이터를 지우고 다시 생성합니다.
 
+## 개발/테스트 데이터 초기화
+
+로컬 개발 중 쌓인 기록 데이터를 정리할 수 있습니다. 운영용 기능이 아니라 개발/테스트용 스크립트이며, 기본 실행은 dry-run입니다. 실제 삭제는 반드시 `--yes`를 붙여야 합니다.
+
+```bash
+cd backend
+uv run python scripts/reset_dev_data.py --today
+uv run python scripts/reset_dev_data.py --today --yes
+uv run python scripts/reset_dev_data.py --reports-only --yes
+uv run python scripts/reset_dev_data.py --observations-only --yes
+uv run python scripts/reset_dev_data.py --activity-only --yes
+uv run python scripts/reset_dev_data.py --memos-only --yes
+uv run python scripts/reset_dev_data.py --events-only --yes
+uv run python scripts/reset_dev_data.py --all --yes
+```
+
+- `--today`: 오늘 KST 기준 기록 데이터만 대상으로 합니다.
+- `--all`: 전체 기록 데이터를 대상으로 합니다.
+- `--reports-only`, `--observations-only`, `--activity-only`, `--memos-only`, `--events-only`: 특정 테이블만 대상으로 합니다.
+- `--yes`가 없으면 삭제 대상과 개수만 출력하고 실제 삭제하지 않습니다.
+
 ## 리포트 생성과 다운로드 확인
 
 1. 서버 실행

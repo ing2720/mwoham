@@ -7,14 +7,11 @@
     <h1>{% if is_detail %}상세 타임라인{% else %}타임라인{% endif %}</h1>
     <span class="muted">{{ timeline.date }}</span>
     {% if is_detail %}
-      <a class="badge" href="/timeline{% if timeline.date %}?date={{ timeline.date }}{% endif %}">기본 타임라인</a>
+      <a class="badge" href="/timeline{% if timeline.date %}?date={{ timeline.date }}{% endif %}">상세 타임라인</a>
     {% else %}
-      <a class="badge" href="/timeline/detail{% if timeline.date %}?date={{ timeline.date }}{% endif %}">상세 타임라인</a>
+      <a class="badge" href="/timeline/detail{% if timeline.date %}?date={{ timeline.date }}{% endif %}">기본 타임라인</a>
     {% endif %}
   </div>
-  {% if is_detail %}
-    <p class="muted">개발/검증용 원시 로그 확인 화면입니다.</p>
-  {% endif %}
 
   <section class="timeline">
     {% for item in timeline.items %}
