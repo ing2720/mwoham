@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,17 @@ from app.services.setting_service import SettingService, get_setting_service
 
 
 class TimelineBuilder:
+    KST = ZoneInfo("Asia/Seoul")
+    SELF_SERVICE_MARKERS = (
+        "127.0.0.1:8765",
+        "localhost:8765",
+        "대시보드 - 뭐함",
+        "타임라인 - 뭐함",
+        "리포트 - 뭐함",
+        "설정 - 뭐함",
+        "작업 기록 자동화 서비스",
+    )
+
     def __init__(
         self,
         activity_segment_repository: ActivitySegmentRepository,
@@ -35,6 +47,50 @@ class TimelineBuilder:
         self.setting_service = setting_service
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
+        timeline_date = target_date or datetime.now(UTC).date()
+        events = [
+            event
+            for event in self.event_repository.list(db, target_date=timeline_date, limit=1000)
+            if event.source != "mac_active_window"
+        ]
+        memos = self.memo_repository.list(db, target_date=timeline_date, limit=1000)
+        screen_observations = [
+            observation
+            for observation in self.screen_observation_repository.list(
+                db,
+                target_date=timeline_date,
+                limit=1000,
+            )
+            if not self._is_self_service_observation(observation)
+        ]
+        meetings = self.meeting_repository.list_meetings(
+            db,
+            target_date=timeline_date,
+            limit=1000,
+        )
+        transcripts = self.meeting_repository.list_transcripts(
+            db,
+            target_date=timeline_date,
+            limit=1000,
+        )
+
+        items = [self._event_to_item(event) for event in events]
+        items.extend(self._memo_to_item(memo) for memo in memos)
+        items.extend(
+            self._screen_observation_to_basic_item(item)
+            for item in self._deduplicate_screen_observations(screen_observations)
+        )
+        for meeting in meetings:
+            items.extend(self._meeting_to_items(meeting))
+        items.extend(self._transcript_to_item(transcript) for transcript in transcripts)
+        items.sort(key=lambda item: item.timestamp)
+        return TimelineResponse(date=timeline_date, items=items, total=len(items))
+
+    def build_detail_for_date(
+        self,
+        db: Session,
+        target_date: date | None = None,
+    ) -> TimelineResponse:
         timeline_date = target_date or datetime.now(UTC).date()
         activity_segments = self.activity_segment_repository.list(
             db,
@@ -91,7 +147,8 @@ class TimelineBuilder:
 
     def _activity_segment_to_item(self, segment: ActivitySegment) -> TimelineItem:
         time_range = (
-            f"{segment.started_at.strftime('%H:%M:%S')}~{segment.ended_at.strftime('%H:%M:%S')}"
+            f"{self._format_kst_clock(segment.started_at)}~"
+            f"{self._format_kst_clock(segment.ended_at)}"
         )
         title = self._activity_title(segment.app_name, segment.window_title)
         duration = self._duration_text(segment.duration_seconds)
@@ -148,15 +205,78 @@ class TimelineBuilder:
             type="screen_ocr",
             id=observation.id,
             timestamp=observation.timestamp,
-            content=observation.ai_inference or observation.ocr_text or "",
+            content=observation.ai_inference
+            or self._ocr_excerpt(observation.ocr_text)
+            or "화면 텍스트 수집됨",
             app_name=observation.app_name,
             window_title=observation.window_title,
             detected_keywords=observation.detected_keywords,
-            ocr_text=observation.ocr_text,
+            ocr_text=self._ocr_excerpt(observation.ocr_text, limit=240),
             ai_inference=observation.ai_inference,
             frame_hash=observation.frame_hash,
             session_id=observation.session_id,
         )
+
+    def _screen_observation_to_basic_item(self, observation: ScreenObservation) -> TimelineItem:
+        content = observation.ai_inference or "화면 텍스트 수집됨"
+        return TimelineItem(
+            type="screen_ocr",
+            id=observation.id,
+            timestamp=observation.timestamp,
+            content=content,
+            app_name=observation.app_name,
+            window_title=observation.window_title,
+            detected_keywords=observation.detected_keywords,
+            ai_inference=observation.ai_inference,
+            frame_hash=observation.frame_hash,
+            session_id=observation.session_id,
+        )
+
+    def _deduplicate_screen_observations(
+        self,
+        observations: list[ScreenObservation],
+    ) -> list[ScreenObservation]:
+        deduplicated: list[ScreenObservation] = []
+        last_seen_by_key: dict[tuple[str | None, str | None, str], datetime] = {}
+        for observation in sorted(observations, key=lambda item: item.timestamp):
+            content = observation.ai_inference or "화면 텍스트 수집됨"
+            key = (observation.app_name, observation.window_title, content)
+            last_seen_at = last_seen_by_key.get(key)
+            if last_seen_at is not None:
+                elapsed_seconds = (
+                    self._as_aware_utc(observation.timestamp) - self._as_aware_utc(last_seen_at)
+                ).total_seconds()
+                if elapsed_seconds < 600:
+                    continue
+            last_seen_by_key[key] = observation.timestamp
+            deduplicated.append(observation)
+        return deduplicated
+
+    def _is_self_service_observation(self, observation: ScreenObservation) -> bool:
+        values = [
+            observation.app_name,
+            observation.window_title,
+            observation.ocr_text,
+            observation.ai_inference,
+        ]
+        combined_text = "\n".join(value for value in values if value).lower()
+        return any(marker.lower() in combined_text for marker in self.SELF_SERVICE_MARKERS)
+
+    def _ocr_excerpt(self, text: str | None, limit: int = 160) -> str:
+        if not text:
+            return ""
+        excerpt = " ".join(text.split())
+        if len(excerpt) <= limit:
+            return excerpt
+        return excerpt[:limit].rstrip() + "..."
+
+    def _as_aware_utc(self, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    def _format_kst_clock(self, value: datetime) -> str:
+        return self._as_aware_utc(value).astimezone(self.KST).strftime("%H:%M:%S")
 
     def _meeting_to_items(self, meeting: MeetingSession) -> list[TimelineItem]:
         title = meeting.title or "회의"

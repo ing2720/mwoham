@@ -113,7 +113,9 @@ def test_events_can_be_created_and_listed(client: TestClient) -> None:
     assert status_response.json()["current_window"] == "pytest"
 
 
-def test_activity_segments_are_created_updated_and_added_to_timeline(client: TestClient) -> None:
+def test_activity_segments_are_created_updated_and_added_to_detail_timeline(
+    client: TestClient,
+) -> None:
     client.post("/recording/start", json={})
     started_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
     last_seen_at = datetime(2026, 5, 26, 10, 0, 2, tzinfo=UTC)
@@ -175,11 +177,15 @@ def test_activity_segments_are_created_updated_and_added_to_timeline(client: Tes
     )
 
     timeline_response = client.get("/timeline/today?date=2026-05-26")
+    detail_response = client.get("/timeline/today/detail?date=2026-05-26")
     assert timeline_response.status_code == 200
-    items = timeline_response.json()["items"]
+    assert detail_response.status_code == 200
+    items = detail_response.json()["items"]
     segment_items = [item for item in items if item["type"] == "activity_segment"]
     event_items = [item for item in items if item["type"] == "event"]
     memo_items = [item for item in items if item["type"] == "memo"]
+    basic_items = timeline_response.json()["items"]
+    assert [item for item in basic_items if item["type"] == "activity_segment"] == []
     assert segment_items[0]["app_name"] == "Chrome"
     assert segment_items[0]["duration_seconds"] == 8
     assert "mac_active_window" not in {item["source"] for item in event_items}
@@ -266,7 +272,7 @@ def test_timeline_filters_private_activity_segments_defensively(client: TestClie
 
     assert create_response.json()["saved"] is True
 
-    timeline_response = client.get("/timeline/today?date=2026-05-26")
+    timeline_response = client.get("/timeline/today/detail?date=2026-05-26")
     items = timeline_response.json()["items"]
     segment_items = [item for item in items if item["type"] == "activity_segment"]
     assert {item["app_name"] for item in segment_items} == {"PyCharm"}
@@ -484,10 +490,87 @@ def test_timeline_today_includes_screen_ocr_items(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert [item["type"] for item in body["items"]] == ["event", "screen_ocr", "memo"]
-    assert body["items"][1]["content"] == "OAuth callback error while testing FastAPI login flow"
-    assert body["items"][1]["ocr_text"] == "OAuth callback error while testing FastAPI login flow"
+    assert body["items"][1]["content"] == "화면 텍스트 수집됨"
+    assert body["items"][1]["ocr_text"] is None
     assert body["items"][1]["ai_inference"] is None
     assert body["items"][1]["detected_keywords"] == ["OAuth", "error"]
+
+
+def test_basic_timeline_prioritizes_ai_inference_and_hides_raw_ocr(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    raw_ocr = "very long raw OCR text with console output and browser navigation"
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 8, 45, tzinfo=UTC).isoformat(),
+            "app_name": "Chrome",
+            "ocr_text": raw_ocr,
+            "ai_inference": "사용자는 인증 오류를 확인하고 있습니다.",
+        },
+    )
+
+    response = client.get("/timeline/today?date=2026-05-26")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["content"] == "사용자는 인증 오류를 확인하고 있습니다."
+    assert item["ocr_text"] is None
+    assert raw_ocr not in item["content"]
+
+
+def test_self_service_screen_observation_is_excluded_from_basic_timeline(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 8, 45, tzinfo=UTC).isoformat(),
+            "app_name": "Google Chrome",
+            "window_title": "대시보드 - 뭐함",
+            "ocr_text": "127.0.0.1:8765 dashboard 작업 기록 자동화 서비스",
+        },
+    )
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime(2026, 5, 26, 9, 0, tzinfo=UTC).isoformat(),
+            "content": "사용자 메모",
+        },
+    )
+
+    basic_response = client.get("/timeline/today?date=2026-05-26")
+    detail_response = client.get("/timeline/today/detail?date=2026-05-26")
+
+    assert [item["type"] for item in basic_response.json()["items"]] == ["memo"]
+    assert any(item["type"] == "screen_ocr" for item in detail_response.json()["items"])
+
+
+def test_mac_active_window_work_event_is_excluded_from_basic_timeline(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 8, 30, tzinfo=UTC).isoformat(),
+            "source": "mac_active_window",
+            "content": "Chrome / Dashboard",
+        },
+    )
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime(2026, 5, 26, 9, 0, tzinfo=UTC).isoformat(),
+            "content": "Manual memo",
+        },
+    )
+
+    response = client.get("/timeline/today?date=2026-05-26")
+
+    assert [item["type"] for item in response.json()["items"]] == ["memo"]
 
 
 def test_settings_and_private_apps_crud(client: TestClient) -> None:
