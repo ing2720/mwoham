@@ -115,6 +115,41 @@ class MeetingRepository:
         db.refresh(transcript)
         return transcript
 
+    def get_latest_transcript(
+        self,
+        db: Session,
+        *,
+        meeting_id: int | None,
+        source: str | None = None,
+    ) -> VoiceTranscript | None:
+        statement = select(VoiceTranscript)
+        if meeting_id is None:
+            statement = statement.where(VoiceTranscript.meeting_id.is_(None))
+        else:
+            statement = statement.where(VoiceTranscript.meeting_id == meeting_id)
+        if source is not None:
+            statement = statement.where(VoiceTranscript.source == source)
+        statement = statement.order_by(
+            VoiceTranscript.timestamp.desc(),
+            VoiceTranscript.id.desc(),
+        ).limit(1)
+        return db.scalar(statement)
+
+    def update_transcript_text(
+        self,
+        db: Session,
+        transcript: VoiceTranscript,
+        *,
+        text: str,
+        timestamp: datetime,
+    ) -> VoiceTranscript:
+        transcript.text = text
+        transcript.timestamp = timestamp
+        db.add(transcript)
+        db.commit()
+        db.refresh(transcript)
+        return transcript
+
     def list_transcripts(
         self,
         db: Session,

@@ -38,8 +38,10 @@ final class BackendStatusViewModel: ObservableObject {
     private var statusElapsedSeconds: Int?
     private var statusReceivedAt: Date?
     private var lastSubmittedTranscriptText = ""
+    private var lastTranscriptSubmissionAt: Date?
     private var isMeetingTranscribing = false
     private var isStoppingMeetingTranscription = false
+    private let minimumTranscriptSubmissionInterval: TimeInterval = 2
 
     init() {
         let localApiClient = LocalApiClient()
@@ -241,6 +243,7 @@ final class BackendStatusViewModel: ObservableObject {
             meetingMode = "켜짐"
             latestTranscriptText = ""
             lastSubmittedTranscriptText = ""
+            lastTranscriptSubmissionAt = nil
             isMeetingTranscribing = true
             isStoppingMeetingTranscription = false
             transcriptionStatus = "회의 전사 시작 중"
@@ -278,7 +281,8 @@ final class BackendStatusViewModel: ObservableObject {
         transcriptionStatus = "회의 전사 종료 중"
         let didSaveFinalTranscript = await submitTranscriptIfNeeded(
             latestTranscriptText,
-            allowsRunningStatusUpdate: false
+            allowsRunningStatusUpdate: false,
+            force: true
         )
         await speechTranscriptionProvider.stop()
 
@@ -412,10 +416,19 @@ final class BackendStatusViewModel: ObservableObject {
 
     private func submitTranscriptIfNeeded(
         _ text: String,
-        allowsRunningStatusUpdate: Bool = true
+        allowsRunningStatusUpdate: Bool = true,
+        force: Bool = false
     ) async -> Bool {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty, trimmedText != lastSubmittedTranscriptText else {
+            return true
+        }
+        guard isMeaningfulTranscriptForSubmission(trimmedText) else {
+            return true
+        }
+        if !force,
+           let lastTranscriptSubmissionAt,
+           Date().timeIntervalSince(lastTranscriptSubmissionAt) < minimumTranscriptSubmissionInterval {
             return true
         }
 
@@ -425,6 +438,7 @@ final class BackendStatusViewModel: ObservableObject {
                 text: trimmedText
             )
             lastSubmittedTranscriptText = trimmedText
+            lastTranscriptSubmissionAt = Date()
             if allowsRunningStatusUpdate && isMeetingTranscribing && !isStoppingMeetingTranscription {
                 transcriptionStatus = "전사 저장됨, 회의 전사 중"
             } else if allowsRunningStatusUpdate {
@@ -435,6 +449,11 @@ final class BackendStatusViewModel: ObservableObject {
             transcriptionStatus = "전사 저장 실패: \(error.localizedDescription)"
             return false
         }
+    }
+
+    private func isMeaningfulTranscriptForSubmission(_ text: String) -> Bool {
+        let compactText = text.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+        return compactText.count >= 2
     }
 
     private func makeElapsedTimeText(at now: Date) -> String {

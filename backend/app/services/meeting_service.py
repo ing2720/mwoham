@@ -22,6 +22,7 @@ from app.schemas.transcript import (
     TranscriptResponse,
 )
 from app.services.privacy_filter import PrivacyFilter, get_privacy_filter
+from app.services.transcript_quality import TranscriptQualityPolicy, get_transcript_quality_policy
 
 
 class MeetingService:
@@ -32,10 +33,12 @@ class MeetingService:
         meeting_repository: MeetingRepository,
         session_repository: WorkSessionRepository,
         privacy_filter: PrivacyFilter,
+        transcript_quality_policy: TranscriptQualityPolicy,
     ) -> None:
         self.meeting_repository = meeting_repository
         self.session_repository = session_repository
         self.privacy_filter = privacy_filter
+        self.transcript_quality_policy = transcript_quality_policy
 
     def start_meeting(self, db: Session, request: MeetingStartRequest) -> MeetingResponse:
         if self.meeting_repository.get_current_active_meeting(db) is not None:
@@ -123,6 +126,24 @@ class MeetingService:
 
         text = self._sanitize_transcript_text(request.text)
         timestamp = request.started_at or now_utc()
+        latest = self.meeting_repository.get_latest_transcript(
+            db,
+            meeting_id=meeting_session_id,
+            source=request.source,
+        )
+        if latest is not None and self.transcript_quality_policy.is_near_duplicate(
+            latest.text,
+            text,
+        ):
+            if self.transcript_quality_policy.should_replace_duplicate(latest.text, text):
+                latest = self.meeting_repository.update_transcript_text(
+                    db,
+                    latest,
+                    text=text,
+                    timestamp=timestamp,
+                )
+            return MeetingTranscriptResponse.model_validate(latest)
+
         transcript = self.meeting_repository.create_meeting_transcript(
             db,
             request=request,
@@ -167,9 +188,11 @@ class MeetingService:
         return TranscriptListResponse(items=items, total=total)
 
     def _sanitize_transcript_text(self, text: str) -> str:
-        normalized = " ".join(text.split())
+        normalized = self.transcript_quality_policy.normalize(text)
         if not normalized:
             raise ValueError("Transcript text must not be empty.")
+        if self.transcript_quality_policy.is_too_short_for_storage(normalized):
+            raise ValueError("Transcript text is too short.")
         if len(normalized) > self.max_transcript_text_length:
             normalized = normalized[: self.max_transcript_text_length].rstrip()
         return self.privacy_filter.mask(normalized)
@@ -190,4 +213,5 @@ def get_meeting_service() -> MeetingService:
         meeting_repository=MeetingRepository(),
         session_repository=WorkSessionRepository(),
         privacy_filter=get_privacy_filter(),
+        transcript_quality_policy=get_transcript_quality_policy(),
     )
