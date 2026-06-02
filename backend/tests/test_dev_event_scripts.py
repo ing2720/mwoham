@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.dev_event import DevEvent
-from scripts import collect_git_snapshot, record_command_result
+from scripts import collect_git_snapshot, record_command_result, run_dev_checks
 
 
 def test_collect_git_snapshot_saves_changed_files_diff_stat_and_commits(
@@ -87,6 +88,153 @@ def test_record_command_result_script_imports_without_pythonpath() -> None:
     assert "Record a command result as DevEvent." in result.stdout
 
 
+def test_run_dev_checks_saves_success_results(db: Session, monkeypatch, tmp_path: Path) -> None:
+    _patch_script_session(monkeypatch, run_dev_checks, db)
+    monkeypatch.setattr(run_dev_checks, "_run_command", _fake_command_runner([0, 0, 0, 0]))
+
+    exit_code = run_dev_checks.run_dev_checks(repo_path=str(tmp_path))
+
+    events = db.query(DevEvent).order_by(DevEvent.id).all()
+    assert exit_code == 0
+    assert len(events) == 4
+    assert {event.status for event in events} == {"success"}
+    assert [event.command for event in events] == [
+        "uv run ruff check .",
+        "uv run pytest",
+        "uv run alembic check",
+        "git diff --check",
+    ]
+    assert all(event.details_json["exit_code"] == 0 for event in events)
+    assert all("duration_seconds" in event.details_json for event in events)
+
+
+def test_run_dev_checks_continues_after_failure_and_returns_one(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_script_session(monkeypatch, run_dev_checks, db)
+    monkeypatch.setattr(run_dev_checks, "_run_command", _fake_command_runner([0, 1, 0, 0]))
+
+    exit_code = run_dev_checks.run_dev_checks(repo_path=str(tmp_path))
+
+    events = db.query(DevEvent).order_by(DevEvent.id).all()
+    assert exit_code == 1
+    assert len(events) == 4
+    assert [event.status for event in events] == ["success", "failed", "success", "success"]
+    assert events[1].command == "uv run pytest"
+
+
+def test_run_dev_checks_masks_sensitive_output_excerpt(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_script_session(monkeypatch, run_dev_checks, db)
+    monkeypatch.setattr(
+        run_dev_checks,
+        "_run_command",
+        _fake_command_runner([0, 0, 0, 0], stdout="token=abc123 password=hunter2"),
+    )
+
+    run_dev_checks.run_dev_checks(repo_path=str(tmp_path))
+
+    event = db.query(DevEvent).first()
+    assert "abc123" not in event.details_json["output_excerpt"]
+    assert "hunter2" not in event.details_json["output_excerpt"]
+
+
+def test_run_dev_checks_compresses_pytest_success_output(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_script_session(monkeypatch, run_dev_checks, db)
+    output = "\n".join(
+        [
+            "tests/test_ai_components.py ................................",
+            "tests/test_api_flows.py ................................",
+            "============================= 123 passed in 3.33s ==============================",
+        ]
+    )
+    monkeypatch.setattr(
+        run_dev_checks,
+        "_run_command",
+        _fake_command_runner([0, 0, 0, 0], outputs=["", output, "", ""]),
+    )
+
+    run_dev_checks.run_dev_checks(repo_path=str(tmp_path))
+
+    event = db.query(DevEvent).filter(DevEvent.command == "uv run ruff check .").one()
+    pytest_event = db.query(DevEvent).filter(DevEvent.command == "uv run pytest").one()
+    assert event.details_json["output_excerpt"] == ""
+    assert pytest_event.details_json["output_excerpt"] == "123 passed in 3.33s"
+    assert "tests/test_api_flows.py" not in pytest_event.details_json["output_excerpt"]
+
+
+def test_run_dev_checks_compresses_alembic_and_ruff_output(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_script_session(monkeypatch, run_dev_checks, db)
+    alembic_output = "\n".join(
+        [
+            "INFO  [alembic.runtime.plugins] setting up autogenerate plugin "
+            "alembic.autogenerate.schemas",
+            "INFO  [alembic.runtime.plugins] setting up autogenerate plugin "
+            "alembic.autogenerate.tables",
+            "No new upgrade operations detected.",
+        ]
+    )
+    monkeypatch.setattr(
+        run_dev_checks,
+        "_run_command",
+        _fake_command_runner(
+            [0, 0, 0, 0],
+            outputs=["All checks passed!", "pytest ok", alembic_output, ""],
+        ),
+    )
+
+    run_dev_checks.run_dev_checks(repo_path=str(tmp_path))
+
+    ruff_event = db.query(DevEvent).filter(DevEvent.command == "uv run ruff check .").one()
+    alembic_event = db.query(DevEvent).filter(DevEvent.command == "uv run alembic check").one()
+    git_event = db.query(DevEvent).filter(DevEvent.command == "git diff --check").one()
+    assert ruff_event.details_json["output_excerpt"] == "All checks passed!"
+    assert alembic_event.details_json["output_excerpt"] == "No new upgrade operations detected."
+    assert "setting up autogenerate plugin" not in alembic_event.details_json["output_excerpt"]
+    assert git_event.details_json["output_excerpt"] == "No whitespace errors"
+
+
+def test_run_dev_checks_limits_failed_output_excerpt(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_script_session(monkeypatch, run_dev_checks, db)
+    long_failure = "\n".join(["FAILED tests/test_example.py::test_case"] + ["x" * 200] * 20)
+    monkeypatch.setattr(
+        run_dev_checks,
+        "_run_command",
+        _fake_command_runner([0, 1, 0, 0], outputs=["", long_failure, "", ""]),
+    )
+
+    run_dev_checks.run_dev_checks(repo_path=str(tmp_path))
+
+    event = db.query(DevEvent).filter(DevEvent.command == "uv run pytest").one()
+    assert event.status == "failed"
+    assert "FAILED tests/test_example.py::test_case" in event.details_json["output_excerpt"]
+    assert len(event.details_json["output_excerpt"]) <= run_dev_checks.OUTPUT_EXCERPT_LIMIT
+
+
+def test_run_dev_checks_script_imports_without_pythonpath() -> None:
+    result = _run_script_without_pythonpath("scripts/run_dev_checks.py", "--help")
+
+    assert result.returncode == 0
+    assert "Run development checks and record DevEvents." in result.stdout
+
+
 def _patch_script_session(monkeypatch, module, db: Session) -> None:
     testing_session_local = sessionmaker(bind=db.get_bind())
     monkeypatch.setattr(module, "SessionLocal", testing_session_local)
@@ -112,3 +260,26 @@ def _run_script_without_pythonpath(*args: str) -> subprocess.CompletedProcess[st
         cwd=Path(__file__).resolve().parents[1],
         env=env,
     )
+
+
+def _fake_command_runner(
+    exit_codes: list[int],
+    *,
+    stdout: str = "ok",
+    outputs: list[str] | None = None,
+) -> Callable:
+    remaining_codes = list(exit_codes)
+    remaining_outputs = list(outputs) if outputs is not None else None
+
+    def run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+        command_output = (
+            remaining_outputs.pop(0) if remaining_outputs is not None else stdout
+        )
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=remaining_codes.pop(0),
+            stdout=command_output,
+            stderr="",
+        )
+
+    return run
