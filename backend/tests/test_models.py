@@ -32,3 +32,11 @@ def test_initial_model_foreign_keys() -> None:
     assert next(iter(screen_observations.c.session_id.foreign_keys)).ondelete == "CASCADE"
     assert next(iter(meeting_sessions.c.session_id.foreign_keys)).ondelete == "CASCADE"
     assert next(iter(voice_transcripts.c.meeting_id.foreign_keys)).ondelete == "CASCADE"
+
+
+def test_voice_transcripts_do_not_store_raw_audio_fields() -> None:
+    voice_transcripts = Base.metadata.tables["voice_transcripts"]
+
+    forbidden_columns = {"audio_file_path", "audio_blob", "raw_audio", "audio_buffer"}
+
+    assert forbidden_columns.isdisjoint(voice_transcripts.c.keys())

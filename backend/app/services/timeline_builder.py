@@ -85,7 +85,7 @@ class TimelineBuilder:
         )
         for meeting in meetings:
             items.extend(self._meeting_to_items(meeting))
-        items.extend(self._transcript_to_item(transcript) for transcript in transcripts)
+        items.extend(self._transcript_to_basic_item(transcript) for transcript in transcripts)
         items.sort(key=lambda item: item.timestamp)
         return TimelineResponse(date=timeline_date, items=items, total=len(items))
 
@@ -138,7 +138,7 @@ class TimelineBuilder:
         items.extend(self._screen_observation_to_item(item) for item in screen_observations)
         for meeting in meetings:
             items.extend(self._meeting_to_items(meeting))
-        items.extend(self._transcript_to_item(transcript) for transcript in transcripts)
+        items.extend(self._transcript_to_detail_item(transcript) for transcript in transcripts)
         items.sort(key=lambda item: item.timestamp)
         return TimelineResponse(date=timeline_date, items=items, total=len(items))
 
@@ -447,16 +447,36 @@ class TimelineBuilder:
             )
         return items
 
-    def _transcript_to_item(self, transcript: VoiceTranscript) -> TimelineItem:
+    def _transcript_to_basic_item(self, transcript: VoiceTranscript) -> TimelineItem:
+        excerpt = self._transcript_excerpt(transcript.text, limit=80)
+        content = "회의 전사 수집됨"
+        if excerpt:
+            content = f"{content}: {excerpt}"
         return TimelineItem(
             type="transcript",
             id=transcript.id,
             timestamp=transcript.timestamp,
-            content=transcript.text,
+            content=content,
+            source=transcript.source,
             meeting_id=transcript.meeting_id,
             speaker=transcript.speaker,
             confidence=transcript.confidence,
         )
+
+    def _transcript_to_detail_item(self, transcript: VoiceTranscript) -> TimelineItem:
+        return TimelineItem(
+            type="transcript",
+            id=transcript.id,
+            timestamp=transcript.timestamp,
+            content=self._transcript_excerpt(transcript.text, limit=240),
+            source=transcript.source,
+            meeting_id=transcript.meeting_id,
+            speaker=transcript.speaker,
+            confidence=transcript.confidence,
+        )
+
+    def _transcript_excerpt(self, text: str, limit: int) -> str:
+        return self._truncate(" ".join(text.split()), limit)
 
 
 def get_timeline_builder() -> TimelineBuilder:

@@ -7,7 +7,7 @@ from app.core.timezone import get_kst_day_range_as_utc
 from app.models.meeting_session import MeetingSession
 from app.models.voice_transcript import VoiceTranscript
 from app.schemas.meeting import MeetingStartRequest
-from app.schemas.transcript import TranscriptCreate
+from app.schemas.transcript import MeetingTranscriptCreate, TranscriptCreate
 
 
 class MeetingRepository:
@@ -83,6 +83,30 @@ class MeetingRepository:
             meeting_id=request.meeting_id,
             timestamp=timestamp,
             text=request.text,
+            speaker=request.speaker,
+            confidence=request.confidence,
+        )
+        db.add(transcript)
+        db.commit()
+        db.refresh(transcript)
+        return transcript
+
+    def create_meeting_transcript(
+        self,
+        db: Session,
+        *,
+        request: MeetingTranscriptCreate,
+        meeting_session_id: int | None,
+        timestamp: datetime,
+        text: str,
+    ) -> VoiceTranscript:
+        transcript = VoiceTranscript(
+            meeting_id=meeting_session_id,
+            timestamp=timestamp,
+            text=text,
+            source=request.source,
+            started_at=request.started_at,
+            ended_at=request.ended_at,
             speaker=request.speaker,
             confidence=request.confidence,
         )

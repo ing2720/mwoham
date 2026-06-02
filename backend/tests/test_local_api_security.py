@@ -17,6 +17,7 @@ PROTECTED_API_ROUTES = {
     ("POST", "/screen-observations"),
     ("POST", "/meetings/start"),
     ("POST", "/meetings/{meeting_id}/end"),
+    ("POST", "/meeting-transcripts"),
     ("POST", "/transcripts"),
     ("POST", "/reports/daily"),
     ("PATCH", "/reports/{report_id}"),
@@ -101,6 +102,22 @@ def test_meeting_mutation_apis_require_local_token_when_configured(
     assert missing_start.status_code == 401
     assert valid_start.status_code == 200
     assert missing_end.status_code == 401
+
+
+def test_meeting_transcript_create_requires_local_token_when_configured(
+    client: TestClient,
+) -> None:
+    settings.local_api_token = "test-local-token"
+
+    missing = client.post("/meeting-transcripts", json={"text": "회의 전사"})
+    valid = client.post(
+        "/meeting-transcripts",
+        json={"text": "회의 전사"},
+        headers={"Authorization": "Bearer test-local-token"},
+    )
+
+    assert missing.status_code == 401
+    assert valid.status_code == 201
 
 
 def test_public_status_and_health_do_not_require_token(client: TestClient) -> None:
