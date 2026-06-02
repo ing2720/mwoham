@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.dev_event import DevEvent
-from scripts import collect_git_snapshot, record_command_result, run_dev_checks
+from scripts import collect_dev_context, collect_git_snapshot, record_command_result, run_dev_checks
 
 
 def test_collect_git_snapshot_saves_changed_files_diff_stat_and_commits(
@@ -233,6 +233,65 @@ def test_run_dev_checks_script_imports_without_pythonpath() -> None:
 
     assert result.returncode == 0
     assert "Run development checks and record DevEvents." in result.stdout
+
+
+def test_collect_dev_context_runs_git_snapshot_and_dev_checks(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, str, bool]] = []
+
+    def fake_collect_git_snapshot(repo_path: str, *, session_current: bool = False) -> int:
+        calls.append(("git", repo_path, session_current))
+        return 0
+
+    def fake_run_dev_checks(repo_path: str | None = None, *, session_current: bool = False) -> int:
+        calls.append(("checks", repo_path or "", session_current))
+        return 0
+
+    monkeypatch.setattr(collect_dev_context, "collect_git_snapshot", fake_collect_git_snapshot)
+    monkeypatch.setattr(collect_dev_context, "run_dev_checks", fake_run_dev_checks)
+
+    exit_code = collect_dev_context.collect_dev_context(
+        repo_path=str(tmp_path),
+        session_current=True,
+    )
+
+    assert exit_code == 0
+    assert calls == [
+        ("git", str(tmp_path.resolve()), True),
+        ("checks", str(tmp_path.resolve()), True),
+    ]
+
+
+def test_collect_dev_context_returns_one_when_checks_fail(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+
+    def fake_collect_git_snapshot(repo_path: str, *, session_current: bool = False) -> int:
+        calls.append("git")
+        return 0
+
+    def fake_run_dev_checks(repo_path: str | None = None, *, session_current: bool = False) -> int:
+        calls.append("checks")
+        return 1
+
+    monkeypatch.setattr(collect_dev_context, "collect_git_snapshot", fake_collect_git_snapshot)
+    monkeypatch.setattr(collect_dev_context, "run_dev_checks", fake_run_dev_checks)
+
+    exit_code = collect_dev_context.collect_dev_context(repo_path=str(tmp_path))
+
+    assert exit_code == 1
+    assert calls == ["git", "checks"]
+
+
+def test_collect_dev_context_script_imports_without_pythonpath() -> None:
+    result = _run_script_without_pythonpath("scripts/collect_dev_context.py", "--help")
+
+    assert result.returncode == 0
+    assert "Collect Git and development check context." in result.stdout
 
 
 def _patch_script_session(monkeypatch, module, db: Session) -> None:

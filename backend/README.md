@@ -119,6 +119,22 @@ uv run alembic check
 git diff --check
 ```
 
+## DevEvent 작업 마감 수집
+
+작업 종료 시 Git 상태와 개발 검증 결과를 DevEvent로 저장한 뒤 일일 리포트를 생성합니다.
+
+```bash
+cd backend
+uv run python scripts/collect_dev_context.py
+uv run python scripts/collect_dev_context.py --repo-path ..
+uv run python scripts/collect_dev_context.py --session-current
+```
+
+권장 흐름:
+
+1. 작업 종료 시 `collect_dev_context.py` 실행
+2. 브라우저 또는 API에서 `/reports/daily` 생성
+
 ## 샘플 데이터
 
 리포트 품질을 확인하기 위한 샘플 데이터를 생성할 수 있습니다.
