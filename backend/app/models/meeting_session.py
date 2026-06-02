@@ -49,3 +49,7 @@ class MeetingSession(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+
+    @property
+    def status(self) -> str:
+        return "ended" if self.ended_at is not None else "active"
