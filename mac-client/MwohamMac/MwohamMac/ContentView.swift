@@ -38,6 +38,7 @@ final class BackendStatusViewModel: ObservableObject {
     private var statusElapsedSeconds: Int?
     private var statusReceivedAt: Date?
     private var lastSubmittedTranscriptText = ""
+    private var isMeetingTranscribing = false
     private var isStoppingMeetingTranscription = false
 
     init() {
@@ -240,6 +241,7 @@ final class BackendStatusViewModel: ObservableObject {
             meetingMode = "켜짐"
             latestTranscriptText = ""
             lastSubmittedTranscriptText = ""
+            isMeetingTranscribing = true
             isStoppingMeetingTranscription = false
             transcriptionStatus = "회의 전사 시작 중"
 
@@ -259,15 +261,25 @@ final class BackendStatusViewModel: ObservableObject {
                 }
             )
         } catch {
+            isMeetingTranscribing = false
+            isStoppingMeetingTranscription = false
             transcriptionStatus = "회의 전사 시작 실패: \(error.localizedDescription)"
             await refreshAfterFailedAction()
         }
     }
 
     func stopMeetingTranscription() async {
+        guard isMeetingTranscribing || speechTranscriptionProvider.isRunning else {
+            return
+        }
+
+        isMeetingTranscribing = false
         isStoppingMeetingTranscription = true
         transcriptionStatus = "회의 전사 종료 중"
-        let didSaveFinalTranscript = await submitTranscriptIfNeeded(latestTranscriptText)
+        let didSaveFinalTranscript = await submitTranscriptIfNeeded(
+            latestTranscriptText,
+            allowsRunningStatusUpdate: false
+        )
         await speechTranscriptionProvider.stop()
 
         do {
@@ -385,14 +397,23 @@ final class BackendStatusViewModel: ObservableObject {
         }
 
         latestTranscriptText = trimmedText
-        transcriptionStatus = update.isFinal ? "전사 저장 중" : "회의 전사 중"
+        let canUpdateRunningStatus = isMeetingTranscribing && !isStoppingMeetingTranscription
+        if canUpdateRunningStatus {
+            transcriptionStatus = update.isFinal ? "전사 저장 중" : "회의 전사 중"
+        }
 
         if update.isFinal {
-            _ = await submitTranscriptIfNeeded(trimmedText)
+            _ = await submitTranscriptIfNeeded(
+                trimmedText,
+                allowsRunningStatusUpdate: canUpdateRunningStatus
+            )
         }
     }
 
-    private func submitTranscriptIfNeeded(_ text: String) async -> Bool {
+    private func submitTranscriptIfNeeded(
+        _ text: String,
+        allowsRunningStatusUpdate: Bool = true
+    ) async -> Bool {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty, trimmedText != lastSubmittedTranscriptText else {
             return true
@@ -404,7 +425,11 @@ final class BackendStatusViewModel: ObservableObject {
                 text: trimmedText
             )
             lastSubmittedTranscriptText = trimmedText
-            transcriptionStatus = speechTranscriptionProvider.isRunning ? "전사 저장됨, 회의 전사 중" : "전사 저장됨"
+            if allowsRunningStatusUpdate && isMeetingTranscribing && !isStoppingMeetingTranscription {
+                transcriptionStatus = "전사 저장됨, 회의 전사 중"
+            } else if allowsRunningStatusUpdate {
+                transcriptionStatus = "전사 저장됨"
+            }
             return true
         } catch {
             transcriptionStatus = "전사 저장 실패: \(error.localizedDescription)"
