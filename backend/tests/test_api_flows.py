@@ -998,6 +998,67 @@ def test_create_meeting_transcript_rejects_empty_text(client: TestClient) -> Non
     assert response.status_code == 400
 
 
+def test_create_meeting_transcript_rejects_too_short_text(client: TestClient) -> None:
+    response = client.post("/meeting-transcripts", json={"text": "둘"})
+
+    assert response.status_code == 400
+
+
+def test_create_meeting_transcript_deduplicates_repeated_text(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post("/meetings/start", json={"title": "중복 방어 회의"}).json()
+
+    first = client.post(
+        "/meeting-transcripts",
+        json={
+            "meeting_session_id": meeting["id"],
+            "text": "Apple Speech 전사 저장 품질을 점검합니다.",
+        },
+    )
+    duplicate = client.post(
+        "/meeting-transcripts",
+        json={
+            "meeting_session_id": meeting["id"],
+            "text": "Apple Speech 전사 저장 품질을 점검합니다.",
+        },
+    )
+    transcripts = client.get(f"/meetings/{meeting['id']}/transcripts")
+
+    assert first.status_code == 201
+    assert duplicate.status_code == 201
+    assert first.json()["id"] == duplicate.json()["id"]
+    assert transcripts.json()["total"] == 1
+
+
+def test_create_meeting_transcript_updates_minor_extension_instead_of_new_row(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post("/meetings/start", json={"title": "누적 결과 회의"}).json()
+
+    first = client.post(
+        "/meeting-transcripts",
+        json={
+            "meeting_session_id": meeting["id"],
+            "text": "Apple Speech 전사 품질 점검",
+        },
+    )
+    extended = client.post(
+        "/meeting-transcripts",
+        json={
+            "meeting_session_id": meeting["id"],
+            "text": "Apple Speech 전사 품질 점검 완료",
+        },
+    )
+    transcripts = client.get(f"/meetings/{meeting['id']}/transcripts")
+
+    assert first.status_code == 201
+    assert extended.status_code == 201
+    assert first.json()["id"] == extended.json()["id"]
+    assert transcripts.json()["total"] == 1
+    assert transcripts.json()["items"][0]["text"] == "Apple Speech 전사 품질 점검 완료"
+
+
 def test_meeting_transcript_masks_sensitive_text(client: TestClient) -> None:
     response = client.post(
         "/meeting-transcripts",
@@ -1060,6 +1121,24 @@ def test_meeting_transcript_appears_in_basic_and_detail_timeline(client: TestCli
     assert len(basic_item["content"]) < len(long_text)
     assert detail_item["type"] == "transcript"
     assert len(detail_item["content"]) < len(long_text)
+
+
+def test_short_meeting_transcript_does_not_fill_basic_timeline(client: TestClient) -> None:
+    client.post(
+        "/meeting-transcripts",
+        json={
+            "text": "테스트",
+            "started_at": datetime(2026, 5, 26, 9, 0, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    basic_response = client.get("/timeline/today?date=2026-05-26")
+    detail_response = client.get("/timeline/today/detail?date=2026-05-26")
+
+    assert basic_response.status_code == 200
+    assert detail_response.status_code == 200
+    assert [item["type"] for item in basic_response.json()["items"]] == []
+    assert [item["type"] for item in detail_response.json()["items"]] == ["transcript"]
 
 
 def test_timeline_today_includes_meeting_and_transcript_items(client: TestClient) -> None:

@@ -24,6 +24,7 @@ from app.repositories.work_event_repository import WorkEventRepository
 from app.schemas.timeline import TimelineItem, TimelineResponse
 from app.services.self_observation_filter import SelfObservationFilter, get_self_observation_filter
 from app.services.setting_service import SettingService, get_setting_service
+from app.services.transcript_quality import TranscriptQualityPolicy, get_transcript_quality_policy
 
 
 class TimelineBuilder:
@@ -37,6 +38,7 @@ class TimelineBuilder:
         meeting_repository: MeetingRepository,
         setting_service: SettingService,
         self_observation_filter: SelfObservationFilter,
+        transcript_quality_policy: TranscriptQualityPolicy,
     ) -> None:
         self.activity_segment_repository = activity_segment_repository
         self.dev_event_repository = dev_event_repository
@@ -46,6 +48,7 @@ class TimelineBuilder:
         self.meeting_repository = meeting_repository
         self.setting_service = setting_service
         self.self_observation_filter = self_observation_filter
+        self.transcript_quality_policy = transcript_quality_policy
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
         timeline_date = parse_date_or_today_kst(target_date)
@@ -85,7 +88,11 @@ class TimelineBuilder:
         )
         for meeting in meetings:
             items.extend(self._meeting_to_items(meeting))
-        items.extend(self._transcript_to_basic_item(transcript) for transcript in transcripts)
+        items.extend(
+            self._transcript_to_basic_item(transcript)
+            for transcript in transcripts
+            if self._should_show_basic_transcript(transcript)
+        )
         items.sort(key=lambda item: item.timestamp)
         return TimelineResponse(date=timeline_date, items=items, total=len(items))
 
@@ -478,6 +485,9 @@ class TimelineBuilder:
     def _transcript_excerpt(self, text: str, limit: int) -> str:
         return self._truncate(" ".join(text.split()), limit)
 
+    def _should_show_basic_transcript(self, transcript: VoiceTranscript) -> bool:
+        return self.transcript_quality_policy.is_meaningful_for_report(transcript.text)
+
 
 def get_timeline_builder() -> TimelineBuilder:
     return TimelineBuilder(
@@ -489,4 +499,5 @@ def get_timeline_builder() -> TimelineBuilder:
         meeting_repository=MeetingRepository(),
         setting_service=get_setting_service(),
         self_observation_filter=get_self_observation_filter(),
+        transcript_quality_policy=get_transcript_quality_policy(),
     )

@@ -47,6 +47,31 @@ struct MeetingTranscriptionSectionView: View {
                         .textSelection(.enabled)
                 }
             }
+
+            if viewModel.shouldShowSpeechPermissionHelp {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("음성 인식과 마이크 권한을 허용한 뒤 다시 시도해 주세요.")
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            viewModel.openSpeechRecognitionSettings()
+                        } label: {
+                            Label("음성 인식 설정 열기", systemImage: "waveform")
+                        }
+
+                        Button {
+                            viewModel.openMicrophoneSettings()
+                        } label: {
+                            Label("마이크 설정 열기", systemImage: "mic")
+                        }
+                    }
+                }
+                .padding(10)
+                .background(Color.orange.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
         }
     }
 

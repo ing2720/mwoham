@@ -209,11 +209,48 @@ def test_prompt_builder_includes_meeting_transcripts() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "PRIORITY_MEETING_TRANSCRIPTS:" in prompt
-    assert "TRANSCRIPT |" in prompt
+    assert "TRANSCRIPT_GROUP |" in prompt
     assert "speaker=mentor" in prompt
     assert "meeting_id=7" in prompt
     assert "배포 전 리포트 생성을 확인합니다." in prompt
     assert "text=회의 전사 수집됨" not in prompt
+
+
+def test_prompt_builder_groups_meeting_transcripts_and_skips_short_fragments() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=3,
+        items=[
+            TimelineItem(
+                type="transcript",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 11, 0, tzinfo=UTC),
+                content="회의 전사 수집됨: 테스트",
+                meeting_id=7,
+            ),
+            TimelineItem(
+                type="transcript",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 11, 1, tzinfo=UTC),
+                content="회의 전사 수집됨: Apple Speech 회의 전사 저장 품질을 점검했습니다.",
+                meeting_id=7,
+            ),
+            TimelineItem(
+                type="transcript",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 11, 2, tzinfo=UTC),
+                content="회의 전사 수집됨: 다음 작업은 시스템 오디오 캡처 가능성 검토입니다.",
+                meeting_id=7,
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert prompt.count("TRANSCRIPT_GROUP | meeting_id=7") == 1
+    assert "Apple Speech 회의 전사 저장 품질을 점검했습니다." in prompt
+    assert "다음 작업은 시스템 오디오 캡처 가능성 검토입니다." in prompt
+    assert "text=테스트" not in prompt
 
 
 def test_prompt_builder_handles_empty_timeline_concisely() -> None:

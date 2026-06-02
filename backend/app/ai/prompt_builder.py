@@ -10,6 +10,7 @@ from app.services.self_observation_filter import (
     SelfObservationFilter,
     get_self_observation_filter,
 )
+from app.services.transcript_quality import TranscriptQualityPolicy, get_transcript_quality_policy
 
 
 class PromptBuilder:
@@ -50,9 +51,13 @@ class PromptBuilder:
         self,
         privacy_filter: PrivacyFilter,
         self_observation_filter: SelfObservationFilter | None = None,
+        transcript_quality_policy: TranscriptQualityPolicy | None = None,
     ) -> None:
         self.privacy_filter = privacy_filter
         self.self_observation_filter = self_observation_filter or get_self_observation_filter()
+        self.transcript_quality_policy = (
+            transcript_quality_policy or get_transcript_quality_policy()
+        )
 
     def build_daily_report_prompt(self, timeline: TimelineResponse) -> str:
         compressed_timeline = self._compress_timeline(timeline)
@@ -140,11 +145,7 @@ class PromptBuilder:
             lines.append("PRIORITY_DEV_EVENTS:")
             lines.extend(dev_event_lines[:20])
 
-        transcript_lines = [
-            self._format_timeline_item(item)
-            for item in report_items
-            if item.type == "transcript"
-        ]
+        transcript_lines = self._format_transcript_groups(report_items)
         if transcript_lines:
             lines.append("PRIORITY_MEETING_TRANSCRIPTS:")
             lines.extend(transcript_lines[:12])
@@ -272,6 +273,8 @@ class PromptBuilder:
                 return f"이벤트: {self._truncate(item.content, 140)}"
         if item.type == "transcript":
             transcript = self._normalize_transcript_content(item.content)
+            if not self.transcript_quality_policy.is_meaningful_for_report(transcript):
+                return ""
             return f"회의 전사: {self._truncate(transcript, 180)}"
         return ""
 
@@ -282,6 +285,44 @@ class PromptBuilder:
             if normalized.startswith(prefix):
                 return normalized.removeprefix(prefix).strip()
         return normalized
+
+    def _format_transcript_groups(self, items) -> list[str]:
+        grouped: dict[int | str, list] = defaultdict(list)
+        for item in items:
+            if item.type != "transcript":
+                continue
+            text = self._normalize_transcript_content(item.content)
+            if not self.transcript_quality_policy.is_meaningful_for_report(text):
+                continue
+            key = item.meeting_id or f"transcript-{item.id}"
+            grouped[key].append(item)
+
+        lines: list[str] = []
+        for key, group_items in grouped.items():
+            sorted_items = sorted(group_items, key=lambda item: item.timestamp)
+            texts: list[str] = []
+            for item in sorted_items:
+                text = self._normalize_transcript_content(item.content)
+                if text and text not in texts:
+                    texts.append(text)
+            if not texts:
+                continue
+            start_time = self._format_kst_time(sorted_items[0].timestamp)
+            end_time = self._format_kst_time(sorted_items[-1].timestamp)
+            merged = self._truncate(" / ".join(texts[:5]), 500)
+            speakers = sorted(
+                {
+                    item.speaker
+                    for item in sorted_items
+                    if getattr(item, "speaker", None)
+                }
+            )
+            speaker_text = ",".join(speakers) if speakers else "-"
+            lines.append(
+                f"- TRANSCRIPT_GROUP | meeting_id={key} | time_range={start_time}~{end_time} | "
+                f"count={len(sorted_items)} | speaker={speaker_text} | text={merged}"
+            )
+        return lines
 
     def _format_dev_event_details(self, details: dict | None) -> str:
         if not details:
