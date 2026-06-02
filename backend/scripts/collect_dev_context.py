@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 try:
     from scripts._bootstrap import add_backend_root_to_path
@@ -12,9 +11,11 @@ add_backend_root_to_path()
 
 try:
     from scripts.collect_git_snapshot import collect_git_snapshot
+    from scripts.dev_event_helpers import resolve_project_root
     from scripts.run_dev_checks import run_dev_checks
 except ModuleNotFoundError:
     from collect_git_snapshot import collect_git_snapshot
+    from dev_event_helpers import resolve_project_root
     from run_dev_checks import run_dev_checks
 
 
@@ -23,8 +24,7 @@ def collect_dev_context(
     repo_path: str | None = None,
     session_current: bool = False,
 ) -> int:
-    backend_root = Path(__file__).resolve().parents[1]
-    project_root = Path(repo_path).expanduser().resolve() if repo_path else backend_root.parent
+    project_root = resolve_project_root(repo_path)
 
     print("Git snapshot 수집 시작")
     git_exit_code = collect_git_snapshot(str(project_root), session_current=session_current)

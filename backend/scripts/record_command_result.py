@@ -9,10 +9,18 @@ except ModuleNotFoundError:
 
 add_backend_root_to_path()
 
-from app.core.timezone import now_utc  # noqa: E402
-from app.db.session import SessionLocal  # noqa: E402
-from app.schemas.dev_event import DevEventCreate  # noqa: E402
-from app.services.dev_event_service import get_dev_event_service  # noqa: E402
+try:
+    from scripts.dev_event_helpers import (
+        build_dev_event_request,
+        print_saved_event,
+        save_dev_event,
+    )
+except ModuleNotFoundError:
+    from dev_event_helpers import (
+        build_dev_event_request,
+        print_saved_event,
+        save_dev_event,
+    )
 
 
 def record_command_result(
@@ -26,7 +34,7 @@ def record_command_result(
     repo_path: str | None = None,
     session_current: bool = False,
 ) -> int:
-    request = DevEventCreate(
+    request = build_dev_event_request(
         event_type=event_type,
         source="script",
         repo_path=repo_path,
@@ -41,17 +49,9 @@ def record_command_result(
             }.items()
             if value is not None
         },
-        occurred_at=now_utc(),
     )
 
-    with SessionLocal() as db:
-        service = get_dev_event_service()
-        event = (
-            service.create_for_current_session(db, request)
-            if session_current
-            else service.create(db, request)
-        )
-    print(f"DevEvent 저장됨: id={event.id} summary={event.summary}")
+    print_saved_event(save_dev_event(request, session_current=session_current))
     return 0
 
 
