@@ -25,26 +25,38 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var activeWindowTrackingStatus = "활성 창 추적 대기 중"
     @Published var isPrivateAppActive = false
     @Published var ocrStatus = "OCR 대기 중"
+    @Published var currentMeeting: MeetingResponse?
+    @Published var transcriptionStatus = "회의 전사 대기 중"
+    @Published var latestTranscriptText = ""
 
     private let localApiClient: LocalApiClient
     private let activeWindowCollector: ActiveWindowCollector
     private let ocrCollector: OCRCollector
+    private let speechTranscriptionProvider: SpeechTranscriptionProvider
     private var rawRecordingStatus = "unknown"
     private var sessionStartedAt: Date?
     private var statusElapsedSeconds: Int?
     private var statusReceivedAt: Date?
+    private var lastSubmittedTranscriptText = ""
+    private var isMeetingTranscribing = false
+    private var isStoppingMeetingTranscription = false
 
     init() {
         let localApiClient = LocalApiClient()
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         self.ocrCollector = OCRCollector(localApiClient: localApiClient)
+        self.speechTranscriptionProvider = AppleSpeechTranscriptionProvider()
     }
 
-    init(localApiClient: LocalApiClient) {
+    init(
+        localApiClient: LocalApiClient,
+        speechTranscriptionProvider: SpeechTranscriptionProvider? = nil
+    ) {
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         self.ocrCollector = OCRCollector(localApiClient: localApiClient)
+        self.speechTranscriptionProvider = speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider()
     }
 
     func refresh() async {
@@ -134,6 +146,14 @@ final class BackendStatusViewModel: ObservableObject {
         isConnected && !isSavingMemo
     }
 
+    var canStartMeetingTranscription: Bool {
+        isConnected && !speechTranscriptionProvider.isRunning
+    }
+
+    var canStopMeetingTranscription: Bool {
+        isConnected && speechTranscriptionProvider.isRunning
+    }
+
     var recordingState: String {
         rawRecordingStatus
     }
@@ -198,6 +218,92 @@ final class BackendStatusViewModel: ObservableObject {
         ocrCollector.stop()
         activeWindowTrackingStatus = "활성 창 추적 대기 중"
         ocrStatus = "OCR 대기 중"
+    }
+
+    func startMeetingTranscription() async {
+        guard canStartMeetingTranscription else {
+            return
+        }
+
+        transcriptionStatus = "권한 확인 중"
+        errorMessage = nil
+
+        do {
+            try await speechTranscriptionProvider.requestAuthorization()
+
+            let meeting: MeetingResponse
+            if let currentMeeting {
+                meeting = currentMeeting
+            } else {
+                meeting = try await localApiClient.startMeeting(title: "음성 전사 회의")
+            }
+            currentMeeting = meeting
+            meetingMode = "켜짐"
+            latestTranscriptText = ""
+            lastSubmittedTranscriptText = ""
+            isMeetingTranscribing = true
+            isStoppingMeetingTranscription = false
+            transcriptionStatus = "회의 전사 시작 중"
+
+            try await speechTranscriptionProvider.start(
+                localeIdentifier: "ko-KR",
+                onTranscript: { [weak self] update in
+                    guard let self else {
+                        return
+                    }
+                    await self.handleTranscriptUpdate(update)
+                },
+                onStatusChange: { [weak self] status in
+                    guard let self, !self.isStoppingMeetingTranscription else {
+                        return
+                    }
+                    self.transcriptionStatus = status
+                }
+            )
+        } catch {
+            isMeetingTranscribing = false
+            isStoppingMeetingTranscription = false
+            transcriptionStatus = "회의 전사 시작 실패: \(error.localizedDescription)"
+            await refreshAfterFailedAction()
+        }
+    }
+
+    func stopMeetingTranscription() async {
+        guard isMeetingTranscribing || speechTranscriptionProvider.isRunning else {
+            return
+        }
+
+        isMeetingTranscribing = false
+        isStoppingMeetingTranscription = true
+        transcriptionStatus = "회의 전사 종료 중"
+        let didSaveFinalTranscript = await submitTranscriptIfNeeded(
+            latestTranscriptText,
+            allowsRunningStatusUpdate: false
+        )
+        await speechTranscriptionProvider.stop()
+
+        do {
+            let meeting: MeetingResponse?
+            if let currentMeeting {
+                meeting = currentMeeting
+            } else {
+                meeting = try await localApiClient.fetchCurrentMeeting()
+            }
+            if let meeting {
+                try await localApiClient.endMeeting(id: meeting.id)
+            }
+            currentMeeting = nil
+            meetingMode = "꺼짐"
+            if didSaveFinalTranscript {
+                transcriptionStatus = lastSubmittedTranscriptText.isEmpty ? "회의 전사 종료됨" : "전사 저장 후 종료됨"
+            }
+            let snapshot = try await localApiClient.fetchSnapshot()
+            applySnapshot(snapshot)
+        } catch {
+            transcriptionStatus = "회의 전사 종료 실패: \(error.localizedDescription)"
+            await refreshAfterFailedAction()
+        }
+        isStoppingMeetingTranscription = false
     }
 
     func updateElapsedTime() {
@@ -273,6 +379,7 @@ final class BackendStatusViewModel: ObservableObject {
         statusElapsedSeconds = snapshot.status.elapsedSeconds
         statusReceivedAt = receivedAt
         recordingElapsedTime = makeElapsedTimeText(at: receivedAt)
+        currentMeeting = snapshot.status.currentMeeting
         meetingMode = snapshot.status.meetingMode ? "켜짐" : "꺼짐"
         if isPrivateAppActive {
             currentApp = "비공개 앱"
@@ -280,6 +387,53 @@ final class BackendStatusViewModel: ObservableObject {
         } else {
             currentApp = displayValue(snapshot.status.currentApp)
             currentWindow = displayValue(snapshot.status.currentWindow)
+        }
+    }
+
+    private func handleTranscriptUpdate(_ update: SpeechTranscriptUpdate) async {
+        let trimmedText = update.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else {
+            return
+        }
+
+        latestTranscriptText = trimmedText
+        let canUpdateRunningStatus = isMeetingTranscribing && !isStoppingMeetingTranscription
+        if canUpdateRunningStatus {
+            transcriptionStatus = update.isFinal ? "전사 저장 중" : "회의 전사 중"
+        }
+
+        if update.isFinal {
+            _ = await submitTranscriptIfNeeded(
+                trimmedText,
+                allowsRunningStatusUpdate: canUpdateRunningStatus
+            )
+        }
+    }
+
+    private func submitTranscriptIfNeeded(
+        _ text: String,
+        allowsRunningStatusUpdate: Bool = true
+    ) async -> Bool {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty, trimmedText != lastSubmittedTranscriptText else {
+            return true
+        }
+
+        do {
+            try await localApiClient.createMeetingTranscript(
+                meetingSessionId: currentMeeting?.id,
+                text: trimmedText
+            )
+            lastSubmittedTranscriptText = trimmedText
+            if allowsRunningStatusUpdate && isMeetingTranscribing && !isStoppingMeetingTranscription {
+                transcriptionStatus = "전사 저장됨, 회의 전사 중"
+            } else if allowsRunningStatusUpdate {
+                transcriptionStatus = "전사 저장됨"
+            }
+            return true
+        } catch {
+            transcriptionStatus = "전사 저장 실패: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -409,6 +563,10 @@ struct ContentView: View {
 
             Divider()
 
+            MeetingTranscriptionSectionView(viewModel: viewModel)
+
+            Divider()
+
             QuickMemoSectionView(viewModel: viewModel)
 
             if viewModel.isLoading {
@@ -421,7 +579,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(minWidth: 460, minHeight: 390, alignment: .topLeading)
+        .frame(minWidth: 520, minHeight: 500, alignment: .topLeading)
         .padding(24)
         .task {
             viewModel.startActiveWindowTracking()

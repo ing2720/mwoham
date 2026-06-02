@@ -18,6 +18,7 @@ struct StatusResponse: Decodable {
     let currentApp: String?
     let currentWindow: String?
     let meetingMode: Bool
+    let currentMeeting: MeetingResponse?
     let sessionStartedAt: String?
     let elapsedSeconds: Int?
 
@@ -26,6 +27,7 @@ struct StatusResponse: Decodable {
         case currentApp = "current_app"
         case currentWindow = "current_window"
         case meetingMode = "meeting_mode"
+        case currentMeeting = "current_meeting"
         case sessionStartedAt = "session_started_at"
         case elapsedSeconds = "elapsed_seconds"
     }
@@ -47,6 +49,34 @@ struct RecordingResponse: Decodable {
 
 struct MemoCreateRequest: Encodable {
     let content: String
+}
+
+struct MeetingStartRequest: Encodable {
+    let title: String?
+    let meetingApp: String?
+    let transcriptEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case meetingApp = "meeting_app"
+        case transcriptEnabled = "transcript_enabled"
+    }
+}
+
+struct MeetingEndRequest: Encodable {
+    let summary: String?
+}
+
+struct MeetingTranscriptCreateRequest: Encodable {
+    let meetingSessionId: Int?
+    let text: String
+    let source: String
+
+    enum CodingKeys: String, CodingKey {
+        case meetingSessionId = "meeting_session_id"
+        case text
+        case source
+    }
 }
 
 struct WorkEventCreateRequest: Encodable {
@@ -146,6 +176,52 @@ struct MemoResponse: Decodable {
         case content
         case linkedType = "linked_type"
         case linkedId = "linked_id"
+        case createdAt = "created_at"
+    }
+}
+
+struct MeetingResponse: Decodable {
+    let id: Int
+    let sessionId: Int
+    let startedAt: String
+    let endedAt: String?
+    let status: String
+    let meetingApp: String?
+    let title: String?
+    let transcriptEnabled: Bool
+    let summary: String?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId = "session_id"
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
+        case status
+        case meetingApp = "meeting_app"
+        case title
+        case transcriptEnabled = "transcript_enabled"
+        case summary
+        case createdAt = "created_at"
+    }
+}
+
+struct MeetingTranscriptResponse: Decodable {
+    let id: Int
+    let meetingSessionId: Int?
+    let text: String
+    let source: String
+    let startedAt: String?
+    let endedAt: String?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case meetingSessionId = "meeting_session_id"
+        case text
+        case source
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
         case createdAt = "created_at"
     }
 }
@@ -256,6 +332,46 @@ final class LocalApiClient {
     @discardableResult
     func createMemo(content: String) async throws -> MemoResponse {
         try await post("/memos", body: MemoCreateRequest(content: content))
+    }
+
+    @discardableResult
+    func startMeeting(title: String? = nil) async throws -> MeetingResponse {
+        try await post(
+            "/meetings/start",
+            body: MeetingStartRequest(
+                title: title,
+                meetingApp: "MwohamMac",
+                transcriptEnabled: true
+            )
+        )
+    }
+
+    @discardableResult
+    func endMeeting(id: Int, summary: String? = nil) async throws -> MeetingResponse {
+        try await post(
+            "/meetings/\(id)/end",
+            body: MeetingEndRequest(summary: summary)
+        )
+    }
+
+    func fetchCurrentMeeting() async throws -> MeetingResponse? {
+        try await get("/meetings/current")
+    }
+
+    @discardableResult
+    func createMeetingTranscript(
+        meetingSessionId: Int?,
+        text: String,
+        source: String = "apple_speech"
+    ) async throws -> MeetingTranscriptResponse {
+        try await post(
+            "/meeting-transcripts",
+            body: MeetingTranscriptCreateRequest(
+                meetingSessionId: meetingSessionId,
+                text: text,
+                source: source
+            )
+        )
     }
 
     func fetchPrivateApps() async throws -> [PrivateAppResponse] {

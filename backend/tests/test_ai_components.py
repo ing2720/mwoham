@@ -198,7 +198,7 @@ def test_prompt_builder_includes_meeting_transcripts() -> None:
                 type="transcript",
                 id=1,
                 timestamp=datetime(2026, 5, 26, 11, 0, tzinfo=UTC),
-                content="배포 전 리포트 생성을 확인합니다.",
+                content="회의 전사 수집됨: 배포 전 리포트 생성을 확인합니다.",
                 meeting_id=7,
                 speaker="mentor",
                 confidence=0.9,
@@ -208,10 +208,12 @@ def test_prompt_builder_includes_meeting_transcripts() -> None:
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
+    assert "PRIORITY_MEETING_TRANSCRIPTS:" in prompt
     assert "TRANSCRIPT |" in prompt
     assert "speaker=mentor" in prompt
     assert "meeting_id=7" in prompt
     assert "배포 전 리포트 생성을 확인합니다." in prompt
+    assert "text=회의 전사 수집됨" not in prompt
 
 
 def test_prompt_builder_handles_empty_timeline_concisely() -> None:

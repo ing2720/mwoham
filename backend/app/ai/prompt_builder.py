@@ -97,7 +97,8 @@ class PromptBuilder:
                 "- SCREEN_OCR: 화면 OCR 기반 AI 추론과 감지 키워드입니다. "
                 "원본 이미지는 포함하지 않았고, ai_inference를 우선 참고하세요.",
                 "- MEETING: 회의 시작/종료 등 회의 상태 이벤트입니다.",
-                "- TRANSCRIPT: 회의 전사 텍스트입니다. 원본 음성은 포함하지 않았습니다.",
+                "- TRANSCRIPT: 회의 전사 텍스트입니다. 원본 음성은 포함하지 않았습니다. "
+                "회의/메모에서 나온 결정사항 섹션과 시간대별 작업 흐름에 우선 반영하세요.",
                 "",
                 "압축 타임라인:",
                 safe_timeline,
@@ -139,13 +140,22 @@ class PromptBuilder:
             lines.append("PRIORITY_DEV_EVENTS:")
             lines.extend(dev_event_lines[:20])
 
+        transcript_lines = [
+            self._format_timeline_item(item)
+            for item in report_items
+            if item.type == "transcript"
+        ]
+        if transcript_lines:
+            lines.append("PRIORITY_MEETING_TRANSCRIPTS:")
+            lines.extend(transcript_lines[:12])
+
         evidence_lines = self._format_work_evidence_by_time(report_items)
         if evidence_lines:
             lines.append("WORK_EVIDENCE_BY_TIME:")
             lines.extend(evidence_lines)
 
         for item in report_items:
-            if item.type == "memo":
+            if item.type in {"memo", "transcript"}:
                 continue
             lines.append(self._format_timeline_item(item))
         environment_summary = self._format_activity_environment_summary(activity_segments)
@@ -197,10 +207,11 @@ class PromptBuilder:
                 f"content={item.content}"
             )
         if item.type == "transcript":
+            text = self._normalize_transcript_content(item.content)
             return (
                 f"- TRANSCRIPT | time={timestamp} | meeting_id={item.meeting_id or '-'} | "
                 f"speaker={item.speaker or '-'} | confidence={item.confidence or '-'} | "
-                f"text={item.content}"
+                f"text={text}"
             )
         return f"- {item.type.upper()} | time={timestamp} | content={item.content}"
 
@@ -260,8 +271,17 @@ class PromptBuilder:
             if keywords or self._looks_like_work_evidence(item.content):
                 return f"이벤트: {self._truncate(item.content, 140)}"
         if item.type == "transcript":
-            return f"회의 전사: {self._truncate(item.content, 140)}"
+            transcript = self._normalize_transcript_content(item.content)
+            return f"회의 전사: {self._truncate(transcript, 180)}"
         return ""
+
+    def _normalize_transcript_content(self, content: str) -> str:
+        prefixes = ("회의 전사 수집됨:", "회의 전사 수집됨")
+        normalized = re.sub(r"\s+", " ", content).strip()
+        for prefix in prefixes:
+            if normalized.startswith(prefix):
+                return normalized.removeprefix(prefix).strip()
+        return normalized
 
     def _format_dev_event_details(self, details: dict | None) -> str:
         if not details:
