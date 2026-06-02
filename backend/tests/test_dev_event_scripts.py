@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -67,6 +69,24 @@ def test_record_command_result_saves_masked_summary_and_details(
     assert event.details_json["duration_seconds"] == 1.5
 
 
+def test_collect_git_snapshot_script_runs_without_pythonpath(tmp_path: Path) -> None:
+    result = _run_script_without_pythonpath(
+        "scripts/collect_git_snapshot.py",
+        "--repo-path",
+        str(tmp_path),
+    )
+
+    assert result.returncode == 1
+    assert "Git 저장소가 아닙니다" in result.stdout
+
+
+def test_record_command_result_script_imports_without_pythonpath() -> None:
+    result = _run_script_without_pythonpath("scripts/record_command_result.py", "--help")
+
+    assert result.returncode == 0
+    assert "Record a command result as DevEvent." in result.stdout
+
+
 def _patch_script_session(monkeypatch, module, db: Session) -> None:
     testing_session_local = sessionmaker(bind=db.get_bind())
     monkeypatch.setattr(module, "SessionLocal", testing_session_local)
@@ -78,4 +98,17 @@ def _git(repo: Path, *args: str) -> None:
         check=True,
         capture_output=True,
         text=True,
+    )
+
+
+def _run_script_without_pythonpath(*args: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    return subprocess.run(
+        [sys.executable, *args],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
     )

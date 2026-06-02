@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import argparse
 
-from app.core.timezone import now_utc
-from app.db.session import SessionLocal
-from app.schemas.dev_event import DevEventCreate
-from app.services.dev_event_service import get_dev_event_service
+try:
+    from scripts._bootstrap import add_backend_root_to_path
+except ModuleNotFoundError:
+    from _bootstrap import add_backend_root_to_path
+
+add_backend_root_to_path()
+
+from app.core.timezone import now_utc  # noqa: E402
+from app.db.session import SessionLocal  # noqa: E402
+from app.schemas.dev_event import DevEventCreate  # noqa: E402
+from app.services.dev_event_service import get_dev_event_service  # noqa: E402
 
 
 def record_command_result(
