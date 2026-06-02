@@ -10,9 +10,17 @@
 - `backend`: FastAPI 로컬 서버입니다. SQLite 저장, Gemini 리포트, PDF export, 웹 대시보드를 담당합니다.
 - backend 기본 주소: `http://127.0.0.1:8765`
 
-## 테스트 번들 만들기
+## 앱 준비 방식
 
-개발자 머신에서 실행합니다.
+### Xcode가 없는 테스터
+
+직접 앱을 생성하지 않습니다. 개발자가 만든 `dist/MwohamMacTesterBundle.zip`을 받아 압축을 풀고, 안에 있는 `MwohamMac.app`을 실행합니다.
+
+Xcode가 없어도 앱 실행은 가능합니다. 단, backend 실행을 위해 Python과 uv는 필요합니다.
+
+### Xcode가 있는 개발자/테스터
+
+저장소에서 직접 테스트 번들을 만들 수 있습니다. 이 단계는 `MwohamMac.app`을 생성하는 단계라 full Xcode가 필요합니다.
 
 ```bash
 chmod +x scripts/build_macos_release.sh scripts/package_tester_bundle.sh
@@ -46,7 +54,7 @@ chmod +x scripts/build_macos_release.sh
 - 전달받은 `MwohamMac.app`
 - 선택 사항: Gemini API key
 
-Xcode는 필요 없습니다.
+Xcode가 없는 테스터는 개발자에게 `MwohamMacTesterBundle.zip`을 직접 받아서 사용합니다. 저장소를 직접 받아 `scripts/package_tester_bundle.sh`로 앱을 생성하려면 full Xcode가 필요합니다.
 
 ## backend 실행
 
