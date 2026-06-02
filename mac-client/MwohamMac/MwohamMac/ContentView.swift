@@ -28,6 +28,7 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var currentMeeting: MeetingResponse?
     @Published var transcriptionStatus = "회의 전사 대기 중"
     @Published var latestTranscriptText = ""
+    @Published var shouldShowSpeechPermissionHelp = false
 
     private let localApiClient: LocalApiClient
     private let activeWindowCollector: ActiveWindowCollector
@@ -223,11 +224,17 @@ final class BackendStatusViewModel: ObservableObject {
     }
 
     func startMeetingTranscription() async {
+        if shouldShowSpeechPermissionHelp {
+            showSpeechPermissionAlert()
+            return
+        }
+
         guard canStartMeetingTranscription else {
             return
         }
 
         transcriptionStatus = "권한 확인 중"
+        shouldShowSpeechPermissionHelp = false
         errorMessage = nil
 
         do {
@@ -266,6 +273,7 @@ final class BackendStatusViewModel: ObservableObject {
         } catch {
             isMeetingTranscribing = false
             isStoppingMeetingTranscription = false
+            shouldShowSpeechPermissionHelp = isSpeechPermissionError(error)
             transcriptionStatus = "회의 전사 시작 실패: \(error.localizedDescription)"
             await refreshAfterFailedAction()
         }
@@ -314,6 +322,33 @@ final class BackendStatusViewModel: ObservableObject {
         recordingElapsedTime = makeElapsedTimeText(at: Date())
     }
 
+    func openSpeechRecognitionSettings() {
+        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")
+    }
+
+    func openMicrophoneSettings() {
+        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+    }
+
+    func showSpeechPermissionAlert() {
+        let alert = NSAlert()
+        alert.messageText = "회의 전사 권한이 필요합니다."
+        alert.informativeText = "음성 인식과 마이크 권한을 허용한 뒤 회의 전사를 다시 시작해 주세요."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "음성 인식 설정 열기")
+        alert.addButton(withTitle: "마이크 설정 열기")
+        alert.addButton(withTitle: "취소")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            openSpeechRecognitionSettings()
+        case .alertSecondButtonReturn:
+            openMicrophoneSettings()
+        default:
+            break
+        }
+    }
+
     private func displayValue(_ value: String?) -> String {
         guard let value, !value.isEmpty else {
             return "없음"
@@ -333,6 +368,20 @@ final class BackendStatusViewModel: ObservableObject {
         default:
             return "알 수 없음"
         }
+    }
+
+    private func isSpeechPermissionError(_ error: Error) -> Bool {
+        guard let speechError = error as? SpeechTranscriptionError else {
+            return false
+        }
+        return speechError == .speechRecognitionDenied || speechError == .microphoneDenied
+    }
+
+    private func openSystemSettingsPane(_ urlString: String) {
+        guard let url = URL(string: urlString) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private var canUseControls: Bool {
