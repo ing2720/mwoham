@@ -119,6 +119,22 @@ uv run alembic check
 git diff --check
 ```
 
+로컬 개발 검증만 실행하고 DevEvent를 저장하지 않으려면:
+
+```bash
+cd backend
+uv run python scripts/run_dev_checks.py --no-record
+```
+
+coverage 확인:
+
+```bash
+cd backend
+uv run pytest --cov=app --cov-report=term-missing --cov-report=html
+```
+
+현재 coverage threshold는 적용하지 않습니다. 핵심 service 테스트를 더 보강한 뒤 도입합니다.
+
 ## DevEvent 작업 마감 수집
 
 작업 종료 시 Git 상태와 개발 검증 결과를 DevEvent로 저장한 뒤 일일 리포트를 생성합니다.
@@ -132,8 +148,10 @@ uv run python scripts/collect_dev_context.py --session-current
 
 권장 흐름:
 
-1. 작업 종료 시 `collect_dev_context.py` 실행
-2. 브라우저 또는 API에서 `/reports/daily` 생성
+1. 로컬 검증만 필요하면 `run_dev_checks.py --no-record` 실행
+2. 검증 결과를 DevEvent로 남기려면 `run_dev_checks.py` 실행
+3. 작업 종료 시 `collect_dev_context.py --repo-path ..` 실행
+4. 브라우저 또는 API에서 `/reports/daily` 생성
 
 ## 샘플 데이터
 

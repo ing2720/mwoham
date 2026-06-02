@@ -125,6 +125,34 @@ def test_run_dev_checks_continues_after_failure_and_returns_one(
     assert events[1].command == "uv run pytest"
 
 
+def test_run_dev_checks_no_record_does_not_save_events(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_script_session(monkeypatch, run_dev_checks, db)
+    monkeypatch.setattr(run_dev_checks, "_run_command", _fake_command_runner([0, 0, 0, 0]))
+
+    exit_code = run_dev_checks.run_dev_checks(repo_path=str(tmp_path), no_record=True)
+
+    assert exit_code == 0
+    assert db.query(DevEvent).count() == 0
+
+
+def test_run_dev_checks_no_record_returns_one_on_failure(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_script_session(monkeypatch, run_dev_checks, db)
+    monkeypatch.setattr(run_dev_checks, "_run_command", _fake_command_runner([0, 1, 0, 0]))
+
+    exit_code = run_dev_checks.run_dev_checks(repo_path=str(tmp_path), no_record=True)
+
+    assert exit_code == 1
+    assert db.query(DevEvent).count() == 0
+
+
 def test_run_dev_checks_masks_sensitive_output_excerpt(
     db: Session,
     monkeypatch,

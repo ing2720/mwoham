@@ -45,7 +45,12 @@ class DevCheckResult:
         return "success" if self.exit_code == 0 else "failed"
 
 
-def run_dev_checks(*, repo_path: str | None = None, session_current: bool = False) -> int:
+def run_dev_checks(
+    *,
+    repo_path: str | None = None,
+    session_current: bool = False,
+    no_record: bool = False,
+) -> int:
     backend_root = Path(__file__).resolve().parents[1]
     project_root = Path(repo_path).expanduser().resolve() if repo_path else backend_root.parent
     checks = [
@@ -58,7 +63,8 @@ def run_dev_checks(*, repo_path: str | None = None, session_current: bool = Fals
     results: list[DevCheckResult] = []
     for check in checks:
         result = _run_check(check)
-        _save_result(result, repo_path=str(project_root), session_current=session_current)
+        if not no_record:
+            _save_result(result, repo_path=str(project_root), session_current=session_current)
         results.append(result)
         print(_format_result_line(result))
 
@@ -232,8 +238,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run development checks and record DevEvents.")
     parser.add_argument("--repo-path")
     parser.add_argument("--session-current", action="store_true")
+    parser.add_argument("--no-record", action="store_true")
     args = parser.parse_args()
-    return run_dev_checks(repo_path=args.repo_path, session_current=args.session_current)
+    return run_dev_checks(
+        repo_path=args.repo_path,
+        session_current=args.session_current,
+        no_record=args.no_record,
+    )
 
 
 if __name__ == "__main__":
