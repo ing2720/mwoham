@@ -9,12 +9,14 @@ from app.core.timezone import (
     parse_date_or_today_kst,
 )
 from app.models.activity_segment import ActivitySegment
+from app.models.dev_event import DevEvent
 from app.models.manual_memo import ManualMemo
 from app.models.meeting_session import MeetingSession
 from app.models.screen_observation import ScreenObservation
 from app.models.voice_transcript import VoiceTranscript
 from app.models.work_event import WorkEvent
 from app.repositories.activity_segment_repository import ActivitySegmentRepository
+from app.repositories.dev_event_repository import DevEventRepository
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.memo_repository import MemoRepository
 from app.repositories.screen_observation_repository import ScreenObservationRepository
@@ -28,6 +30,7 @@ class TimelineBuilder:
     def __init__(
         self,
         activity_segment_repository: ActivitySegmentRepository,
+        dev_event_repository: DevEventRepository,
         event_repository: WorkEventRepository,
         memo_repository: MemoRepository,
         screen_observation_repository: ScreenObservationRepository,
@@ -36,6 +39,7 @@ class TimelineBuilder:
         self_observation_filter: SelfObservationFilter,
     ) -> None:
         self.activity_segment_repository = activity_segment_repository
+        self.dev_event_repository = dev_event_repository
         self.event_repository = event_repository
         self.memo_repository = memo_repository
         self.screen_observation_repository = screen_observation_repository
@@ -51,6 +55,7 @@ class TimelineBuilder:
             if event.source != "mac_active_window"
         ]
         memos = self.memo_repository.list(db, target_date=timeline_date, limit=1000)
+        dev_events = self.dev_event_repository.list(db, target_date=timeline_date, limit=1000)
         screen_observations = [
             observation
             for observation in self.screen_observation_repository.list(
@@ -72,6 +77,7 @@ class TimelineBuilder:
         )
 
         items = [self._event_to_item(event) for event in events]
+        items.extend(self._dev_event_to_basic_item(event) for event in dev_events)
         items.extend(self._memo_to_item(memo) for memo in memos)
         items.extend(
             self._screen_observation_to_basic_item(item)
@@ -105,6 +111,7 @@ class TimelineBuilder:
             if event.source != "mac_active_window"
         ]
         memos = self.memo_repository.list(db, target_date=timeline_date, limit=1000)
+        dev_events = self.dev_event_repository.list(db, target_date=timeline_date, limit=1000)
         screen_observations = [
             observation
             for observation in self.screen_observation_repository.list(
@@ -125,6 +132,7 @@ class TimelineBuilder:
             limit=1000,
         )
         items = [self._activity_segment_to_item(segment) for segment in activity_segments]
+        items.extend(self._dev_event_to_detail_item(event) for event in dev_events)
         items.extend(self._event_to_item(event) for event in events)
         items.extend(self._memo_to_item(memo) for memo in memos)
         items.extend(self._screen_observation_to_item(item) for item in screen_observations)
@@ -198,6 +206,94 @@ class TimelineBuilder:
             duration_seconds=segment.duration_seconds,
             sample_count=segment.sample_count,
         )
+
+    def _dev_event_to_basic_item(self, event: DevEvent) -> TimelineItem:
+        return TimelineItem(
+            type="dev_event",
+            id=event.id,
+            timestamp=event.occurred_at,
+            content=self._dev_event_basic_content(event),
+            source=event.source,
+            event_type=event.event_type,
+            session_id=event.session_id,
+            repo_path=event.repo_path,
+            branch=event.branch,
+            command=event.command,
+            status=event.status,
+        )
+
+    def _dev_event_to_detail_item(self, event: DevEvent) -> TimelineItem:
+        details_summary = self._dev_event_details_summary(event.details_json)
+        content = event.summary
+        if details_summary:
+            content = f"{content} | {details_summary}"
+        return TimelineItem(
+            type="dev_event",
+            id=event.id,
+            timestamp=event.occurred_at,
+            content=self._truncate(content, 360),
+            source=event.source,
+            event_type=event.event_type,
+            session_id=event.session_id,
+            repo_path=event.repo_path,
+            branch=event.branch,
+            command=event.command,
+            status=event.status,
+            details_json=self._compact_details(event.details_json),
+        )
+
+    def _dev_event_basic_content(self, event: DevEvent) -> str:
+        if event.event_type == "git_snapshot":
+            changed_files = self._details_list(event.details_json, "changed_files")
+            file_text = ", ".join(changed_files[:5])
+            suffix = f": {file_text}" if file_text else ""
+            return f"Git 변경 파일 확인{suffix}"
+        if event.event_type in {"test_result", "build_result"}:
+            label = "테스트 실행 결과" if event.event_type == "test_result" else "빌드 실행 결과"
+            return f"{label}: {event.summary}"
+        if event.event_type == "command_result":
+            return f"개발 명령 실행 결과: {event.summary}"
+        return event.summary
+
+    def _dev_event_details_summary(self, details: dict | None) -> str:
+        if not details:
+            return ""
+        parts: list[str] = []
+        changed_files = self._details_list(details, "changed_files")
+        recent_commits = self._details_list(details, "recent_commits")
+        diff_stat = details.get("diff_stat")
+        exit_code = details.get("exit_code")
+        duration_seconds = details.get("duration_seconds")
+        if changed_files:
+            parts.append(f"changed_files={', '.join(changed_files[:8])}")
+        if diff_stat:
+            parts.append(f"diff_stat={self._truncate(str(diff_stat), 120)}")
+        if recent_commits:
+            parts.append(f"recent_commits={'; '.join(recent_commits[:3])}")
+        if exit_code is not None:
+            parts.append(f"exit_code={exit_code}")
+        if duration_seconds is not None:
+            parts.append(f"duration_seconds={duration_seconds}")
+        return " | ".join(parts)
+
+    def _details_list(self, details: dict | None, key: str) -> list[str]:
+        if not details:
+            return []
+        value = details.get(key)
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if item is not None]
+
+    def _compact_details(self, details: dict | None) -> dict | None:
+        if not details:
+            return None
+        compacted = dict(details)
+        for key in ["changed_files", "recent_commits"]:
+            if isinstance(compacted.get(key), list):
+                compacted[key] = compacted[key][:10]
+        if "diff_stat" in compacted:
+            compacted["diff_stat"] = self._truncate(str(compacted["diff_stat"]), 240)
+        return compacted
 
     def _activity_title(self, app_name: str | None, window_title: str | None) -> str:
         title_parts = [
@@ -312,6 +408,11 @@ class TimelineBuilder:
             return excerpt
         return excerpt[:limit].rstrip() + "..."
 
+    def _truncate(self, text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "..."
+
     def _as_aware_utc(self, value: datetime) -> datetime:
         return as_utc(value)
 
@@ -361,6 +462,7 @@ class TimelineBuilder:
 def get_timeline_builder() -> TimelineBuilder:
     return TimelineBuilder(
         activity_segment_repository=ActivitySegmentRepository(),
+        dev_event_repository=DevEventRepository(),
         event_repository=WorkEventRepository(),
         memo_repository=MemoRepository(),
         screen_observation_repository=ScreenObservationRepository(),

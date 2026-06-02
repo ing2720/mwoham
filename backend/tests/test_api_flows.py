@@ -578,6 +578,64 @@ def test_mac_active_window_work_event_is_excluded_from_basic_timeline(
     assert [item["type"] for item in response.json()["items"]] == ["memo"]
 
 
+def test_dev_events_can_be_created_listed_and_added_to_timeline(client: TestClient) -> None:
+    response = client.post(
+        "/dev-events",
+        json={
+            "event_type": "test_result",
+            "source": "api",
+            "command": "uv run pytest",
+            "status": "success",
+            "summary": "pytest 통과: 111 passed",
+            "details_json": {
+                "changed_files": ["backend/app/services/report_service.py"],
+                "exit_code": 0,
+            },
+            "occurred_at": datetime(2026, 5, 26, 13, 0, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["event_type"] == "test_result"
+    assert body["summary"] == "pytest 통과: 111 passed"
+
+    list_response = client.get("/dev-events?date=2026-05-26")
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 1
+
+    basic_timeline = client.get("/timeline/today?date=2026-05-26").json()["items"]
+    detail_timeline = client.get("/timeline/today/detail?date=2026-05-26").json()["items"]
+    assert basic_timeline[0]["type"] == "dev_event"
+    assert basic_timeline[0]["content"] == "테스트 실행 결과: pytest 통과: 111 passed"
+    assert detail_timeline[0]["details_json"]["changed_files"] == [
+        "backend/app/services/report_service.py"
+    ]
+    assert "exit_code=0" in detail_timeline[0]["content"]
+
+
+def test_dev_event_masks_sensitive_summary_and_details(client: TestClient) -> None:
+    response = client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "api",
+            "command": "curl -H 'Authorization: Bearer abc123'",
+            "status": "failed",
+            "summary": "token=abc123 secret=hidden",
+            "details_json": {"stderr_excerpt": "password=hunter2"},
+            "occurred_at": datetime(2026, 5, 26, 13, 10, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert "abc123" not in body["summary"]
+    assert "hidden" not in body["summary"]
+    assert "hunter2" not in body["details_json"]["stderr_excerpt"]
+    assert "abc123" not in body["command"]
+
+
 def test_settings_and_private_apps_crud(client: TestClient) -> None:
     settings_response = client.patch(
         "/settings",

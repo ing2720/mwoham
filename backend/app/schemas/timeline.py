@@ -13,6 +13,7 @@ class TimelineItem(ApiSchema):
     timestamp: DateTimeType
     content: str
     source: str | None = None
+    event_type: str | None = None
     app_name: str | None = None
     window_title: str | None = None
     detected_keywords: list[str] | dict[str, Any] | None = None
@@ -25,6 +26,11 @@ class TimelineItem(ApiSchema):
     session_id: int | None = None
     linked_type: str | None = None
     linked_id: int | None = None
+    repo_path: str | None = None
+    branch: str | None = None
+    command: str | None = None
+    status: str | None = None
+    details_json: dict[str, Any] | None = None
     ended_at: DateTimeType | None = None
     duration_seconds: int | None = None
     sample_count: int | None = None

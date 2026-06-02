@@ -89,6 +89,8 @@ class PromptBuilder:
                 "",
                 "타입별 입력 의미:",
                 "- EVENT: 앱/터미널/윈도우 등에서 관찰된 작업 이벤트입니다.",
+                "- DEV_EVENT: Git 상태, 테스트/빌드/개발 명령 결과입니다. OCR보다 신뢰도 높은 "
+                "개발 작업 근거로 우선 참고하세요.",
                 "- ACTIVITY_SEGMENT: 같은 앱/창이 유지된 보조 작업 컨텍스트입니다. "
                 "주요 작업 내용 판단에는 SCREEN_OCR의 AI 추론과 MEMO를 우선 참고하세요.",
                 "- MEMO: 사용자가 직접 남긴 메모입니다.",
@@ -127,6 +129,15 @@ class PromptBuilder:
         if memo_lines:
             lines.append("PRIORITY_MEMOS:")
             lines.extend(memo_lines[:10])
+
+        dev_event_lines = [
+            self._format_timeline_item(item)
+            for item in report_items
+            if item.type == "dev_event"
+        ]
+        if dev_event_lines:
+            lines.append("PRIORITY_DEV_EVENTS:")
+            lines.extend(dev_event_lines[:20])
 
         evidence_lines = self._format_work_evidence_by_time(report_items)
         if evidence_lines:
@@ -171,6 +182,14 @@ class PromptBuilder:
                 f"keywords={item.detected_keywords or []} | "
                 f"inference={inference} | "
                 f"ocr_excerpt={ocr_excerpt}"
+            )
+        if item.type == "dev_event":
+            return (
+                f"- DEV_EVENT | time={timestamp} | event_type={item.event_type or '-'} | "
+                f"source={item.source or '-'} | status={item.status or '-'} | "
+                f"repo={item.repo_path or '-'} | branch={item.branch or '-'} | "
+                f"command={item.command or '-'} | summary={item.content} | "
+                f"details={self._format_dev_event_details(item.details_json)}"
             )
         if item.type == "meeting":
             return (
@@ -234,6 +253,8 @@ class PromptBuilder:
                 keyword_text = f" keywords={keywords}" if keywords else ""
                 return f"화면 단서: {snippet}{keyword_text}"
             return ""
+        if item.type == "dev_event":
+            return f"개발 근거: {self._truncate(item.content, 180)}"
         if item.type == "event" and item.source != "mac_active_window":
             keywords = self._extract_work_keywords(item.content)
             if keywords or self._looks_like_work_evidence(item.content):
@@ -241,6 +262,27 @@ class PromptBuilder:
         if item.type == "transcript":
             return f"회의 전사: {self._truncate(item.content, 140)}"
         return ""
+
+    def _format_dev_event_details(self, details: dict | None) -> str:
+        if not details:
+            return "-"
+        parts: list[str] = []
+        changed_files = details.get("changed_files")
+        recent_commits = details.get("recent_commits")
+        diff_stat = details.get("diff_stat")
+        exit_code = details.get("exit_code")
+        duration_seconds = details.get("duration_seconds")
+        if isinstance(changed_files, list) and changed_files:
+            parts.append(f"changed_files={', '.join(str(item) for item in changed_files[:8])}")
+        if diff_stat:
+            parts.append(f"diff_stat={self._truncate(str(diff_stat), 160)}")
+        if isinstance(recent_commits, list) and recent_commits:
+            parts.append(f"recent_commits={'; '.join(str(item) for item in recent_commits[:3])}")
+        if exit_code is not None:
+            parts.append(f"exit_code={exit_code}")
+        if duration_seconds is not None:
+            parts.append(f"duration_seconds={duration_seconds}")
+        return " | ".join(parts) if parts else "-"
 
     def _build_ocr_evidence_snippet(self, text: str | None, *, limit: int = 180) -> str:
         if not text:

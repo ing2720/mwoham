@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.endpoints import (
     activity_segments,
+    dev_events,
     events,
     health,
     meetings,
@@ -21,6 +22,7 @@ api_router.include_router(status.router)
 api_router.include_router(recording.router)
 api_router.include_router(events.router)
 api_router.include_router(activity_segments.router)
+api_router.include_router(dev_events.router)
 api_router.include_router(screen_observations.router)
 api_router.include_router(memos.router)
 api_router.include_router(meetings.router)

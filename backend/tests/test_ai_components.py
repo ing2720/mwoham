@@ -263,6 +263,42 @@ def test_prompt_builder_distinguishes_event_memo_meeting_types() -> None:
     assert "회의/메모에서 나온 결정사항" in prompt
 
 
+def test_prompt_builder_prioritizes_dev_events_before_screen_observations() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=2,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 9, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                status="unknown",
+                content="Git 변경 파일 확인: reset_dev_data.py, report_service.py",
+                details_json={
+                    "changed_files": ["reset_dev_data.py", "report_service.py"],
+                    "diff_stat": "2 files changed",
+                },
+            ),
+            TimelineItem(
+                type="screen_ocr",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 9, 5, tzinfo=UTC),
+                content="화면 텍스트 수집됨",
+                ocr_text="dashboard text",
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "PRIORITY_DEV_EVENTS:" in prompt
+    assert prompt.index("PRIORITY_DEV_EVENTS:") < prompt.index("WORK_EVIDENCE_BY_TIME:")
+    assert "DEV_EVENT |" in prompt
+    assert "changed_files=reset_dev_data.py, report_service.py" in prompt
+
+
 def test_gemini_client_returns_none_without_api_key() -> None:
     client = GeminiClient(api_key=None, model="gemini-2.5-flash")
 
