@@ -55,6 +55,12 @@ uv run alembic check
 git diff --check
 ```
 
+## CI
+
+- Backend CI는 ruff, pytest, coverage, alembic, git diff check를 검증합니다.
+- macOS client CI는 `MwohamMac`의 xcodebuild build만 검증합니다.
+- 화면 기록 권한, OCR 수집, 메뉴바/플로팅 동작은 macOS 권한과 실제 사용자 세션이 필요하므로 수동 QA에서 검증합니다.
+
 샘플 데이터 생성:
 
 ```bash
