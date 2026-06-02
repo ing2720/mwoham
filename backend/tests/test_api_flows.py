@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from app.core.timezone import KST
 from app.main import app
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_session_repository import WorkSessionRepository
@@ -939,6 +940,128 @@ def test_end_meeting_rejects_missing_or_already_ended_meeting(client: TestClient
     assert second_end.status_code == 409
 
 
+def test_create_meeting_transcript_with_explicit_meeting_session_id(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post("/meetings/start", json={"title": "전사 API 회의"}).json()
+
+    response = client.post(
+        "/meeting-transcripts",
+        json={
+            "meeting_session_id": meeting["id"],
+            "text": "결정사항은 다음 스프린트에서 OCR 품질을 검증하는 것입니다.",
+            "source": "manual",
+            "started_at": datetime(2026, 5, 26, 12, 0, tzinfo=UTC).isoformat(),
+            "ended_at": datetime(2026, 5, 26, 12, 1, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["meeting_session_id"] == meeting["id"]
+    assert body["source"] == "manual"
+    assert body["text"].startswith("결정사항은")
+
+    transcripts = client.get(f"/meetings/{meeting['id']}/transcripts")
+    assert transcripts.status_code == 200
+    assert transcripts.json()["items"][0]["source"] == "manual"
+
+
+def test_create_meeting_transcript_auto_links_active_meeting(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post("/meetings/start", json={"title": "자동 연결 회의"}).json()
+
+    response = client.post(
+        "/meeting-transcripts",
+        json={"text": "Apple Speech 전사 결과를 활성 회의에 자동 연결합니다."},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["meeting_session_id"] == meeting["id"]
+    assert response.json()["source"] == "apple_speech"
+
+
+def test_create_meeting_transcript_allows_nullable_meeting_when_no_active_meeting(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/meeting-transcripts",
+        json={"text": "회의 세션 연결 없이도 전사 텍스트는 유실하지 않습니다."},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["meeting_session_id"] is None
+
+
+def test_create_meeting_transcript_rejects_empty_text(client: TestClient) -> None:
+    response = client.post("/meeting-transcripts", json={"text": "   "})
+
+    assert response.status_code == 400
+
+
+def test_meeting_transcript_masks_sensitive_text(client: TestClient) -> None:
+    response = client.post(
+        "/meeting-transcripts",
+        json={"text": "Gemini token=abc123 password=secret 값을 공유하지 않습니다."},
+    )
+
+    assert response.status_code == 201
+    assert "abc123" not in response.json()["text"]
+    assert "secret" not in response.json()["text"]
+    assert "[MASKED]" in response.json()["text"]
+
+
+def test_meeting_transcripts_today_uses_kst_date(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.meeting_service.now_kst",
+        lambda: datetime(2026, 6, 1, 9, 0, tzinfo=KST),
+    )
+
+    client.post(
+        "/meeting-transcripts",
+        json={
+            "text": "KST 이전 날짜 전사",
+            "started_at": datetime(2026, 5, 31, 14, 50, tzinfo=UTC).isoformat(),
+        },
+    )
+    client.post(
+        "/meeting-transcripts",
+        json={
+            "text": "KST 오늘 전사",
+            "started_at": datetime(2026, 5, 31, 15, 10, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    response = client.get("/meeting-transcripts/today")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["text"] == "KST 오늘 전사"
+
+
+def test_meeting_transcript_appears_in_basic_and_detail_timeline(client: TestClient) -> None:
+    long_text = " ".join(["회의에서 OCR 수집 정책과 리포트 입력 우선순위를 논의했습니다."] * 20)
+    client.post(
+        "/meeting-transcripts",
+        json={
+            "text": long_text,
+            "started_at": datetime(2026, 5, 26, 9, 0, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    basic_response = client.get("/timeline/today?date=2026-05-26")
+    detail_response = client.get("/timeline/today/detail?date=2026-05-26")
+
+    assert basic_response.status_code == 200
+    assert detail_response.status_code == 200
+    basic_item = basic_response.json()["items"][0]
+    detail_item = detail_response.json()["items"][0]
+    assert basic_item["type"] == "transcript"
+    assert basic_item["content"].startswith("회의 전사 수집됨")
+    assert len(basic_item["content"]) < len(long_text)
+    assert detail_item["type"] == "transcript"
+    assert len(detail_item["content"]) < len(long_text)
+
+
 def test_timeline_today_includes_meeting_and_transcript_items(client: TestClient) -> None:
     client.post("/recording/start", json={})
     meeting = client.post(
@@ -970,6 +1093,7 @@ def test_timeline_today_includes_meeting_and_transcript_items(client: TestClient
     body = response.json()
     assert [item["type"] for item in body["items"]] == ["meeting", "transcript", "meeting"]
     assert body["items"][0]["content"] == "스프린트 회의 시작"
-    assert body["items"][1]["content"] == "오늘은 전사 저장 API를 마무리합니다."
+    assert body["items"][1]["content"].startswith("회의 전사 수집됨")
+    assert "오늘은 전사 저장 API를 마무리합니다." in body["items"][1]["content"]
     assert body["items"][1]["speaker"] == "PM"
     assert body["items"][2]["content"] == "스프린트 회의 종료"
