@@ -8,6 +8,8 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///./ci.sqlite3
 
     steps:
       - name: Checkout
@@ -24,6 +26,10 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: uv sync
+
+      - name: Prepare migration database
+        working-directory: backend
+        run: uv run alembic upgrade head
 
       - name: Run checks without DevEvent recording
         working-directory: backend
