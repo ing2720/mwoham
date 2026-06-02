@@ -80,6 +80,29 @@ def test_protected_api_accepts_valid_bearer_token_when_configured(client: TestCl
     assert response.json()["status"] == "active"
 
 
+def test_meeting_mutation_apis_require_local_token_when_configured(
+    client: TestClient,
+) -> None:
+    settings.local_api_token = "test-local-token"
+    client.post(
+        "/recording/start",
+        json={},
+        headers={"Authorization": "Bearer test-local-token"},
+    )
+
+    missing_start = client.post("/meetings/start", json={})
+    valid_start = client.post(
+        "/meetings/start",
+        json={},
+        headers={"Authorization": "Bearer test-local-token"},
+    )
+    missing_end = client.post(f"/meetings/{valid_start.json()['id']}/end", json={})
+
+    assert missing_start.status_code == 401
+    assert valid_start.status_code == 200
+    assert missing_end.status_code == 401
+
+
 def test_public_status_and_health_do_not_require_token(client: TestClient) -> None:
     settings.local_api_token = "test-local-token"
 

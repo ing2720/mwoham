@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.models.work_session import WorkSession
 from app.repositories.activity_segment_repository import ActivitySegmentRepository
+from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.work_event_repository import WorkEventRepository
 from app.repositories.work_session_repository import WorkSessionRepository
+from app.schemas.meeting import MeetingResponse
 from app.schemas.status import StatusResponse
 
 
@@ -15,15 +17,23 @@ class StatusService:
         session_repository: WorkSessionRepository,
         event_repository: WorkEventRepository,
         activity_segment_repository: ActivitySegmentRepository,
+        meeting_repository: MeetingRepository,
     ) -> None:
         self.session_repository = session_repository
         self.event_repository = event_repository
         self.activity_segment_repository = activity_segment_repository
+        self.meeting_repository = meeting_repository
 
     def get_status(self, db: Session) -> StatusResponse:
         session = self.session_repository.get_current(db)
         latest_event = self.event_repository.get_latest(db)
         latest_segment = self.activity_segment_repository.get_latest(db)
+        active_meeting = self.meeting_repository.get_current_active_meeting(db)
+        current_meeting = (
+            MeetingResponse.model_validate(active_meeting)
+            if active_meeting is not None
+            else None
+        )
         current_app = latest_segment.app_name if latest_segment is not None else None
         current_window = latest_segment.window_title if latest_segment is not None else None
         if latest_event is not None and (
@@ -36,7 +46,8 @@ class StatusService:
             status=session.status if session is not None else "stopped",
             current_app=current_app,
             current_window=current_window,
-            meeting_mode=False,
+            meeting_mode=current_meeting is not None,
+            current_meeting=current_meeting,
             last_event_at=latest_event.timestamp if latest_event is not None else None,
             report_status="idle",
             session_id=session.id if session is not None else None,
@@ -60,4 +71,5 @@ def get_status_service() -> StatusService:
         session_repository=WorkSessionRepository(),
         event_repository=WorkEventRepository(),
         activity_segment_repository=ActivitySegmentRepository(),
+        meeting_repository=MeetingRepository(),
     )

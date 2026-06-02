@@ -23,6 +23,7 @@ class MeetingResponse(ApiSchema):
     session_id: int
     started_at: datetime
     ended_at: datetime | None = None
+    status: str
     meeting_app: str | None = None
     title: str | None = None
     transcript_enabled: bool

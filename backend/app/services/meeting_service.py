@@ -2,7 +2,8 @@ from datetime import UTC, date, datetime
 
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import InvalidStateTransitionError, ResourceNotFoundError
+from app.core.timezone import now_utc
 from app.models.work_session import WorkSession
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.work_session_repository import WorkSessionRepository
@@ -25,12 +26,15 @@ class MeetingService:
         self.session_repository = session_repository
 
     def start_meeting(self, db: Session, request: MeetingStartRequest) -> MeetingResponse:
+        if self.meeting_repository.get_current_active_meeting(db) is not None:
+            raise InvalidStateTransitionError("Active meeting already exists.")
+
         session = self._resolve_session(db, request.session_id)
         meeting = self.meeting_repository.create_meeting(
             db,
             request=request,
             session_id=session.id,
-            started_at=request.started_at or datetime.now(UTC),
+            started_at=request.started_at or now_utc(),
         )
         return MeetingResponse.model_validate(meeting)
 
@@ -44,10 +48,19 @@ class MeetingService:
         meeting = self.meeting_repository.get_meeting(db, meeting_id)
         if meeting is None:
             raise ResourceNotFoundError("Meeting not found.")
-        meeting.ended_at = request.ended_at or datetime.now(UTC)
+        if meeting.ended_at is not None:
+            raise InvalidStateTransitionError("Meeting already ended.")
+
+        meeting.ended_at = request.ended_at or now_utc()
         if request.summary is not None:
             meeting.summary = request.summary
         return MeetingResponse.model_validate(self.meeting_repository.update_meeting(db, meeting))
+
+    def get_current_meeting(self, db: Session) -> MeetingResponse | None:
+        meeting = self.meeting_repository.get_current_active_meeting(db)
+        if meeting is None:
+            return None
+        return MeetingResponse.model_validate(meeting)
 
     def list_meetings(
         self,

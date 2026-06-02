@@ -34,6 +34,14 @@ class MeetingRepository:
     def get_meeting(self, db: Session, meeting_id: int) -> MeetingSession | None:
         return db.get(MeetingSession, meeting_id)
 
+    def get_current_active_meeting(self, db: Session) -> MeetingSession | None:
+        return db.scalar(
+            select(MeetingSession)
+            .where(MeetingSession.ended_at.is_(None))
+            .order_by(MeetingSession.started_at.desc(), MeetingSession.id.desc())
+            .limit(1)
+        )
+
     def update_meeting(self, db: Session, meeting: MeetingSession) -> MeetingSession:
         db.add(meeting)
         db.commit()

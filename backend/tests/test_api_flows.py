@@ -880,6 +880,65 @@ def test_meeting_lifecycle_and_transcripts(client: TestClient) -> None:
     assert transcripts.json()["items"][0]["text"].startswith("콜백 오류")
 
 
+def test_current_meeting_and_status_reflect_active_meeting(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+
+    meeting_start = client.post(
+        "/meetings/start",
+        json={
+            "started_at": datetime(2026, 5, 26, 14, 0, tzinfo=UTC).isoformat(),
+            "title": "상태 확인 회의",
+        },
+    )
+
+    assert meeting_start.status_code == 200
+    meeting = meeting_start.json()
+    assert meeting["status"] == "active"
+
+    current = client.get("/meetings/current")
+    status_response = client.get("/status")
+
+    assert current.status_code == 200
+    assert current.json()["id"] == meeting["id"]
+    assert current.json()["status"] == "active"
+    assert status_response.status_code == 200
+    assert status_response.json()["meeting_mode"] is True
+    assert status_response.json()["current_meeting"]["id"] == meeting["id"]
+
+    meeting_end = client.post(
+        f"/meetings/{meeting['id']}/end",
+        json={"ended_at": datetime(2026, 5, 26, 14, 30, tzinfo=UTC).isoformat()},
+    )
+
+    assert meeting_end.status_code == 200
+    assert meeting_end.json()["status"] == "ended"
+    assert client.get("/meetings/current").json() is None
+    ended_status = client.get("/status").json()
+    assert ended_status["meeting_mode"] is False
+    assert ended_status["current_meeting"] is None
+
+
+def test_start_meeting_rejects_existing_active_meeting(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    first = client.post("/meetings/start", json={"title": "첫 회의"})
+    second = client.post("/meetings/start", json={"title": "두 번째 회의"})
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+
+
+def test_end_meeting_rejects_missing_or_already_ended_meeting(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    missing = client.post("/meetings/999/end", json={})
+    meeting = client.post("/meetings/start", json={"title": "종료 테스트"}).json()
+    first_end = client.post(f"/meetings/{meeting['id']}/end", json={})
+    second_end = client.post(f"/meetings/{meeting['id']}/end", json={})
+
+    assert missing.status_code == 404
+    assert first_end.status_code == 200
+    assert second_end.status_code == 409
+
+
 def test_timeline_today_includes_meeting_and_transcript_items(client: TestClient) -> None:
     client.post("/recording/start", json={})
     meeting = client.post(

@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import InvalidStateTransitionError, ResourceNotFoundError
 from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.meeting import (
@@ -30,6 +30,8 @@ def start_meeting(
         return service.start_meeting(db, request or MeetingStartRequest())
     except ResourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidStateTransitionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/{meeting_id}/end", response_model=MeetingResponse)
@@ -46,6 +48,16 @@ def end_meeting(
         )
     except ResourceNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidStateTransitionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/current", response_model=MeetingResponse | None)
+def get_current_meeting(
+    db: Session = Depends(get_db),
+    service: MeetingService = Depends(get_meeting_service),
+) -> MeetingResponse | None:
+    return service.get_current_meeting(db)
 
 
 @router.get("", response_model=MeetingListResponse)
