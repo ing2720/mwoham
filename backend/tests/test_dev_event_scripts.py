@@ -9,7 +9,14 @@ from pathlib import Path
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.dev_event import DevEvent
-from scripts import collect_dev_context, collect_git_snapshot, record_command_result, run_dev_checks
+from scripts import (
+    collect_dev_context,
+    collect_git_snapshot,
+    dev_check_output,
+    dev_event_helpers,
+    record_command_result,
+    run_dev_checks,
+)
 
 
 def test_collect_git_snapshot_saves_changed_files_diff_stat_and_commits(
@@ -253,7 +260,7 @@ def test_run_dev_checks_limits_failed_output_excerpt(
     event = db.query(DevEvent).filter(DevEvent.command == "uv run pytest").one()
     assert event.status == "failed"
     assert "FAILED tests/test_example.py::test_case" in event.details_json["output_excerpt"]
-    assert len(event.details_json["output_excerpt"]) <= run_dev_checks.OUTPUT_EXCERPT_LIMIT
+    assert len(event.details_json["output_excerpt"]) <= dev_check_output.OUTPUT_EXCERPT_LIMIT
 
 
 def test_run_dev_checks_script_imports_without_pythonpath() -> None:
@@ -322,9 +329,9 @@ def test_collect_dev_context_script_imports_without_pythonpath() -> None:
     assert "Collect Git and development check context." in result.stdout
 
 
-def _patch_script_session(monkeypatch, module, db: Session) -> None:
+def _patch_script_session(monkeypatch, _module, db: Session) -> None:
     testing_session_local = sessionmaker(bind=db.get_bind())
-    monkeypatch.setattr(module, "SessionLocal", testing_session_local)
+    monkeypatch.setattr(dev_event_helpers, "SessionLocal", testing_session_local)
 
 
 def _git(repo: Path, *args: str) -> None:

@@ -11,10 +11,20 @@ except ModuleNotFoundError:
 
 add_backend_root_to_path()
 
-from app.core.timezone import now_utc  # noqa: E402
-from app.db.session import SessionLocal  # noqa: E402
-from app.schemas.dev_event import DevEventCreate  # noqa: E402
-from app.services.dev_event_service import get_dev_event_service  # noqa: E402
+try:
+    from scripts.dev_event_helpers import (
+        build_dev_event_request,
+        compact_path,
+        print_saved_event,
+        save_dev_event,
+    )
+except ModuleNotFoundError:
+    from dev_event_helpers import (
+        build_dev_event_request,
+        compact_path,
+        print_saved_event,
+        save_dev_event,
+    )
 
 
 def collect_git_snapshot(repo_path: str, *, session_current: bool = False) -> int:
@@ -30,10 +40,10 @@ def collect_git_snapshot(repo_path: str, *, session_current: bool = False) -> in
     recent_commits = _run_git(repo, "log", "-5", "--oneline").splitlines()
 
     summary = _build_summary(changed_files, branch=branch)
-    request = DevEventCreate(
+    request = build_dev_event_request(
         event_type="git_snapshot",
         source="script",
-        repo_path=_compact_path(repo),
+        repo_path=compact_path(repo),
         branch=branch,
         status="unknown",
         summary=summary,
@@ -43,17 +53,9 @@ def collect_git_snapshot(repo_path: str, *, session_current: bool = False) -> in
             "diff_stat": diff_stat,
             "recent_commits": recent_commits[:5],
         },
-        occurred_at=now_utc(),
     )
 
-    with SessionLocal() as db:
-        service = get_dev_event_service()
-        event = (
-            service.create_for_current_session(db, request)
-            if session_current
-            else service.create(db, request)
-        )
-    print(f"DevEvent 저장됨: id={event.id} summary={event.summary}")
+    print_saved_event(save_dev_event(request, session_current=session_current))
     return 0
 
 
@@ -98,14 +100,6 @@ def _build_summary(changed_files: list[str], *, branch: str) -> str:
     extra_count = len(changed_files) - 5
     suffix = f" 외 {extra_count}개" if extra_count > 0 else ""
     return f"Git 변경 파일 확인: {file_text}{suffix}"
-
-
-def _compact_path(path: Path) -> str:
-    home = Path.home()
-    try:
-        return "~/" + str(path.relative_to(home))
-    except ValueError:
-        return str(path)
 
 
 def main() -> int:

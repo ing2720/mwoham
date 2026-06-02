@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -14,12 +13,22 @@ except ModuleNotFoundError:
 
 add_backend_root_to_path()
 
-from app.core.timezone import now_utc  # noqa: E402
-from app.db.session import SessionLocal  # noqa: E402
-from app.schemas.dev_event import DevEventCreate  # noqa: E402
-from app.services.dev_event_service import get_dev_event_service  # noqa: E402
-
-OUTPUT_EXCERPT_LIMIT = 1000
+try:
+    from scripts.dev_check_output import excerpt_for_command
+    from scripts.dev_event_helpers import (
+        build_dev_event_request,
+        resolve_backend_root,
+        resolve_project_root,
+        save_dev_event,
+    )
+except ModuleNotFoundError:
+    from dev_check_output import excerpt_for_command
+    from dev_event_helpers import (
+        build_dev_event_request,
+        resolve_backend_root,
+        resolve_project_root,
+        save_dev_event,
+    )
 
 
 @dataclass(frozen=True)
@@ -51,8 +60,8 @@ def run_dev_checks(
     session_current: bool = False,
     no_record: bool = False,
 ) -> int:
-    backend_root = Path(__file__).resolve().parents[1]
-    project_root = Path(repo_path).expanduser().resolve() if repo_path else backend_root.parent
+    backend_root = resolve_backend_root()
+    project_root = resolve_project_root(repo_path)
     checks = [
         DevCheck(["uv", "run", "ruff", "check", "."], "test_result", backend_root),
         DevCheck(["uv", "run", "pytest"], "test_result", backend_root),
@@ -87,7 +96,7 @@ def _run_check(check: DevCheck) -> DevCheckResult:
         check=check,
         exit_code=completed.returncode,
         duration_seconds=round(duration_seconds, 3),
-        output_excerpt=_excerpt_for_command(check.command_text, output),
+        output_excerpt=excerpt_for_command(check.command_text, output),
     )
 
 
@@ -107,7 +116,7 @@ def _save_result(
     repo_path: str,
     session_current: bool,
 ) -> None:
-    request = DevEventCreate(
+    request = build_dev_event_request(
         event_type=result.check.event_type,
         source="script",
         repo_path=repo_path,
@@ -119,15 +128,8 @@ def _save_result(
             "duration_seconds": result.duration_seconds,
             "output_excerpt": result.output_excerpt,
         },
-        occurred_at=now_utc(),
     )
-
-    with SessionLocal() as db:
-        service = get_dev_event_service()
-        if session_current:
-            service.create_for_current_session(db, request)
-        else:
-            service.create(db, request)
+    save_dev_event(request, session_current=session_current)
 
 
 def _summary(result: DevCheckResult) -> str:
@@ -140,98 +142,6 @@ def _format_result_line(result: DevCheckResult) -> str:
         f"{result.check.command_text}: {result.status} "
         f"(exit_code={result.exit_code}, {result.duration_seconds:.3f}s)"
     )
-
-
-def _excerpt_for_command(command_text: str, output: str) -> str:
-    lines = _meaningful_lines(output)
-    if command_text == "uv run pytest":
-        return _limit_text(_pytest_excerpt(lines))
-    if command_text == "uv run ruff check .":
-        return _limit_text(_ruff_excerpt(lines))
-    if command_text == "uv run alembic check":
-        return _limit_text(_alembic_excerpt(lines))
-    if command_text == "git diff --check":
-        return _limit_text(_git_diff_check_excerpt(lines))
-    return _limit_text(_generic_excerpt(lines))
-
-
-def _meaningful_lines(output: str) -> list[str]:
-    return [line.strip() for line in output.splitlines() if line.strip()]
-
-
-def _pytest_excerpt(lines: list[str]) -> str:
-    result_pattern = re.compile(
-        r"=+\s*(?P<summary>.+?(?:passed|failed|errors?|skipped|xfailed|xpassed).+?)\s*=+$",
-        re.IGNORECASE,
-    )
-    for line in reversed(lines):
-        match = result_pattern.match(line)
-        if match:
-            return match.group("summary")
-
-    failure_lines = [
-        line
-        for line in lines
-        if "failed" in line.lower() or "error" in line.lower() or line.startswith("FAILED ")
-    ]
-    if failure_lines:
-        return " / ".join(failure_lines[-6:])
-    return _generic_excerpt(lines)
-
-
-def _ruff_excerpt(lines: list[str]) -> str:
-    for line in lines:
-        if line == "All checks passed!":
-            return line
-    issue_lines = [
-        line
-        for line in lines
-        if re.match(r"^[A-Z]\d{3}\b", line) or line.startswith("Found ")
-    ]
-    return " / ".join(issue_lines[:8]) if issue_lines else _generic_excerpt(lines)
-
-
-def _alembic_excerpt(lines: list[str]) -> str:
-    preferred = [
-        line
-        for line in lines
-        if "No new upgrade operations detected." in line
-        or "FAILED:" in line
-        or "Target database is not up to date" in line
-    ]
-    if preferred:
-        return " / ".join(preferred)
-    filtered = [line for line in lines if "setting up autogenerate plugin" not in line]
-    return _generic_excerpt(filtered)
-
-
-def _git_diff_check_excerpt(lines: list[str]) -> str:
-    if not lines:
-        return "No whitespace errors"
-    return " / ".join(lines[:10])
-
-
-def _generic_excerpt(lines: list[str]) -> str:
-    if not lines:
-        return ""
-    return " / ".join(lines[-8:])
-
-
-def _limit_text(text: str) -> str:
-    normalized = " ".join(text.split())
-    if len(normalized) <= OUTPUT_EXCERPT_LIMIT:
-        return normalized
-    truncated_lines: list[str] = []
-    current_length = 0
-    for line in normalized.split(" / "):
-        next_length = current_length + len(line) + (3 if truncated_lines else 0)
-        if next_length > OUTPUT_EXCERPT_LIMIT - 3:
-            break
-        truncated_lines.append(line)
-        current_length = next_length
-    if truncated_lines:
-        return " / ".join(truncated_lines) + "..."
-    return normalized[: OUTPUT_EXCERPT_LIMIT - 3].rstrip() + "..."
 
 
 def main() -> int:
