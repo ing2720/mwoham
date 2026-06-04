@@ -2,7 +2,7 @@
 
 뭐함은 macOS에서 사용자의 작업 흐름을 로컬에 기록하고, Gemini를 이용해 일일 업무 리포트로 정리하는 개인용 작업 기록 에이전트입니다.
 
-현재 구현 범위는 macOS SwiftUI 클라이언트와 FastAPI 백엔드 기반 2차 MVP입니다. 로컬 API, 웹 대시보드, 메뉴바/플로팅 위젯, 활성 앱/창 구간 추적, OCR 수집, 일일 리포트 생성을 제공합니다.
+현재 구현 범위는 macOS SwiftUI 클라이언트와 FastAPI 백엔드 기반 MVP입니다. 로컬 API, 웹 대시보드, 메뉴바/플로팅 위젯, 활성 앱/창 구간 추적, OCR 수집, Apple Speech 기반 회의 전사, 일일 리포트 생성을 제공합니다.
 
 ## 현재 기능
 
@@ -59,7 +59,7 @@ git diff --check
 
 - Backend CI는 ruff, pytest, coverage, alembic, git diff check를 검증합니다.
 - macOS client CI는 `MwohamMac`의 xcodebuild build만 검증합니다.
-- 화면 기록 권한, OCR 수집, 메뉴바/플로팅 동작은 macOS 권한과 실제 사용자 세션이 필요하므로 수동 QA에서 검증합니다.
+- 화면 기록 권한, OCR 수집, Speech/마이크 권한, 메뉴바/플로팅 동작은 macOS 권한과 실제 사용자 세션이 필요하므로 수동 QA에서 검증합니다.
 
 샘플 데이터 생성:
 
@@ -72,7 +72,7 @@ uv run python scripts/seed_sample_data.py --reset
 
 - [Backend README](backend/README.md)
 - [Development Guide](DEVELOPMENT.md)
-- [2차 MVP QA Checklist](docs/QA_CHECKLIST.md)
+- [MVP QA Checklist](docs/QA_CHECKLIST.md)
 - [Tester Install Guide](docs/TESTER_INSTALL_GUIDE.md)
 
 ## 주의사항
