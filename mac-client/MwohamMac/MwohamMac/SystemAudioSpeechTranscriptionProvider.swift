@@ -68,7 +68,7 @@ final class SystemAudioSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         onTranscript: @escaping @MainActor (SpeechTranscriptUpdate) async -> Void,
         onStatusChange: @escaping @MainActor (String) -> Void
     ) async throws {
-        guard !isRunning else {
+        guard !(await isRunning) else {
             await emitStatus("시스템 오디오 전사 테스트 실행 중")
             return
         }

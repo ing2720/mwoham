@@ -85,13 +85,13 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
                 }
             }
         }
-        onStatusChange("회의 전체 전사 준비 중, Apple Speech task started")
+        await emitStatus("회의 전체 전사 준비 중, Apple Speech task started")
 
         var inputErrors: [String] = []
         do {
             try startMicrophoneCapture()
             microphoneActive = true
-            updateStatus("마이크 입력 수신 준비됨")
+            await emitStatus("마이크 입력 수신 준비됨")
         } catch {
             inputErrors.append("마이크 입력 실패: \(SpeechRecognitionErrorFormatter.describe(error))")
         }
@@ -99,7 +99,7 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         do {
             try await startSystemAudioCapture()
             systemAudioActive = true
-            updateStatus("시스템 오디오 입력 수신 준비됨")
+            await emitStatus("시스템 오디오 입력 수신 준비됨")
         } catch {
             inputErrors.append("시스템 오디오 입력 실패: \(SpeechRecognitionErrorFormatter.describe(error))")
         }
@@ -110,9 +110,9 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         }
 
         if inputErrors.isEmpty {
-            updateStatus("회의 전체 전사 중, 마이크 입력 수신 중 / 시스템 오디오 입력 수신 중")
+            await emitStatus("회의 전체 전사 중, 마이크 입력 수신 중 / 시스템 오디오 입력 수신 중")
         } else {
-            updateStatus("회의 전체 전사 중, \(inputErrors.joined(separator: " / "))")
+            await emitStatus("회의 전체 전사 중, \(inputErrors.joined(separator: " / "))")
         }
     }
 
@@ -127,7 +127,7 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
             do {
                 try await stream.stopCapture()
             } catch {
-                updateStatus("회의 전체 시스템 오디오 종료 오류: \(error.localizedDescription)")
+                await emitStatus("회의 전체 시스템 오디오 종료 오류: \(error.localizedDescription)")
             }
         }
 
@@ -360,9 +360,10 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         }
     }
 
-    @MainActor
-    private func updateStatus(_ status: String) {
-        onStatusChange?(status)
+    private func emitStatus(_ status: String) async {
+        await MainActor.run {
+            onStatusChange?(status)
+        }
     }
 
     private func resetDiagnostics() {

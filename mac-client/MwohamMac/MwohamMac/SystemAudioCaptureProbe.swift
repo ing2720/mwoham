@@ -22,7 +22,7 @@ final class SystemAudioCaptureProbe: NSObject, SCStreamOutput, SCStreamDelegate 
 
     func start(onStatusChange: @escaping @MainActor (String) -> Void) async throws {
         guard stream == nil else {
-            onStatusChange("시스템 오디오 캡처 테스트 실행 중")
+            await emitStatus("시스템 오디오 캡처 테스트 실행 중")
             return
         }
 
@@ -57,20 +57,20 @@ final class SystemAudioCaptureProbe: NSObject, SCStreamOutput, SCStreamDelegate 
         try await stream.startCapture()
 
         self.stream = stream
-        onStatusChange("display 전체 시스템 오디오 캡처 시작됨, buffer 대기 중")
+        await emitStatus("display 전체 시스템 오디오 캡처 시작됨, buffer 대기 중")
     }
 
     func stop() async {
         guard let stream else {
-            updateStatus("시스템 오디오 캡처 대기 중")
+            await emitStatus("시스템 오디오 캡처 대기 중")
             return
         }
 
         do {
             try await stream.stopCapture()
-            updateStatus("시스템 오디오 캡처 테스트 종료됨")
+            await emitStatus("시스템 오디오 캡처 테스트 종료됨")
         } catch {
-            updateStatus("시스템 오디오 캡처 종료 오류: \(error.localizedDescription)")
+            await emitStatus("시스템 오디오 캡처 종료 오류: \(error.localizedDescription)")
         }
 
         self.stream = nil
@@ -107,9 +107,7 @@ final class SystemAudioCaptureProbe: NSObject, SCStreamOutput, SCStreamDelegate 
         let levelDescription = makeAudioLevelDescription(sampleBuffer)
         let status = "buffer 수신됨: \(receivedBufferCount)개, samples \(sampleCount), \(formatDescription), \(levelDescription), timestamp \(String(format: "%.2f", timestampSeconds))"
 
-        Task { @MainActor [weak self] in
-            self?.onStatusChange?(status)
-        }
+        scheduleStatus(status)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -276,9 +274,16 @@ final class SystemAudioCaptureProbe: NSObject, SCStreamOutput, SCStreamDelegate 
         return 20 * log10(max(value, minimumValue))
     }
 
-    @MainActor
-    private func updateStatus(_ status: String) {
-        onStatusChange?(status)
+    private func emitStatus(_ status: String) async {
+        await MainActor.run {
+            onStatusChange?(status)
+        }
+    }
+
+    private func scheduleStatus(_ status: String) {
+        Task { @MainActor [weak self] in
+            self?.onStatusChange?(status)
+        }
     }
 }
 
