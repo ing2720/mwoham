@@ -10,6 +10,14 @@ struct MeetingTranscriptionSectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Picker("전사 입력", selection: $viewModel.selectedAudioSource) {
+                ForEach(MeetingAudioSource.allCases) { source in
+                    Text(source.displayName).tag(source)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(!viewModel.canChangeAudioSource)
+
             HStack(spacing: 10) {
                 Button {
                     Task {
@@ -32,6 +40,12 @@ struct MeetingTranscriptionSectionView: View {
 
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
                 GridRow {
+                    Text("입력 source")
+                        .foregroundStyle(.secondary)
+                    Text(viewModel.selectedAudioSourceDescription)
+                        .fontWeight(.medium)
+                }
+                GridRow {
                     Text("전사 상태")
                         .foregroundStyle(.secondary)
                     Text(viewModel.transcriptionStatus)
@@ -46,11 +60,27 @@ struct MeetingTranscriptionSectionView: View {
                         .lineLimit(3)
                         .textSelection(.enabled)
                 }
+                if viewModel.selectedAudioSource == .fullMeeting {
+                    GridRow {
+                        Text("회의 전체")
+                            .foregroundStyle(.secondary)
+                        Text(viewModel.fullMeetingProviderStatus)
+                            .fontWeight(.medium)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            if let guidanceText = viewModel.selectedAudioSourceGuidanceText {
+                Text(guidanceText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
 
             if viewModel.shouldShowSpeechPermissionHelp {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("음성 인식과 마이크 권한을 허용한 뒤 다시 시도해 주세요.")
+                    Text(viewModel.permissionHelpText)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
 
@@ -61,10 +91,20 @@ struct MeetingTranscriptionSectionView: View {
                             Label("음성 인식 설정 열기", systemImage: "waveform")
                         }
 
-                        Button {
-                            viewModel.openMicrophoneSettings()
-                        } label: {
-                            Label("마이크 설정 열기", systemImage: "mic")
+                        if viewModel.selectedAudioSource.requiresMicrophone {
+                            Button {
+                                viewModel.openMicrophoneSettings()
+                            } label: {
+                                Label("마이크 설정 열기", systemImage: "mic")
+                            }
+                        }
+
+                        if viewModel.selectedAudioSource.requiresSystemAudio {
+                            Button {
+                                viewModel.openScreenRecordingSettings()
+                            } label: {
+                                Label("화면 기록 설정 열기", systemImage: "display")
+                            }
                         }
                     }
                 }
