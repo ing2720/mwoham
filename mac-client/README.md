@@ -23,3 +23,9 @@ OCR은 캡처 이미지를 파일로 저장하거나 backend로 전송하지 않
 회의 전사는 원본 오디오 파일을 저장하지 않고, backend로 audio data를 전송하지 않습니다. backend에는 Apple Speech가 반환한 transcript text만 저장합니다.
 
 권한을 거부한 뒤 다시 회의 전사 시작을 누르면 앱에서 권한 안내 팝업을 표시하고, 음성 인식 또는 마이크 설정 화면을 열 수 있습니다.
+
+## 시스템 오디오 캡처 Spike
+
+시스템 오디오 캡처는 현재 개발/검증용 spike 단계입니다. 메인 창의 `시스템 오디오 캡처 테스트` 섹션에서 ScreenCaptureKit audio buffer 수신 여부만 확인합니다.
+
+이 테스트는 원본 오디오를 파일로 저장하지 않고 backend로 전송하지 않습니다. 자세한 내용은 [시스템 오디오 캡처 Spike](../docs/SYSTEM_AUDIO_CAPTURE_SPIKE.md)를 참고하세요.

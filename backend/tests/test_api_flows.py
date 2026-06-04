@@ -980,6 +980,42 @@ def test_create_meeting_transcript_auto_links_active_meeting(client: TestClient)
     assert response.json()["source"] == "apple_speech"
 
 
+def test_create_meeting_transcript_accepts_system_audio_source(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post("/meetings/start", json={"title": "시스템 오디오 회의"}).json()
+
+    response = client.post(
+        "/meeting-transcripts",
+        json={
+            "meeting_session_id": meeting["id"],
+            "text": "시스템 오디오 기반 Apple Speech 전사 결과를 저장합니다.",
+            "source": "apple_speech_system_audio",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["meeting_session_id"] == meeting["id"]
+    assert response.json()["source"] == "apple_speech_system_audio"
+
+
+def test_create_meeting_transcript_accepts_full_meeting_source(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post("/meetings/start", json={"title": "회의 전체 전사"}).json()
+
+    response = client.post(
+        "/meeting-transcripts",
+        json={
+            "meeting_session_id": meeting["id"],
+            "text": "회의 전체 Apple Speech 전사 결과를 저장합니다.",
+            "source": "apple_speech_full_meeting",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["meeting_session_id"] == meeting["id"]
+    assert response.json()["source"] == "apple_speech_full_meeting"
+
+
 def test_create_meeting_transcript_allows_nullable_meeting_when_no_active_meeting(
     client: TestClient,
 ) -> None:

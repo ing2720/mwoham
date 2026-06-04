@@ -5,7 +5,13 @@ from pydantic import Field
 
 from app.schemas.common import ApiSchema
 
-TranscriptSource = Literal["apple_speech", "manual"]
+TranscriptSource = Literal[
+    "apple_speech",
+    "apple_speech_microphone",
+    "apple_speech_system_audio",
+    "apple_speech_full_meeting",
+    "manual",
+]
 
 
 class TranscriptCreate(ApiSchema):

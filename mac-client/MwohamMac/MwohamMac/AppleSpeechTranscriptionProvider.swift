@@ -13,6 +13,7 @@ struct SpeechTranscriptUpdate {
 }
 
 protocol SpeechTranscriptionProvider: AnyObject {
+    @MainActor
     var isRunning: Bool { get }
 
     func start(
@@ -99,8 +100,8 @@ final class AppleSpeechTranscriptionProvider: SpeechTranscriptionProvider {
                     )
                 }
 
-                if error != nil && !self.isStopping {
-                    onStatusChange("Speech 인식 오류")
+                if let error, !self.isStopping {
+                    onStatusChange("Speech 인식 오류: \(SpeechRecognitionErrorFormatter.describe(error))")
                     await self.stop()
                 }
             }

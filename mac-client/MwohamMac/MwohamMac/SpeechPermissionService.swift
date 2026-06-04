@@ -11,15 +11,26 @@ import Speech
 @MainActor
 protocol SpeechPermissionServicing {
     func requestAuthorization() async throws
+    func requestSpeechRecognitionAuthorization() async throws
     func isPermissionError(_ error: Error) -> Bool
     func openSpeechRecognitionSettings()
     func openMicrophoneSettings()
+    func openScreenRecordingSettings()
     func showPermissionAlert()
 }
 
 @MainActor
 final class SpeechPermissionService: SpeechPermissionServicing {
     func requestAuthorization() async throws {
+        try await requestSpeechRecognitionAuthorization()
+
+        let microphoneAllowed = await AVCaptureDevice.requestAccess(for: .audio)
+        guard microphoneAllowed else {
+            throw SpeechTranscriptionError.microphoneDenied
+        }
+    }
+
+    func requestSpeechRecognitionAuthorization() async throws {
         let speechStatus = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status)
@@ -29,18 +40,16 @@ final class SpeechPermissionService: SpeechPermissionServicing {
         guard speechStatus == .authorized else {
             throw SpeechTranscriptionError.speechRecognitionDenied
         }
-
-        let microphoneAllowed = await AVCaptureDevice.requestAccess(for: .audio)
-        guard microphoneAllowed else {
-            throw SpeechTranscriptionError.microphoneDenied
-        }
     }
 
     func isPermissionError(_ error: Error) -> Bool {
-        guard let speechError = error as? SpeechTranscriptionError else {
-            return false
+        if let speechError = error as? SpeechTranscriptionError {
+            return speechError == .speechRecognitionDenied || speechError == .microphoneDenied
         }
-        return speechError == .speechRecognitionDenied || speechError == .microphoneDenied
+        if let systemAudioError = error as? SystemAudioSpeechTranscriptionError {
+            return systemAudioError == .screenCapturePermissionRequired
+        }
+        return false
     }
 
     func openSpeechRecognitionSettings() {
@@ -49,6 +58,10 @@ final class SpeechPermissionService: SpeechPermissionServicing {
 
     func openMicrophoneSettings() {
         openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+    }
+
+    func openScreenRecordingSettings() {
+        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
     }
 
     func showPermissionAlert() {

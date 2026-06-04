@@ -1,0 +1,389 @@
+//
+//  FullMeetingSpeechTranscriptionProvider.swift
+//  MwohamMac
+//
+
+import AVFoundation
+import CoreGraphics
+import CoreMedia
+import Foundation
+import ScreenCaptureKit
+import Speech
+
+final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptionProvider, SCStreamOutput, SCStreamDelegate {
+    private let systemAudioQueue = DispatchQueue(label: "com.mwoham.full-meeting-system-audio")
+    private let appendQueue = DispatchQueue(label: "com.mwoham.full-meeting-speech-append")
+    private let audioEngine = AVAudioEngine()
+    private var stream: SCStream?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private var speechRecognizer: SFSpeechRecognizer?
+    private var onStatusChange: (@MainActor (String) -> Void)?
+    private var onTranscript: (@MainActor (SpeechTranscriptUpdate) async -> Void)?
+    private var isStopping = false
+    private var microphoneBufferCount = 0
+    private var systemAudioBufferCount = 0
+    private var appendedBufferCount = 0
+    private var microphoneActive = false
+    private var systemAudioActive = false
+    private let speechFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: 48_000,
+        channels: 1,
+        interleaved: false
+    )!
+
+    var isRunning: Bool {
+        recognitionTask != nil || audioEngine.isRunning || stream != nil
+    }
+
+    func start(
+        localeIdentifier: String = "ko-KR",
+        onTranscript: @escaping @MainActor (SpeechTranscriptUpdate) async -> Void,
+        onStatusChange: @escaping @MainActor (String) -> Void
+    ) async throws {
+        await stop()
+        resetDiagnostics()
+        isStopping = false
+        self.onTranscript = onTranscript
+        self.onStatusChange = onStatusChange
+
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier))
+        guard let recognizer, recognizer.isAvailable else {
+            throw SpeechTranscriptionError.recognizerUnavailable
+        }
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        if #available(macOS 13.0, *) {
+            request.addsPunctuation = true
+        }
+
+        speechRecognizer = recognizer
+        recognitionRequest = request
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            Task { @MainActor in
+                guard let self else {
+                    return
+                }
+
+                if let result {
+                    await self.onTranscript?(
+                        SpeechTranscriptUpdate(
+                            text: result.bestTranscription.formattedString,
+                            isFinal: result.isFinal
+                        )
+                    )
+                    self.onStatusChange?(
+                        result.isFinal ? "회의 전체 최종 전사 수신됨" : "Apple Speech 전사 결과 수신 중"
+                    )
+                }
+
+                if let error, !self.isStopping {
+                    self.onStatusChange?("회의 전체 전사 실패: \(SpeechRecognitionErrorFormatter.describe(error)), \(self.diagnosticSummary())")
+                    await self.stop()
+                }
+            }
+        }
+        await emitStatus("회의 전체 전사 준비 중, Apple Speech task started")
+
+        var inputErrors: [String] = []
+        do {
+            try startMicrophoneCapture()
+            microphoneActive = true
+            await emitStatus("마이크 입력 수신 준비됨")
+        } catch {
+            inputErrors.append("마이크 입력 실패: \(SpeechRecognitionErrorFormatter.describe(error))")
+        }
+
+        do {
+            try await startSystemAudioCapture()
+            systemAudioActive = true
+            await emitStatus("시스템 오디오 입력 수신 준비됨")
+        } catch {
+            inputErrors.append("시스템 오디오 입력 실패: \(SpeechRecognitionErrorFormatter.describe(error))")
+        }
+
+        guard microphoneActive || systemAudioActive else {
+            await stop()
+            throw FullMeetingSpeechTranscriptionError.noInputAvailable(inputErrors.joined(separator: " / "))
+        }
+
+        if inputErrors.isEmpty {
+            await emitStatus("회의 전체 전사 중, 마이크 입력 수신 중 / 시스템 오디오 입력 수신 중")
+        } else {
+            await emitStatus("회의 전체 전사 중, \(inputErrors.joined(separator: " / "))")
+        }
+    }
+
+    func stop() async {
+        isStopping = true
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        audioEngine.inputNode.removeTap(onBus: 0)
+
+        if let stream {
+            do {
+                try await stream.stopCapture()
+            } catch {
+                await emitStatus("회의 전체 시스템 오디오 종료 오류: \(error.localizedDescription)")
+            }
+        }
+
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        stream = nil
+        recognitionRequest = nil
+        recognitionTask = nil
+        speechRecognizer = nil
+        microphoneActive = false
+        systemAudioActive = false
+        resetDiagnostics()
+    }
+
+    func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of outputType: SCStreamOutputType
+    ) {
+        guard outputType == .audio, sampleBuffer.isValid else {
+            return
+        }
+
+        systemAudioBufferCount += 1
+        guard let buffer = makeSpeechPCMBuffer(from: sampleBuffer) else {
+            Task { @MainActor [weak self] in
+                self?.onStatusChange?("시스템 오디오 buffer 변환 실패")
+            }
+            return
+        }
+        appendToSpeechRequest(buffer)
+
+        if systemAudioBufferCount == 1 || systemAudioBufferCount % 100 == 0 {
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                self.onStatusChange?("회의 전체 전사 중, \(self.diagnosticSummary())")
+            }
+        }
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        Task { @MainActor [weak self] in
+            guard let self, !self.isStopping else {
+                return
+            }
+            self.stream = nil
+            self.systemAudioActive = false
+            self.onStatusChange?("시스템 오디오 입력 실패: \(SpeechRecognitionErrorFormatter.describe(error))")
+        }
+    }
+
+    private func startMicrophoneCapture() throws {
+        let inputNode = audioEngine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        guard inputFormat.channelCount > 0 else {
+            throw SpeechTranscriptionError.inputNodeUnavailable
+        }
+
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            guard let self,
+                  let speechBuffer = self.convertToSpeechFormat(buffer) else {
+                return
+            }
+            self.microphoneBufferCount += 1
+            self.appendToSpeechRequest(speechBuffer)
+        }
+
+        audioEngine.prepare()
+        try audioEngine.start()
+    }
+
+    private func startSystemAudioCapture() async throws {
+        if !CGPreflightScreenCaptureAccess() {
+            _ = CGRequestScreenCaptureAccess()
+            if !CGPreflightScreenCaptureAccess() {
+                throw SystemAudioSpeechTranscriptionError.screenCapturePermissionRequired
+            }
+        }
+
+        let content = try await SCShareableContent.current
+        guard let captureTarget = SystemAudioDisplayCaptureTarget.make(from: content) else {
+            throw SystemAudioSpeechTranscriptionError.captureUnavailable
+        }
+
+        let display = captureTarget.display
+        let configuration = SCStreamConfiguration()
+        configuration.width = max(display.width, 2)
+        configuration.height = max(display.height, 2)
+        configuration.showsCursor = false
+        configuration.capturesAudio = true
+        if #available(macOS 13.0, *) {
+            configuration.excludesCurrentProcessAudio = true
+        }
+
+        let stream = SCStream(
+            filter: captureTarget.makeDisplayWideFilter(),
+            configuration: configuration,
+            delegate: self
+        )
+        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: systemAudioQueue)
+        try await stream.startCapture()
+        self.stream = stream
+    }
+
+    private func makeSpeechPCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        guard let sourceBuffer = makeSourcePCMBuffer(from: sampleBuffer) else {
+            return nil
+        }
+        return convertToSpeechFormat(sourceBuffer)
+    }
+
+    private func makeSourcePCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription),
+              let audioFormat = AVAudioFormat(streamDescription: streamDescription) else {
+            return nil
+        }
+
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount) else {
+            return nil
+        }
+        pcmBuffer.frameLength = frameCount
+
+        var audioBufferListSize = 0
+        var blockBuffer: CMBlockBuffer?
+        var status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: &audioBufferListSize,
+            bufferListOut: nil,
+            bufferListSize: 0,
+            blockBufferAllocator: kCFAllocatorDefault,
+            blockBufferMemoryAllocator: kCFAllocatorDefault,
+            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+            blockBufferOut: &blockBuffer
+        )
+        guard status == noErr, audioBufferListSize > 0 else {
+            return nil
+        }
+
+        let rawBufferList = UnsafeMutableRawPointer.allocate(
+            byteCount: audioBufferListSize,
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer {
+            rawBufferList.deallocate()
+        }
+
+        let sourceBufferList = rawBufferList.bindMemory(to: AudioBufferList.self, capacity: 1)
+        status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: sourceBufferList,
+            bufferListSize: audioBufferListSize,
+            blockBufferAllocator: kCFAllocatorDefault,
+            blockBufferMemoryAllocator: kCFAllocatorDefault,
+            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+            blockBufferOut: &blockBuffer
+        )
+        guard status == noErr else {
+            return nil
+        }
+
+        let sourceBuffers = UnsafeMutableAudioBufferListPointer(sourceBufferList)
+        let targetBuffers = UnsafeMutableAudioBufferListPointer(pcmBuffer.mutableAudioBufferList)
+        guard sourceBuffers.count == targetBuffers.count else {
+            return nil
+        }
+
+        for index in sourceBuffers.indices {
+            guard let sourceData = sourceBuffers[index].mData,
+                  let targetData = targetBuffers[index].mData else {
+                continue
+            }
+
+            let byteCount = min(
+                Int(sourceBuffers[index].mDataByteSize),
+                Int(targetBuffers[index].mDataByteSize)
+            )
+            memcpy(targetData, sourceData, byteCount)
+            targetBuffers[index].mDataByteSize = UInt32(byteCount)
+        }
+
+        return pcmBuffer
+    }
+
+    private func convertToSpeechFormat(_ sourceBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard sourceBuffer.format != speechFormat else {
+            return sourceBuffer
+        }
+
+        guard let converter = AVAudioConverter(from: sourceBuffer.format, to: speechFormat) else {
+            return nil
+        }
+
+        let ratio = speechFormat.sampleRate / sourceBuffer.format.sampleRate
+        let targetFrameCapacity = AVAudioFrameCount(ceil(Double(sourceBuffer.frameLength) * ratio)) + 1
+        guard let targetBuffer = AVAudioPCMBuffer(
+            pcmFormat: speechFormat,
+            frameCapacity: max(targetFrameCapacity, 1)
+        ) else {
+            return nil
+        }
+
+        var didProvideInput = false
+        var conversionError: NSError?
+        let status = converter.convert(to: targetBuffer, error: &conversionError) { _, inputStatus in
+            if didProvideInput {
+                inputStatus.pointee = .noDataNow
+                return nil
+            }
+            didProvideInput = true
+            inputStatus.pointee = .haveData
+            return sourceBuffer
+        }
+
+        guard conversionError == nil, status != .error, targetBuffer.frameLength > 0 else {
+            return nil
+        }
+        return targetBuffer
+    }
+
+    private func appendToSpeechRequest(_ buffer: AVAudioPCMBuffer) {
+        appendedBufferCount += 1
+        appendQueue.async { [weak self, buffer] in
+            self?.recognitionRequest?.append(buffer)
+        }
+    }
+
+    private func emitStatus(_ status: String) async {
+        await MainActor.run {
+            onStatusChange?(status)
+        }
+    }
+
+    private func resetDiagnostics() {
+        microphoneBufferCount = 0
+        systemAudioBufferCount = 0
+        appendedBufferCount = 0
+    }
+
+    private func diagnosticSummary() -> String {
+        "마이크 buffers \(microphoneBufferCount), 시스템 오디오 buffers \(systemAudioBufferCount), appended \(appendedBufferCount), format \(Int(speechFormat.sampleRate))Hz \(speechFormat.channelCount)ch float32 non-interleaved"
+    }
+}
+
+enum FullMeetingSpeechTranscriptionError: LocalizedError {
+    case noInputAvailable(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .noInputAvailable(let reason):
+            return "회의 전체 입력을 사용할 수 없습니다: \(reason)"
+        }
+    }
+}
