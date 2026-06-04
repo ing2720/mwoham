@@ -11,7 +11,10 @@ from app.schemas.transcript import (
     MeetingTranscriptListResponse,
     MeetingTranscriptResponse,
 )
-from app.services.meeting_service import MeetingService, get_meeting_service
+from app.services.meeting_transcript_service import (
+    MeetingTranscriptService,
+    get_meeting_transcript_service,
+)
 
 router = APIRouter(prefix="/meeting-transcripts", tags=["meeting-transcripts"])
 
@@ -21,7 +24,7 @@ def create_meeting_transcript(
     request: MeetingTranscriptCreate,
     _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
-    service: MeetingService = Depends(get_meeting_service),
+    service: MeetingTranscriptService = Depends(get_meeting_transcript_service),
 ) -> MeetingTranscriptResponse:
     try:
         return service.create_meeting_transcript(db, request)
@@ -35,6 +38,6 @@ def create_meeting_transcript(
 def list_today_meeting_transcripts(
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
     db: Session = Depends(get_db),
-    service: MeetingService = Depends(get_meeting_service),
+    service: MeetingTranscriptService = Depends(get_meeting_transcript_service),
 ) -> MeetingTranscriptListResponse:
     return service.list_today_meeting_transcripts(db, limit=limit)

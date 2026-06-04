@@ -5,7 +5,10 @@ from app.core.exceptions import ResourceNotFoundError
 from app.core.security import require_local_api_token
 from app.db.session import get_db
 from app.schemas.transcript import TranscriptCreate, TranscriptResponse
-from app.services.meeting_service import MeetingService, get_meeting_service
+from app.services.meeting_transcript_service import (
+    MeetingTranscriptService,
+    get_meeting_transcript_service,
+)
 
 router = APIRouter(prefix="/transcripts", tags=["transcripts"])
 
@@ -15,7 +18,7 @@ def create_transcript(
     request: TranscriptCreate,
     _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
-    service: MeetingService = Depends(get_meeting_service),
+    service: MeetingTranscriptService = Depends(get_meeting_transcript_service),
 ) -> TranscriptResponse:
     try:
         return service.create_transcript(db, request)

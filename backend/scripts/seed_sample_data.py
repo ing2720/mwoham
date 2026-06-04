@@ -35,6 +35,7 @@ from app.schemas.transcript import TranscriptCreate  # noqa: E402
 from app.schemas.work_event import WorkEventCreate  # noqa: E402
 from app.services.event_service import get_event_service  # noqa: E402
 from app.services.meeting_service import get_meeting_service  # noqa: E402
+from app.services.meeting_transcript_service import get_meeting_transcript_service  # noqa: E402
 from app.services.memo_service import get_memo_service  # noqa: E402
 from app.services.recording_service import get_recording_service  # noqa: E402
 from app.services.screen_observation_service import get_screen_observation_service  # noqa: E402
@@ -213,7 +214,7 @@ def _create_meeting(db: Session, *, session_id: int, started_at: datetime) -> in
 
 
 def _create_transcripts(db: Session, *, meeting_id: int, started_at: datetime) -> None:
-    service = get_meeting_service()
+    service = get_meeting_transcript_service()
     transcripts = [
         (
             "mentor",

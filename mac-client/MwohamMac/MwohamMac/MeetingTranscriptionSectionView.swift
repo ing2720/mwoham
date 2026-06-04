@@ -6,28 +6,28 @@
 import SwiftUI
 
 struct MeetingTranscriptionSectionView: View {
-    @ObservedObject var viewModel: BackendStatusViewModel
+    @ObservedObject var viewModel: MeetingTranscriptionViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Button {
                     Task {
-                        await viewModel.startMeetingTranscription()
+                        await viewModel.start()
                     }
                 } label: {
                     Label("회의 전사 시작", systemImage: "mic.circle")
                 }
-                .disabled(!viewModel.canStartMeetingTranscription)
+                .disabled(!viewModel.canStart)
 
                 Button {
                     Task {
-                        await viewModel.stopMeetingTranscription()
+                        await viewModel.stop()
                     }
                 } label: {
                     Label("회의 전사 종료", systemImage: "stop.circle")
                 }
-                .disabled(!viewModel.canStopMeetingTranscription)
+                .disabled(!viewModel.canStop)
             }
 
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {

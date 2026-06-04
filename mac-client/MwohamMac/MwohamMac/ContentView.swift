@@ -26,30 +26,25 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var isPrivateAppActive = false
     @Published var ocrStatus = "OCR 대기 중"
     @Published var currentMeeting: MeetingResponse?
-    @Published var transcriptionStatus = "회의 전사 대기 중"
-    @Published var latestTranscriptText = ""
-    @Published var shouldShowSpeechPermissionHelp = false
+    @Published var meetingTranscription: MeetingTranscriptionViewModel!
 
     private let localApiClient: LocalApiClient
     private let activeWindowCollector: ActiveWindowCollector
     private let ocrCollector: OCRCollector
-    private let speechTranscriptionProvider: SpeechTranscriptionProvider
     private var rawRecordingStatus = "unknown"
     private var sessionStartedAt: Date?
     private var statusElapsedSeconds: Int?
     private var statusReceivedAt: Date?
-    private var lastSubmittedTranscriptText = ""
-    private var lastTranscriptSubmissionAt: Date?
-    private var isMeetingTranscribing = false
-    private var isStoppingMeetingTranscription = false
-    private let minimumTranscriptSubmissionInterval: TimeInterval = 2
 
     init() {
         let localApiClient = LocalApiClient()
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         self.ocrCollector = OCRCollector(localApiClient: localApiClient)
-        self.speechTranscriptionProvider = AppleSpeechTranscriptionProvider()
+        configureMeetingTranscription(
+            localApiClient: localApiClient,
+            speechTranscriptionProvider: AppleSpeechTranscriptionProvider()
+        )
     }
 
     init(
@@ -59,7 +54,10 @@ final class BackendStatusViewModel: ObservableObject {
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         self.ocrCollector = OCRCollector(localApiClient: localApiClient)
-        self.speechTranscriptionProvider = speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider()
+        configureMeetingTranscription(
+            localApiClient: localApiClient,
+            speechTranscriptionProvider: speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider()
+        )
     }
 
     func refresh() async {
@@ -149,14 +147,6 @@ final class BackendStatusViewModel: ObservableObject {
         isConnected && !isSavingMemo
     }
 
-    var canStartMeetingTranscription: Bool {
-        isConnected && !speechTranscriptionProvider.isRunning
-    }
-
-    var canStopMeetingTranscription: Bool {
-        isConnected && speechTranscriptionProvider.isRunning
-    }
-
     var recordingState: String {
         rawRecordingStatus
     }
@@ -171,6 +161,31 @@ final class BackendStatusViewModel: ObservableObject {
 
     func openDashboard() {
         NSWorkspace.shared.open(dashboardURL)
+    }
+
+    private func configureMeetingTranscription(
+        localApiClient: LocalApiClient,
+        speechTranscriptionProvider: SpeechTranscriptionProvider
+    ) {
+        meetingTranscription = MeetingTranscriptionViewModel(
+            localApiClient: localApiClient,
+            speechTranscriptionProvider: speechTranscriptionProvider,
+            speechPermissionService: SpeechPermissionService(),
+            transcriptSubmissionPolicy: MeetingTranscriptSubmissionPolicy(),
+            isConnected: { [weak self] in
+                self?.isConnected == true
+            },
+            onMeetingStateChange: { [weak self] meeting, meetingMode in
+                self?.currentMeeting = meeting
+                self?.meetingMode = meetingMode
+            },
+            onRefreshAfterFailedAction: { [weak self] in
+                await self?.refreshAfterFailedAction()
+            },
+            onSnapshotReceived: { [weak self] snapshot in
+                self?.applySnapshot(snapshot)
+            }
+        )
     }
 
     func startActiveWindowTracking() {
@@ -223,130 +238,8 @@ final class BackendStatusViewModel: ObservableObject {
         ocrStatus = "OCR 대기 중"
     }
 
-    func startMeetingTranscription() async {
-        if shouldShowSpeechPermissionHelp {
-            showSpeechPermissionAlert()
-            return
-        }
-
-        guard canStartMeetingTranscription else {
-            return
-        }
-
-        transcriptionStatus = "권한 확인 중"
-        shouldShowSpeechPermissionHelp = false
-        errorMessage = nil
-
-        do {
-            try await speechTranscriptionProvider.requestAuthorization()
-
-            let meeting: MeetingResponse
-            if let currentMeeting {
-                meeting = currentMeeting
-            } else {
-                meeting = try await localApiClient.startMeeting(title: "음성 전사 회의")
-            }
-            currentMeeting = meeting
-            meetingMode = "켜짐"
-            latestTranscriptText = ""
-            lastSubmittedTranscriptText = ""
-            lastTranscriptSubmissionAt = nil
-            isMeetingTranscribing = true
-            isStoppingMeetingTranscription = false
-            transcriptionStatus = "회의 전사 시작 중"
-
-            try await speechTranscriptionProvider.start(
-                localeIdentifier: "ko-KR",
-                onTranscript: { [weak self] update in
-                    guard let self else {
-                        return
-                    }
-                    await self.handleTranscriptUpdate(update)
-                },
-                onStatusChange: { [weak self] status in
-                    guard let self, !self.isStoppingMeetingTranscription else {
-                        return
-                    }
-                    self.transcriptionStatus = status
-                }
-            )
-        } catch {
-            isMeetingTranscribing = false
-            isStoppingMeetingTranscription = false
-            shouldShowSpeechPermissionHelp = isSpeechPermissionError(error)
-            transcriptionStatus = "회의 전사 시작 실패: \(error.localizedDescription)"
-            await refreshAfterFailedAction()
-        }
-    }
-
-    func stopMeetingTranscription() async {
-        guard isMeetingTranscribing || speechTranscriptionProvider.isRunning else {
-            return
-        }
-
-        isMeetingTranscribing = false
-        isStoppingMeetingTranscription = true
-        transcriptionStatus = "회의 전사 종료 중"
-        let didSaveFinalTranscript = await submitTranscriptIfNeeded(
-            latestTranscriptText,
-            allowsRunningStatusUpdate: false,
-            force: true
-        )
-        await speechTranscriptionProvider.stop()
-
-        do {
-            let meeting: MeetingResponse?
-            if let currentMeeting {
-                meeting = currentMeeting
-            } else {
-                meeting = try await localApiClient.fetchCurrentMeeting()
-            }
-            if let meeting {
-                try await localApiClient.endMeeting(id: meeting.id)
-            }
-            currentMeeting = nil
-            meetingMode = "꺼짐"
-            if didSaveFinalTranscript {
-                transcriptionStatus = lastSubmittedTranscriptText.isEmpty ? "회의 전사 종료됨" : "전사 저장 후 종료됨"
-            }
-            let snapshot = try await localApiClient.fetchSnapshot()
-            applySnapshot(snapshot)
-        } catch {
-            transcriptionStatus = "회의 전사 종료 실패: \(error.localizedDescription)"
-            await refreshAfterFailedAction()
-        }
-        isStoppingMeetingTranscription = false
-    }
-
     func updateElapsedTime() {
         recordingElapsedTime = makeElapsedTimeText(at: Date())
-    }
-
-    func openSpeechRecognitionSettings() {
-        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")
-    }
-
-    func openMicrophoneSettings() {
-        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
-    }
-
-    func showSpeechPermissionAlert() {
-        let alert = NSAlert()
-        alert.messageText = "회의 전사 권한이 필요합니다."
-        alert.informativeText = "음성 인식과 마이크 권한을 허용한 뒤 회의 전사를 다시 시작해 주세요."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "음성 인식 설정 열기")
-        alert.addButton(withTitle: "마이크 설정 열기")
-        alert.addButton(withTitle: "취소")
-
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            openSpeechRecognitionSettings()
-        case .alertSecondButtonReturn:
-            openMicrophoneSettings()
-        default:
-            break
-        }
     }
 
     private func displayValue(_ value: String?) -> String {
@@ -368,20 +261,6 @@ final class BackendStatusViewModel: ObservableObject {
         default:
             return "알 수 없음"
         }
-    }
-
-    private func isSpeechPermissionError(_ error: Error) -> Bool {
-        guard let speechError = error as? SpeechTranscriptionError else {
-            return false
-        }
-        return speechError == .speechRecognitionDenied || speechError == .microphoneDenied
-    }
-
-    private func openSystemSettingsPane(_ urlString: String) {
-        guard let url = URL(string: urlString) else {
-            return
-        }
-        NSWorkspace.shared.open(url)
     }
 
     private var canUseControls: Bool {
@@ -434,6 +313,7 @@ final class BackendStatusViewModel: ObservableObject {
         recordingElapsedTime = makeElapsedTimeText(at: receivedAt)
         currentMeeting = snapshot.status.currentMeeting
         meetingMode = snapshot.status.meetingMode ? "켜짐" : "꺼짐"
+        meetingTranscription.applyStatus(snapshot.status)
         if isPrivateAppActive {
             currentApp = "비공개 앱"
             currentWindow = "비공개 앱 사용 중"
@@ -441,68 +321,6 @@ final class BackendStatusViewModel: ObservableObject {
             currentApp = displayValue(snapshot.status.currentApp)
             currentWindow = displayValue(snapshot.status.currentWindow)
         }
-    }
-
-    private func handleTranscriptUpdate(_ update: SpeechTranscriptUpdate) async {
-        let trimmedText = update.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else {
-            return
-        }
-
-        latestTranscriptText = trimmedText
-        let canUpdateRunningStatus = isMeetingTranscribing && !isStoppingMeetingTranscription
-        if canUpdateRunningStatus {
-            transcriptionStatus = update.isFinal ? "전사 저장 중" : "회의 전사 중"
-        }
-
-        if update.isFinal {
-            _ = await submitTranscriptIfNeeded(
-                trimmedText,
-                allowsRunningStatusUpdate: canUpdateRunningStatus
-            )
-        }
-    }
-
-    private func submitTranscriptIfNeeded(
-        _ text: String,
-        allowsRunningStatusUpdate: Bool = true,
-        force: Bool = false
-    ) async -> Bool {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty, trimmedText != lastSubmittedTranscriptText else {
-            return true
-        }
-        guard isMeaningfulTranscriptForSubmission(trimmedText) else {
-            return true
-        }
-        if !force,
-           let lastTranscriptSubmissionAt,
-           Date().timeIntervalSince(lastTranscriptSubmissionAt) < minimumTranscriptSubmissionInterval {
-            return true
-        }
-
-        do {
-            try await localApiClient.createMeetingTranscript(
-                meetingSessionId: currentMeeting?.id,
-                text: trimmedText
-            )
-            lastSubmittedTranscriptText = trimmedText
-            lastTranscriptSubmissionAt = Date()
-            if allowsRunningStatusUpdate && isMeetingTranscribing && !isStoppingMeetingTranscription {
-                transcriptionStatus = "전사 저장됨, 회의 전사 중"
-            } else if allowsRunningStatusUpdate {
-                transcriptionStatus = "전사 저장됨"
-            }
-            return true
-        } catch {
-            transcriptionStatus = "전사 저장 실패: \(error.localizedDescription)"
-            return false
-        }
-    }
-
-    private func isMeaningfulTranscriptForSubmission(_ text: String) -> Bool {
-        let compactText = text.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
-        return compactText.count >= 2
     }
 
     private func makeElapsedTimeText(at now: Date) -> String {
@@ -631,7 +449,7 @@ struct ContentView: View {
 
             Divider()
 
-            MeetingTranscriptionSectionView(viewModel: viewModel)
+            MeetingTranscriptionSectionView(viewModel: viewModel.meetingTranscription)
 
             Divider()
 

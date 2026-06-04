@@ -15,6 +15,10 @@ from app.schemas.meeting import (
 )
 from app.schemas.transcript import TranscriptListResponse
 from app.services.meeting_service import MeetingService, get_meeting_service
+from app.services.meeting_transcript_service import (
+    MeetingTranscriptService,
+    get_meeting_transcript_service,
+)
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
 
@@ -76,7 +80,7 @@ def list_meeting_transcripts(
     meeting_id: int,
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
     db: Session = Depends(get_db),
-    service: MeetingService = Depends(get_meeting_service),
+    service: MeetingTranscriptService = Depends(get_meeting_transcript_service),
 ) -> TranscriptListResponse:
     try:
         return service.list_transcripts(db, meeting_id=meeting_id, limit=limit)
