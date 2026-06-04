@@ -152,7 +152,10 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         }
 
         systemAudioBufferCount += 1
-        guard let buffer = makeSpeechPCMBuffer(from: sampleBuffer) else {
+        guard let buffer = SystemAudioPCMBufferConverter.makePCMBuffer(
+            from: sampleBuffer,
+            targetFormat: speechFormat
+        ) else {
             Task { @MainActor [weak self] in
                 self?.onStatusChange?("시스템 오디오 buffer 변환 실패")
             }
@@ -191,7 +194,7 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self,
-                  let speechBuffer = self.convertToSpeechFormat(buffer) else {
+                  let speechBuffer = SystemAudioPCMBufferConverter.convert(buffer, to: self.speechFormat) else {
                 return
             }
             self.microphoneBufferCount += 1
@@ -233,124 +236,6 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: systemAudioQueue)
         try await stream.startCapture()
         self.stream = stream
-    }
-
-    private func makeSpeechPCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
-        guard let sourceBuffer = makeSourcePCMBuffer(from: sampleBuffer) else {
-            return nil
-        }
-        return convertToSpeechFormat(sourceBuffer)
-    }
-
-    private func makeSourcePCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
-        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription),
-              let audioFormat = AVAudioFormat(streamDescription: streamDescription) else {
-            return nil
-        }
-
-        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
-        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount) else {
-            return nil
-        }
-        pcmBuffer.frameLength = frameCount
-
-        var audioBufferListSize = 0
-        var blockBuffer: CMBlockBuffer?
-        var status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            sampleBuffer,
-            bufferListSizeNeededOut: &audioBufferListSize,
-            bufferListOut: nil,
-            bufferListSize: 0,
-            blockBufferAllocator: kCFAllocatorDefault,
-            blockBufferMemoryAllocator: kCFAllocatorDefault,
-            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-            blockBufferOut: &blockBuffer
-        )
-        guard status == noErr, audioBufferListSize > 0 else {
-            return nil
-        }
-
-        let rawBufferList = UnsafeMutableRawPointer.allocate(
-            byteCount: audioBufferListSize,
-            alignment: MemoryLayout<AudioBufferList>.alignment
-        )
-        defer {
-            rawBufferList.deallocate()
-        }
-
-        let sourceBufferList = rawBufferList.bindMemory(to: AudioBufferList.self, capacity: 1)
-        status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            sampleBuffer,
-            bufferListSizeNeededOut: nil,
-            bufferListOut: sourceBufferList,
-            bufferListSize: audioBufferListSize,
-            blockBufferAllocator: kCFAllocatorDefault,
-            blockBufferMemoryAllocator: kCFAllocatorDefault,
-            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-            blockBufferOut: &blockBuffer
-        )
-        guard status == noErr else {
-            return nil
-        }
-
-        let sourceBuffers = UnsafeMutableAudioBufferListPointer(sourceBufferList)
-        let targetBuffers = UnsafeMutableAudioBufferListPointer(pcmBuffer.mutableAudioBufferList)
-        guard sourceBuffers.count == targetBuffers.count else {
-            return nil
-        }
-
-        for index in sourceBuffers.indices {
-            guard let sourceData = sourceBuffers[index].mData,
-                  let targetData = targetBuffers[index].mData else {
-                continue
-            }
-
-            let byteCount = min(
-                Int(sourceBuffers[index].mDataByteSize),
-                Int(targetBuffers[index].mDataByteSize)
-            )
-            memcpy(targetData, sourceData, byteCount)
-            targetBuffers[index].mDataByteSize = UInt32(byteCount)
-        }
-
-        return pcmBuffer
-    }
-
-    private func convertToSpeechFormat(_ sourceBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard sourceBuffer.format != speechFormat else {
-            return sourceBuffer
-        }
-
-        guard let converter = AVAudioConverter(from: sourceBuffer.format, to: speechFormat) else {
-            return nil
-        }
-
-        let ratio = speechFormat.sampleRate / sourceBuffer.format.sampleRate
-        let targetFrameCapacity = AVAudioFrameCount(ceil(Double(sourceBuffer.frameLength) * ratio)) + 1
-        guard let targetBuffer = AVAudioPCMBuffer(
-            pcmFormat: speechFormat,
-            frameCapacity: max(targetFrameCapacity, 1)
-        ) else {
-            return nil
-        }
-
-        var didProvideInput = false
-        var conversionError: NSError?
-        let status = converter.convert(to: targetBuffer, error: &conversionError) { _, inputStatus in
-            if didProvideInput {
-                inputStatus.pointee = .noDataNow
-                return nil
-            }
-            didProvideInput = true
-            inputStatus.pointee = .haveData
-            return sourceBuffer
-        }
-
-        guard conversionError == nil, status != .error, targetBuffer.frameLength > 0 else {
-            return nil
-        }
-        return targetBuffer
     }
 
     private func appendToSpeechRequest(_ buffer: AVAudioPCMBuffer) {
