@@ -69,7 +69,7 @@ final class SystemAudioSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         onStatusChange: @escaping @MainActor (String) -> Void
     ) async throws {
         guard !isRunning else {
-            onStatusChange("시스템 오디오 전사 테스트 실행 중")
+            await emitStatus("시스템 오디오 전사 테스트 실행 중")
             return
         }
 
@@ -148,7 +148,7 @@ final class SystemAudioSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         try await stream.startCapture()
         self.stream = stream
 
-        onStatusChange("display 전체 시스템 오디오 전사 준비 완료, speech task started, buffer 대기 중")
+        await emitStatus("display 전체 시스템 오디오 전사 준비 완료, speech task started, buffer 대기 중")
     }
 
     func stop() async {
@@ -158,7 +158,7 @@ final class SystemAudioSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
             do {
                 try await stream.stopCapture()
             } catch {
-                updateStatus("시스템 오디오 전사 종료 오류: \(error.localizedDescription)")
+                await emitStatus("시스템 오디오 전사 종료 오류: \(error.localizedDescription)")
             }
         }
 
@@ -169,7 +169,7 @@ final class SystemAudioSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         recognitionTask = nil
         speechRecognizer = nil
         resetDiagnostics()
-        updateStatus("시스템 오디오 전사 테스트 종료됨")
+        await emitStatus("시스템 오디오 전사 테스트 종료됨")
     }
 
     func stream(
@@ -187,12 +187,7 @@ final class SystemAudioSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         lastLevelDescription = makeAudioLevelDescription(sampleBuffer)
 
         guard let pcmBuffer = makeSpeechFriendlyPCMBuffer(from: sampleBuffer) else {
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    return
-                }
-                self.onStatusChange?("시스템 오디오 buffer 변환 실패, \(self.diagnosticSummary())")
-            }
+            scheduleStatus("시스템 오디오 buffer 변환 실패, \(diagnosticSummary())")
             return
         }
 
@@ -202,9 +197,7 @@ final class SystemAudioSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
 
         let status = "buffer 수신 중: buffers \(receivedBufferCount), appended \(appendedBufferCount), samples \(lastSampleCount), source \(lastSourceFormatDescription), converted \(lastConvertedFormatDescription), \(lastLevelDescription)"
 
-        Task { @MainActor [weak self] in
-            self?.onStatusChange?(status)
-        }
+        scheduleStatus(status)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -393,9 +386,16 @@ final class SystemAudioSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         return "level RMS \(String(format: "%.1f", level.rmsDB)) dB, peak \(String(format: "%.1f", level.peakDB)) dB"
     }
 
-    @MainActor
-    private func updateStatus(_ status: String) {
-        onStatusChange?(status)
+    private func emitStatus(_ status: String) async {
+        await MainActor.run {
+            onStatusChange?(status)
+        }
+    }
+
+    private func scheduleStatus(_ status: String) {
+        Task { @MainActor [weak self] in
+            self?.onStatusChange?(status)
+        }
     }
 
     private func resetDiagnostics() {

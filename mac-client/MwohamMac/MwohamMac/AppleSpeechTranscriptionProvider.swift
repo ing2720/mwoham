@@ -13,6 +13,7 @@ struct SpeechTranscriptUpdate {
 }
 
 protocol SpeechTranscriptionProvider: AnyObject {
+    @MainActor
     var isRunning: Bool { get }
 
     func start(
