@@ -27,19 +27,10 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var ocrStatus = "OCR 대기 중"
     @Published var currentMeeting: MeetingResponse?
     @Published var meetingTranscription: MeetingTranscriptionViewModel!
-    @Published var systemAudioCaptureStatus = "시스템 오디오 캡처 대기 중"
-    @Published var isSystemAudioCaptureProbeRunning = false
-    @Published var systemAudioSpeechStatus = "시스템 오디오 전사 대기 중"
-    @Published var systemAudioSpeechTranscript = ""
-    @Published var isSystemAudioSpeechProbeRunning = false
 
     private let localApiClient: LocalApiClient
     private let activeWindowCollector: ActiveWindowCollector
     private let ocrCollector: OCRCollector
-    private let systemAudioCaptureProbe = SystemAudioCaptureProbe()
-    private let systemAudioSpeechTranscriptionProvider = SystemAudioSpeechTranscriptionProvider(
-        speechPermissionService: SpeechPermissionService()
-    )
     private var rawRecordingStatus = "unknown"
     private var sessionStartedAt: Date?
     private var statusElapsedSeconds: Int?
@@ -260,63 +251,6 @@ final class BackendStatusViewModel: ObservableObject {
         ocrStatus = "OCR 대기 중"
     }
 
-    func startSystemAudioCaptureProbe() async {
-        guard !isSystemAudioCaptureProbeRunning else {
-            return
-        }
-
-        systemAudioCaptureStatus = "시스템 오디오 캡처 권한 확인 중"
-
-        do {
-            try await systemAudioCaptureProbe.start { [weak self] status in
-                self?.systemAudioCaptureStatus = status
-            }
-            isSystemAudioCaptureProbeRunning = true
-        } catch {
-            isSystemAudioCaptureProbeRunning = false
-            systemAudioCaptureStatus = "시스템 오디오 캡처 테스트 실패: \(error.localizedDescription)"
-        }
-    }
-
-    func stopSystemAudioCaptureProbe() async {
-        await systemAudioCaptureProbe.stop()
-        isSystemAudioCaptureProbeRunning = false
-    }
-
-    func openScreenRecordingSettings() {
-        systemAudioCaptureProbe.openScreenRecordingSettings()
-    }
-
-    func startSystemAudioSpeechProbe() async {
-        guard !isSystemAudioSpeechProbeRunning else {
-            return
-        }
-
-        systemAudioSpeechStatus = "시스템 오디오 전사 준비 중"
-        systemAudioSpeechTranscript = ""
-
-        do {
-            try await systemAudioSpeechTranscriptionProvider.start(
-                localeIdentifier: "ko-KR",
-                onStatusChange: { [weak self] status in
-                    self?.systemAudioSpeechStatus = status
-                },
-                onTranscriptChange: { [weak self] transcript in
-                    self?.systemAudioSpeechTranscript = transcript
-                }
-            )
-            isSystemAudioSpeechProbeRunning = true
-        } catch {
-            isSystemAudioSpeechProbeRunning = false
-            systemAudioSpeechStatus = "시스템 오디오 전사 실패: \(error.localizedDescription)"
-        }
-    }
-
-    func stopSystemAudioSpeechProbe() async {
-        await systemAudioSpeechTranscriptionProvider.stop()
-        isSystemAudioSpeechProbeRunning = false
-    }
-
     func updateElapsedTime() {
         recordingElapsedTime = makeElapsedTimeText(at: Date())
     }
@@ -529,8 +463,6 @@ struct ContentView: View {
             Divider()
 
             MeetingTranscriptionSectionView(viewModel: viewModel.meetingTranscription)
-
-            SystemAudioCaptureProbeSectionView(viewModel: viewModel)
 
             Divider()
 
