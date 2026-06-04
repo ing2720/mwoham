@@ -15,7 +15,6 @@ struct SpeechTranscriptUpdate {
 protocol SpeechTranscriptionProvider: AnyObject {
     var isRunning: Bool { get }
 
-    func requestAuthorization() async throws
     func start(
         localeIdentifier: String,
         onTranscript: @escaping @MainActor (SpeechTranscriptUpdate) async -> Void,
@@ -54,23 +53,6 @@ final class AppleSpeechTranscriptionProvider: SpeechTranscriptionProvider {
 
     var isRunning: Bool {
         audioEngine.isRunning
-    }
-
-    func requestAuthorization() async throws {
-        let speechStatus = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status)
-            }
-        }
-
-        guard speechStatus == .authorized else {
-            throw SpeechTranscriptionError.speechRecognitionDenied
-        }
-
-        let microphoneAllowed = await AVCaptureDevice.requestAccess(for: .audio)
-        guard microphoneAllowed else {
-            throw SpeechTranscriptionError.microphoneDenied
-        }
     }
 
     func start(

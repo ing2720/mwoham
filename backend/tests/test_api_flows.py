@@ -1073,7 +1073,7 @@ def test_meeting_transcript_masks_sensitive_text(client: TestClient) -> None:
 
 def test_meeting_transcripts_today_uses_kst_date(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.services.meeting_service.now_kst",
+        "app.services.meeting_transcript_service.now_kst",
         lambda: datetime(2026, 6, 1, 9, 0, tzinfo=KST),
     )
 
