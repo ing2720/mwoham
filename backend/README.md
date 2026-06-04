@@ -153,6 +153,20 @@ uv run python scripts/collect_dev_context.py --session-current
 3. 작업 종료 시 `collect_dev_context.py --repo-path ..` 실행
 4. 브라우저 또는 API에서 `/reports/daily` 생성
 
+## Meeting Transcript
+
+회의 전사는 원본 오디오 파일이나 raw audio buffer를 저장하지 않습니다. Mac 앱은 전사된 text만 기존 `/meeting-transcripts` API로 전송하고, backend는 transcript text와 source 값을 저장합니다.
+
+현재 transcript source 값은 다음 입력 경로를 구분합니다.
+
+- `apple_speech`: 기존 Apple Speech 기본값
+- `apple_speech_microphone`: 마이크 단독 전사
+- `apple_speech_system_audio`: 시스템 오디오 단독 전사
+- `apple_speech_full_meeting`: 마이크와 시스템 오디오를 하나의 Apple Speech recognitionTask로 처리한 회의 전체 전사
+- `manual`: 수동 입력 transcript
+
+시스템 오디오 전사 연결 과정에서 DB schema, migration, API endpoint는 변경하지 않았습니다.
+
 ## 샘플 데이터
 
 리포트 품질을 확인하기 위한 샘플 데이터를 생성할 수 있습니다.
