@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatch
+from pathlib import Path
 
 try:
     from scripts.collect_git_snapshot import GitStatusSnapshot, collect_git_status_snapshot
@@ -30,9 +34,33 @@ class DevTrackingResult:
     summary: str | None = None
 
 
+@dataclass(frozen=True)
+class DevTrackingStateEntry:
+    signature: str
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class PendingTrackingSignature:
+    signature: str
+    first_seen_at: datetime
+
+
 class DevContextTracker:
-    def __init__(self) -> None:
-        self.last_signature: str | None = None
+    def __init__(
+        self,
+        *,
+        state_store: DevTrackingStateStore | None = None,
+        state_path: Path | None = None,
+        dedupe_ttl_seconds: int = 21600,
+        debounce_seconds: int = 0,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.state_store = state_store or DevTrackingStateStore(state_path)
+        self.dedupe_ttl_seconds = dedupe_ttl_seconds
+        self.debounce_seconds = debounce_seconds
+        self.now = now or _now_utc
+        self.pending_signatures: dict[str, PendingTrackingSignature] = {}
 
     def check_once(self, repo_path: str, *, session_current: bool = False) -> DevTrackingResult:
         snapshot = collect_git_status_snapshot(repo_path)
@@ -41,12 +69,20 @@ class DevContextTracker:
 
         tracked_snapshot = filter_ignored_tracking_files(snapshot)
         signature = build_git_tracking_signature(tracked_snapshot)
-        if signature == self.last_signature:
+        repo_key = build_repo_state_key(tracked_snapshot.repo)
+        current_time = self.now()
+        state_entry = self.state_store.get_entry(repo_key)
+        if self._is_deduped(signature, state_entry, current_time):
             return DevTrackingResult(status="unchanged", signature=signature)
 
-        self.last_signature = signature
         if not tracked_snapshot.dirty:
+            self.pending_signatures.pop(repo_key, None)
+            self.state_store.set_signature(repo_key, signature, updated_at=current_time)
             return DevTrackingResult(status="clean", signature=signature)
+
+        pending_result = self._wait_for_debounce(repo_key, signature, current_time)
+        if pending_result is not None:
+            return pending_result
 
         summary = build_git_tracking_summary(tracked_snapshot)
         request = build_dev_event_request(
@@ -67,7 +103,125 @@ class DevContextTracker:
             },
         )
         print_saved_event(save_dev_event(request, session_current=session_current))
+        self.pending_signatures.pop(repo_key, None)
+        self.state_store.set_signature(repo_key, signature, updated_at=current_time)
         return DevTrackingResult(status="saved", signature=signature, summary=summary)
+
+    def _is_deduped(
+        self,
+        signature: str,
+        state_entry: DevTrackingStateEntry | None,
+        current_time: datetime,
+    ) -> bool:
+        if state_entry is None or state_entry.signature != signature:
+            return False
+        if self.dedupe_ttl_seconds <= 0:
+            return False
+        expires_at = state_entry.updated_at + timedelta(seconds=self.dedupe_ttl_seconds)
+        return current_time < expires_at
+
+    def _wait_for_debounce(
+        self,
+        repo_key: str,
+        signature: str,
+        current_time: datetime,
+    ) -> DevTrackingResult | None:
+        if self.debounce_seconds <= 0:
+            return None
+
+        pending = self.pending_signatures.get(repo_key)
+        if pending is None or pending.signature != signature:
+            self.pending_signatures[repo_key] = PendingTrackingSignature(
+                signature=signature,
+                first_seen_at=current_time,
+            )
+            return DevTrackingResult(status="pending", signature=signature)
+
+        stable_since = current_time - pending.first_seen_at
+        if stable_since < timedelta(seconds=self.debounce_seconds):
+            return DevTrackingResult(status="pending", signature=signature)
+        return None
+
+
+class DevTrackingStateStore:
+    def __init__(self, state_path: Path | None = None) -> None:
+        self.state_path = state_path or get_default_state_path()
+
+    def get_signature(self, repo_key: str) -> str | None:
+        entry = self.get_entry(repo_key)
+        return entry.signature if entry is not None else None
+
+    def get_entry(self, repo_key: str) -> DevTrackingStateEntry | None:
+        data = self._read()
+        repo_state = data.get("repos", {}).get(repo_key, {})
+        signature = repo_state.get("signature")
+        updated_at = _parse_state_datetime(repo_state.get("updated_at"))
+        if not isinstance(signature, str) or updated_at is None:
+            return None
+        return DevTrackingStateEntry(signature=signature, updated_at=updated_at)
+
+    def set_signature(
+        self,
+        repo_key: str,
+        signature: str,
+        *,
+        updated_at: datetime | None = None,
+    ) -> None:
+        data = self._read()
+        repos = data.setdefault("repos", {})
+        repos[repo_key] = {
+            "signature": signature,
+            "updated_at": (updated_at or _now_utc()).isoformat(),
+        }
+        data["version"] = 1
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(
+            json.dumps(data, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def _read(self) -> dict:
+        if not self.state_path.exists():
+            return {"version": 1, "repos": {}}
+        try:
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"version": 1, "repos": {}}
+        if not isinstance(data, dict):
+            return {"version": 1, "repos": {}}
+        if not isinstance(data.get("repos"), dict):
+            data["repos"] = {}
+        return data
+
+
+def get_default_state_path() -> Path:
+    configured_path = os.environ.get("MWOHAM_DEV_TRACKING_STATE_PATH")
+    if configured_path:
+        return Path(configured_path).expanduser()
+    return Path("/private/tmp/mwoham-dev-tracking-state.json")
+
+
+def build_repo_state_key(repo_path: Path) -> str:
+    try:
+        return str(repo_path.resolve())
+    except OSError:
+        return str(repo_path)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(UTC)
+
+
+def _parse_state_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 TRACKING_IGNORE_PATTERNS = (

@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -354,6 +355,59 @@ def test_dev_context_tracker_saves_dirty_snapshot_once(
     assert "diff" not in events[0].details_json
 
 
+def test_dev_context_tracker_uses_persistent_state_after_restart(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    state_path = tmp_path / "dev_tracking_state.json"
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    first = dev_tracking.DevContextTracker(state_path=state_path).check_once(str(repo))
+    second = dev_tracking.DevContextTracker(state_path=state_path).check_once(str(repo))
+
+    assert first.status == "saved"
+    assert second.status == "unchanged"
+    assert db.query(DevEvent).count() == 1
+    state_text = state_path.read_text(encoding="utf-8")
+    assert "README.md" not in state_text
+    assert "hello" not in state_text
+
+
+def test_dev_context_tracker_allows_same_signature_after_ttl(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    state_path = tmp_path / "dev_tracking_state.json"
+    now = _FakeClock(datetime(2026, 6, 1, 0, 0, tzinfo=UTC))
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    first = dev_tracking.DevContextTracker(
+        state_path=state_path,
+        dedupe_ttl_seconds=21600,
+        now=now,
+    ).check_once(str(repo))
+    now.advance(seconds=21601)
+    second = dev_tracking.DevContextTracker(
+        state_path=state_path,
+        dedupe_ttl_seconds=21600,
+        now=now,
+    ).check_once(str(repo))
+
+    events = db.query(DevEvent).all()
+    state_entry = dev_tracking.DevTrackingStateStore(state_path).get_entry(
+        dev_tracking.build_repo_state_key(repo)
+    )
+    assert first.status == "saved"
+    assert second.status == "saved"
+    assert len(events) == 2
+    assert state_entry is not None
+    assert state_entry.updated_at == now()
+
+
 def test_dev_context_tracker_saves_when_signature_changes(
     db: Session,
     monkeypatch,
@@ -377,6 +431,76 @@ def test_dev_context_tracker_saves_when_signature_changes(
     ]
 
 
+def test_dev_context_tracker_persistent_state_saves_changed_signature(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    state_path = tmp_path / "dev_tracking_state.json"
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    first = dev_tracking.DevContextTracker(state_path=state_path).check_once(str(repo))
+    (repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    second = dev_tracking.DevContextTracker(state_path=state_path).check_once(str(repo))
+
+    events = db.query(DevEvent).order_by(DevEvent.id).all()
+    assert first.status == "saved"
+    assert second.status == "saved"
+    assert len(events) == 2
+    assert events[1].details_json["changed_files"] == ["README.md", "app.py"]
+
+
+def test_dev_context_tracker_debounces_until_signature_is_stable(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    now = _FakeClock(datetime(2026, 6, 1, 0, 0, tzinfo=UTC))
+    _patch_script_session(monkeypatch, dev_tracking, db)
+    tracker = dev_tracking.DevContextTracker(debounce_seconds=20, now=now)
+
+    first = tracker.check_once(str(repo))
+    now.advance(seconds=19)
+    second = tracker.check_once(str(repo))
+    now.advance(seconds=2)
+    third = tracker.check_once(str(repo))
+
+    assert first.status == "pending"
+    assert second.status == "pending"
+    assert third.status == "saved"
+    assert db.query(DevEvent).count() == 1
+
+
+def test_dev_context_tracker_resets_debounce_when_signature_changes(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    now = _FakeClock(datetime(2026, 6, 1, 0, 0, tzinfo=UTC))
+    _patch_script_session(monkeypatch, dev_tracking, db)
+    tracker = dev_tracking.DevContextTracker(debounce_seconds=20, now=now)
+
+    first = tracker.check_once(str(repo))
+    now.advance(seconds=10)
+    (repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    second = tracker.check_once(str(repo))
+    now.advance(seconds=10)
+    third = tracker.check_once(str(repo))
+    now.advance(seconds=11)
+    fourth = tracker.check_once(str(repo))
+
+    events = db.query(DevEvent).all()
+    assert first.status == "pending"
+    assert second.status == "pending"
+    assert third.status == "pending"
+    assert fourth.status == "saved"
+    assert len(events) == 1
+    assert events[0].details_json["changed_files"] == ["README.md", "app.py"]
+
+
 def test_dev_context_tracker_does_not_save_clean_initial_snapshot(
     db: Session,
     monkeypatch,
@@ -390,6 +514,33 @@ def test_dev_context_tracker_does_not_save_clean_initial_snapshot(
 
     assert result.status == "clean"
     assert db.query(DevEvent).count() == 0
+
+
+def test_dev_context_tracker_persists_clean_baseline(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _clean_git_repo(tmp_path)
+    state_path = tmp_path / "dev_tracking_state.json"
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    first = dev_tracking.DevContextTracker(state_path=state_path).check_once(str(repo))
+    second = dev_tracking.DevContextTracker(state_path=state_path).check_once(str(repo))
+
+    assert first.status == "clean"
+    assert second.status == "unchanged"
+    assert db.query(DevEvent).count() == 0
+
+
+def test_dev_tracking_state_path_uses_environment_override(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "custom_state.json"
+    monkeypatch.setenv("MWOHAM_DEV_TRACKING_STATE_PATH", str(state_path))
+
+    assert dev_tracking.get_default_state_path() == state_path
 
 
 def test_dev_context_tracker_ignores_vim_swap_only(
@@ -484,6 +635,25 @@ def test_watch_dev_context_once_runs_single_check(monkeypatch, tmp_path: Path) -
     assert calls == [True]
 
 
+def test_watch_dev_context_once_uses_zero_debounce_by_default(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    exit_code = watch_dev_context.watch_dev_context(
+        repo_path=str(repo),
+        interval=60,
+        once=True,
+        state_path=str(tmp_path / "state.json"),
+    )
+
+    assert exit_code == 0
+    assert db.query(DevEvent).count() == 1
+
+
 def test_watch_dev_context_script_imports_without_pythonpath() -> None:
     result = _run_script_without_pythonpath("scripts/watch_dev_context.py", "--help")
 
@@ -534,6 +704,17 @@ def _run_script_without_pythonpath(*args: str) -> subprocess.CompletedProcess[st
         cwd=Path(__file__).resolve().parents[1],
         env=env,
     )
+
+
+class _FakeClock:
+    def __init__(self, current: datetime) -> None:
+        self.current = current
+
+    def __call__(self) -> datetime:
+        return self.current
+
+    def advance(self, *, seconds: int) -> None:
+        self.current += timedelta(seconds=seconds)
 
 
 def _fake_command_runner(
