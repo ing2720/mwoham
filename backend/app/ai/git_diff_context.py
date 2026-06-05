@@ -7,6 +7,23 @@ from pathlib import Path
 from app.schemas.timeline import TimelineResponse
 from app.services.privacy_filter import PrivacyFilter
 
+try:
+    from scripts.git_path_policies import TEMP_CACHE_IGNORE_PATTERNS
+except ModuleNotFoundError:
+    TEMP_CACHE_IGNORE_PATTERNS = (
+        "*.swp",
+        "*.swo",
+        ".*.swp",
+        ".*.swo",
+        "*~",
+        ".DS_Store",
+        "__pycache__/",
+        ".pytest_cache/",
+        ".coverage",
+        "coverage.xml",
+        "htmlcov/",
+    )
+
 EXCLUDED_PATH_PATTERNS = (
     ".env",
     ".env.*",
@@ -25,6 +42,7 @@ EXCLUDED_PATH_PATTERNS = (
     "node_modules/**",
     ".venv/**",
     "venv/**",
+    *TEMP_CACHE_IGNORE_PATTERNS,
     "**/__pycache__/**",
     ".pytest_cache/**",
     "DerivedData/**",

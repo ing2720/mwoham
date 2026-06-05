@@ -7,7 +7,6 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from fnmatch import fnmatch
 from pathlib import Path
 
 try:
@@ -18,6 +17,7 @@ try:
         print_saved_event,
         save_dev_event,
     )
+    from scripts.git_path_policies import TEMP_CACHE_IGNORE_PATTERNS, is_ignored_temp_cache_path
 except ModuleNotFoundError:
     from collect_git_snapshot import GitStatusSnapshot, collect_git_status_snapshot
     from dev_event_helpers import (
@@ -26,6 +26,7 @@ except ModuleNotFoundError:
         print_saved_event,
         save_dev_event,
     )
+    from git_path_policies import TEMP_CACHE_IGNORE_PATTERNS, is_ignored_temp_cache_path
 
 
 @dataclass(frozen=True)
@@ -226,19 +227,7 @@ def _parse_state_datetime(value: object) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-TRACKING_IGNORE_PATTERNS = (
-    "*.swp",
-    "*.swo",
-    ".*.swp",
-    ".*.swo",
-    "*~",
-    ".DS_Store",
-    "__pycache__/",
-    ".pytest_cache/",
-    ".coverage",
-    "coverage.xml",
-    "htmlcov/",
-)
+TRACKING_IGNORE_PATTERNS = TEMP_CACHE_IGNORE_PATTERNS
 
 
 def filter_ignored_tracking_files(snapshot: GitStatusSnapshot) -> GitStatusSnapshot:
@@ -263,24 +252,7 @@ def is_ignored_tracking_status(status_line: str) -> bool:
 
 
 def is_ignored_tracking_path(file_path: str) -> bool:
-    normalized = file_path.strip().replace("\\", "/")
-    if not normalized:
-        return False
-    for pattern in TRACKING_IGNORE_PATTERNS:
-        if _matches_ignore_pattern(normalized, pattern):
-            return True
-    return False
-
-
-def _matches_ignore_pattern(file_path: str, pattern: str) -> bool:
-    if pattern.endswith("/"):
-        prefix = pattern.rstrip("/")
-        return (
-            file_path == prefix
-            or file_path.startswith(f"{prefix}/")
-            or f"/{prefix}/" in file_path
-        )
-    return fnmatch(file_path, pattern) or fnmatch(file_path.rsplit("/", 1)[-1], pattern)
+    return is_ignored_temp_cache_path(file_path)
 
 
 def _path_from_status_line(status_line: str) -> str:
