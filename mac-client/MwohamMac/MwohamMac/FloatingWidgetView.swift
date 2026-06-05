@@ -37,6 +37,7 @@ struct FloatingWidgetView: View {
                 FloatingStatusRow(title: "기록 시간", value: viewModel.recordingElapsedTime)
                 FloatingStatusRow(title: "활성 창 추적", value: viewModel.activeWindowTrackingStatus)
                 FloatingStatusRow(title: "OCR 상태", value: viewModel.ocrStatus)
+                FloatingStatusRow(title: "Dev Tracking", value: viewModel.shortDevTrackingStatus)
                 FloatingStatusRow(title: "현재 앱", value: viewModel.currentApp)
                 FloatingStatusRow(title: "현재 창", value: viewModel.currentWindow)
             }
@@ -123,7 +124,7 @@ struct FloatingWidgetView: View {
             return "비공개"
         }
 
-        return viewModel.recordingElapsedTime
+        return "\(viewModel.recordingElapsedTime) · \(viewModel.shortDevTrackingStatus)"
     }
 
     @ViewBuilder

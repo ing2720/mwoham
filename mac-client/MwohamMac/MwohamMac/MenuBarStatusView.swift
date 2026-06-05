@@ -21,6 +21,7 @@ struct MenuBarStatusView: View {
             }
             Text("현재 기록 상태: \(viewModel.recordingStatus)")
             Text("기록 시간: \(viewModel.recordingElapsedTime)")
+            Text("Dev Tracking: \(viewModel.shortDevTrackingStatus)")
 
             Divider()
 
