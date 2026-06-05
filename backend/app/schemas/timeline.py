@@ -12,6 +12,7 @@ class TimelineItem(ApiSchema):
     id: int
     timestamp: DateTimeType
     content: str
+    display_label: str | None = None
     source: str | None = None
     event_type: str | None = None
     app_name: str | None = None

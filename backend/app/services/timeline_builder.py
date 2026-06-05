@@ -220,6 +220,7 @@ class TimelineBuilder:
             id=event.id,
             timestamp=event.occurred_at,
             content=self._dev_event_basic_content(event),
+            display_label=self._dev_event_display_label(event),
             source=event.source,
             event_type=event.event_type,
             session_id=event.session_id,
@@ -239,6 +240,7 @@ class TimelineBuilder:
             id=event.id,
             timestamp=event.occurred_at,
             content=self._truncate(content, 360),
+            display_label=self._dev_event_display_label(event),
             source=event.source,
             event_type=event.event_type,
             session_id=event.session_id,
@@ -261,6 +263,13 @@ class TimelineBuilder:
         if event.event_type == "command_result":
             return f"개발 명령 실행 결과: {event.summary}"
         return event.summary
+
+    def _dev_event_display_label(self, event: DevEvent) -> str | None:
+        if event.event_type != "git_snapshot":
+            return None
+        if (event.details_json or {}).get("tracking_mode") == "watch":
+            return "자동 Git 변경 감지"
+        return "수동 Git 상태 수집"
 
     def _dev_event_details_summary(self, details: dict | None) -> str:
         if not details:

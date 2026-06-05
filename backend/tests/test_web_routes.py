@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -125,6 +125,47 @@ def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> 
     assert response.text.index("Ran pytest") < response.text.index("Document edge case")
     assert "2026-05-26 17:30" in response.text
     assert "2026-05-26T08:30" not in response.text
+
+
+def test_timeline_renders_manual_and_watcher_git_dev_event_labels(
+    client: TestClient,
+) -> None:
+    now = datetime.now(UTC)
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "git_snapshot",
+            "source": "script",
+            "summary": "Git 변경 파일 확인: backend/README.md",
+            "details_json": {
+                "changed_files": ["backend/README.md"],
+            },
+            "occurred_at": now.isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "git_snapshot",
+            "source": "script",
+            "summary": "Git 변경 감지: 1 file changed on feat/dev-tracking",
+            "details_json": {
+                "tracking_mode": "watch",
+                "changed_files": ["backend/scripts/dev_tracking.py"],
+            },
+            "occurred_at": (now + timedelta(minutes=1)).isoformat(),
+        },
+    )
+
+    timeline_response = client.get("/timeline")
+    dashboard_response = client.get("/dashboard")
+
+    assert timeline_response.status_code == 200
+    assert dashboard_response.status_code == 200
+    assert "수동 Git 상태 수집" in timeline_response.text
+    assert "자동 Git 변경 감지" in timeline_response.text
+    assert "수동 Git 상태 수집" in dashboard_response.text
+    assert "자동 Git 변경 감지" in dashboard_response.text
 
 
 def test_timeline_detail_renders_activity_segments_without_event_duplication(

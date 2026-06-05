@@ -615,6 +615,48 @@ def test_dev_events_can_be_created_listed_and_added_to_timeline(client: TestClie
     assert "exit_code=0" in detail_timeline[0]["content"]
 
 
+def test_git_dev_events_have_manual_and_watcher_display_labels(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "git_snapshot",
+            "source": "script",
+            "summary": "Git 변경 파일 확인: backend/app/services/report_service.py",
+            "details_json": {
+                "changed_files": ["backend/app/services/report_service.py"],
+            },
+            "occurred_at": datetime(2026, 5, 26, 13, 0, tzinfo=UTC).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "git_snapshot",
+            "source": "script",
+            "summary": "Git 변경 감지: 2 files changed on feat/dev-tracking",
+            "details_json": {
+                "tracking_mode": "watch",
+                "changed_files": ["backend/scripts/dev_tracking.py"],
+            },
+            "occurred_at": datetime(2026, 5, 26, 13, 5, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    basic_timeline = client.get("/timeline/today?date=2026-05-26").json()["items"]
+    detail_timeline = client.get("/timeline/today/detail?date=2026-05-26").json()["items"]
+
+    assert [item["display_label"] for item in basic_timeline] == [
+        "수동 Git 상태 수집",
+        "자동 Git 변경 감지",
+    ]
+    assert [item["display_label"] for item in detail_timeline] == [
+        "수동 Git 상태 수집",
+        "자동 Git 변경 감지",
+    ]
+
+
 def test_dev_event_masks_sensitive_summary_and_details(client: TestClient) -> None:
     response = client.post(
         "/dev-events",

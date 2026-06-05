@@ -87,7 +87,7 @@
         <article class="item">
           <div>
             <span class="badge">
-              {% if item.type == "event" %}이벤트{% elif item.type == "dev_event" %}개발 이벤트{% elif item.type == "activity_segment" %}작업 구간{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% elif item.type == "memo" %}메모{% else %}{{ item.type }}{% endif %}
+              {% if item.display_label %}{{ item.display_label }}{% elif item.type == "event" %}이벤트{% elif item.type == "dev_event" %}개발 이벤트{% elif item.type == "activity_segment" %}작업 구간{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% elif item.type == "memo" %}메모{% else %}{{ item.type }}{% endif %}
             </span>
           </div>
           <div class="item-title">
