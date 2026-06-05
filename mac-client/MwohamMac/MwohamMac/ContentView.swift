@@ -26,9 +26,15 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var isPrivateAppActive = false
     @Published var ocrStatus = "OCR 대기 중"
     @Published var devTrackingStatus = "Dev Tracking: 대기 중"
+    @Published var devTrackingRepoPath: String {
+        didSet {
+            UserDefaults.standard.set(devTrackingRepoPath, forKey: Self.devTrackingRepoPathKey)
+        }
+    }
     @Published var currentMeeting: MeetingResponse?
     @Published var meetingTranscription: MeetingTranscriptionViewModel!
 
+    private static let devTrackingRepoPathKey = "devTrackingRepoPath"
     private let localApiClient: LocalApiClient
     private let activeWindowCollector: ActiveWindowCollector
     private let ocrCollector: OCRCollector
@@ -56,10 +62,15 @@ final class BackendStatusViewModel: ObservableObject {
 
     init() {
         let localApiClient = LocalApiClient()
+        self.devTrackingRepoPath = UserDefaults.standard.string(forKey: Self.devTrackingRepoPathKey) ?? ""
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         self.ocrCollector = OCRCollector(localApiClient: localApiClient)
-        self.devTrackingProcessController = DevTrackingProcessController()
+        self.devTrackingProcessController = DevTrackingProcessController(
+            repoPathProvider: {
+                UserDefaults.standard.string(forKey: BackendStatusViewModel.devTrackingRepoPathKey) ?? ""
+            }
+        )
         configureMeetingTranscription(
             localApiClient: localApiClient,
             microphoneTranscriptionProvider: AppleSpeechTranscriptionProvider(),
@@ -75,10 +86,15 @@ final class BackendStatusViewModel: ObservableObject {
         speechTranscriptionProvider: SpeechTranscriptionProvider? = nil,
         systemAudioTranscriptionProvider: SpeechTranscriptionProvider? = nil
     ) {
+        self.devTrackingRepoPath = UserDefaults.standard.string(forKey: Self.devTrackingRepoPathKey) ?? ""
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         self.ocrCollector = OCRCollector(localApiClient: localApiClient)
-        self.devTrackingProcessController = DevTrackingProcessController()
+        self.devTrackingProcessController = DevTrackingProcessController(
+            repoPathProvider: {
+                UserDefaults.standard.string(forKey: BackendStatusViewModel.devTrackingRepoPathKey) ?? ""
+            }
+        )
         configureMeetingTranscription(
             localApiClient: localApiClient,
             microphoneTranscriptionProvider: speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider(),
@@ -488,6 +504,8 @@ struct ContentView: View {
 
             StatusSectionView(viewModel: viewModel)
 
+            DevTrackingSettingsView(viewModel: viewModel)
+
             Divider()
 
             MeetingTranscriptionSectionView(viewModel: viewModel.meetingTranscription)
@@ -515,6 +533,25 @@ struct ContentView: View {
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             viewModel.updateElapsedTime()
+        }
+    }
+}
+
+private struct DevTrackingSettingsView: View {
+    @ObservedObject var viewModel: BackendStatusViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Dev Tracking 설정")
+                .font(.headline)
+
+            TextField("비워두면 현재 mwoham repo를 추적합니다.", text: $viewModel.devTrackingRepoPath)
+                .textFieldStyle(.roundedBorder)
+                .textSelection(.enabled)
+
+            Text("추적 repo 경로는 다음 watcher 시작부터 적용됩니다.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 }

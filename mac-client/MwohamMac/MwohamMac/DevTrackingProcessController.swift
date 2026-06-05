@@ -9,7 +9,7 @@ import Foundation
 @MainActor
 final class DevTrackingProcessController {
     private let backendPath: URL
-    private let repoPath: String
+    private let repoPathProvider: () -> String
     private let intervalSeconds: Int
     private let gracePeriodSeconds: TimeInterval
     private let debounceSeconds: TimeInterval
@@ -23,13 +23,13 @@ final class DevTrackingProcessController {
 
     init(
         backendPath: URL = DevTrackingProcessController.defaultBackendPath(),
-        repoPath: String = "..",
+        repoPathProvider: @escaping () -> String = { "" },
         intervalSeconds: Int = 60,
         gracePeriodSeconds: TimeInterval = 120,
         debounceSeconds: TimeInterval = 10
     ) {
         self.backendPath = backendPath
-        self.repoPath = repoPath
+        self.repoPathProvider = repoPathProvider
         self.intervalSeconds = intervalSeconds
         self.gracePeriodSeconds = gracePeriodSeconds
         self.debounceSeconds = debounceSeconds
@@ -101,6 +101,10 @@ final class DevTrackingProcessController {
             return
         }
 
+        guard let repoURL = resolveRepoURL(onStatusChange: onStatusChange) else {
+            return
+        }
+
         let process = Process()
         let standardOutput = Pipe()
         let standardError = Pipe()
@@ -115,7 +119,7 @@ final class DevTrackingProcessController {
             "python",
             "scripts/watch_dev_context.py",
             "--repo-path",
-            repoPath,
+            repoURL.path,
             "--interval",
             "\(intervalSeconds)",
             "--session-current",
@@ -188,6 +192,59 @@ final class DevTrackingProcessController {
         environment["UV_CACHE_DIR"] = environment["UV_CACHE_DIR"] ?? "/private/tmp/mwoham-uv-cache"
         environment["PYTHONUNBUFFERED"] = "1"
         return environment
+    }
+
+    private func resolveRepoURL(onStatusChange: @escaping (String) -> Void) -> URL? {
+        let configuredPath = repoPathProvider().trimmingCharacters(in: .whitespacesAndNewlines)
+        let repoURL: URL
+        if configuredPath.isEmpty {
+            repoURL = backendPath.deletingLastPathComponent()
+        } else if configuredPath.hasPrefix("/") {
+            repoURL = URL(fileURLWithPath: configuredPath)
+        } else {
+            repoURL = backendPath.appendingPathComponent(configuredPath)
+        }
+
+        let standardizedURL = repoURL.standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            onStatusChange("Dev Tracking 오류: 추적 repo 경로를 찾을 수 없습니다.")
+            return nil
+        }
+
+        guard isGitRepository(standardizedURL) else {
+            onStatusChange("Dev Tracking 오류: Git repo가 아닙니다.")
+            return nil
+        }
+
+        return standardizedURL
+    }
+
+    private func isGitRepository(_ repoURL: URL) -> Bool {
+        let process = Process()
+        let output = Pipe()
+        let error = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "git",
+            "-C",
+            repoURL.path,
+            "rev-parse",
+            "--show-toplevel",
+        ]
+        process.environment = processEnvironment()
+        process.standardOutput = output
+        process.standardError = error
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return false
+        }
+
+        return process.terminationStatus == 0
     }
 
     private func handleProcessOutput(
