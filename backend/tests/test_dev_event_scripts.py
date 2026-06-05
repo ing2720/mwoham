@@ -582,6 +582,14 @@ def test_dev_context_tracker_saves_real_change_with_vim_swap(
     assert result.status == "saved"
     assert event.details_json["changed_files"] == ["README.md"]
     assert event.details_json["git_status_short"] == [" M README.md"]
+    assert event.details_json["diff_summary"] == [
+        {
+            "file": "README.md",
+            "insertions": 1,
+            "deletions": 0,
+            "status": "unstaged",
+        }
+    ]
 
 
 def test_dev_context_tracker_ignores_swap_signature_changes(
@@ -603,6 +611,54 @@ def test_dev_context_tracker_ignores_swap_signature_changes(
     assert second.status == "unchanged"
     assert third.status == "unchanged"
     assert db.query(DevEvent).count() == 1
+
+
+def test_dev_tracking_diff_summary_marks_untracked_without_reading_contents(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _clean_git_repo(tmp_path)
+    (repo / "new_secret.py").write_text("api_key='secret-value'\n", encoding="utf-8")
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    result = _dev_context_tracker(tmp_path).check_once(str(repo))
+
+    event = db.query(DevEvent).one()
+    assert result.status == "saved"
+    assert event.details_json["diff_summary"] == [
+        {
+            "file": "new_secret.py",
+            "status": "untracked",
+            "untracked": True,
+        }
+    ]
+    assert "secret-value" not in str(event.details_json)
+
+
+def test_dev_tracking_diff_summary_marks_binary_files(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _clean_git_repo(tmp_path)
+    (repo / "asset.bin").write_bytes(b"\x00\x01\x02")
+    _git(repo, "add", "asset.bin")
+    _git(repo, "commit", "-m", "add binary")
+    (repo / "asset.bin").write_bytes(b"\x00\x01\x02\x03")
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    result = _dev_context_tracker(tmp_path).check_once(str(repo))
+
+    event = db.query(DevEvent).one()
+    assert result.status == "saved"
+    assert event.details_json["diff_summary"] == [
+        {
+            "file": "asset.bin",
+            "binary": True,
+            "status": "unstaged",
+        }
+    ]
 
 
 def test_dev_context_tracker_passes_session_current(monkeypatch, tmp_path: Path) -> None:
