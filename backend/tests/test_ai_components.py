@@ -338,6 +338,208 @@ def test_prompt_builder_prioritizes_dev_events_before_screen_observations() -> N
     assert "changed_files=reset_dev_data.py, report_service.py" in prompt
 
 
+def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=4,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 0, 5, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/auto-dev-tracking",
+                status="unknown",
+                content="Git 변경 파일 확인: backend/scripts/dev_tracking.py",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-1",
+                    "changed_files": ["backend/scripts/dev_tracking.py"],
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 0, 15, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/auto-dev-tracking",
+                status="unknown",
+                content="Git 변경 파일 확인: backend/tests/test_dev_event_scripts.py",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-2",
+                    "changed_files": ["backend/tests/test_dev_event_scripts.py"],
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 0, 18, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/auto-dev-tracking",
+                status="unknown",
+                content="Git 변경 파일 확인: backend/scripts/watch_dev_context.py",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-3",
+                    "changed_files": ["backend/scripts/watch_dev_context.py"],
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=4,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/auto-dev-tracking",
+                status="unknown",
+                content="Git 변경 파일 확인: manual_snapshot.py",
+                details_json={
+                    "changed_files": ["manual_snapshot.py"],
+                    "diff_stat": "1 file changed",
+                },
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert prompt.count("DEV_EVENT_GROUP |") == 1
+    assert "time_range=09:00~09:20" in prompt
+    assert "자동 Dev Tracking: feat/auto-dev-tracking 브랜치에서" in prompt
+    assert "backend/scripts, backend/tests 중심으로 Git 변경 3회 감지" in prompt
+    assert "changed_files=backend/scripts/dev_tracking.py" in prompt
+    assert prompt.count("Git 변경 파일 확인: backend/scripts/dev_tracking.py") == 0
+    assert "DEV_EVENT |" in prompt
+    assert "manual_snapshot.py" in prompt
+
+
+def test_prompt_builder_splits_auto_git_snapshot_groups_by_twenty_minute_bucket() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=2,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 0, 5, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/bucket",
+                status="unknown",
+                content="Git 변경 파일 확인",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-1",
+                    "changed_files": ["backend/scripts/a.py"],
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 0, 25, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/bucket",
+                status="unknown",
+                content="Git 변경 파일 확인",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-2",
+                    "changed_files": ["backend/scripts/b.py"],
+                },
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert prompt.count("DEV_EVENT_GROUP |") == 2
+    assert "time_range=09:00~09:20" in prompt
+    assert "time_range=09:20~09:40" in prompt
+
+
+def test_prompt_builder_splits_auto_git_snapshot_groups_by_branch() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=2,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 0, 5, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/a",
+                status="unknown",
+                content="Git 변경 파일 확인",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-a",
+                    "changed_files": ["backend/scripts/a.py"],
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 0, 10, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/b",
+                status="unknown",
+                content="Git 변경 파일 확인",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-b",
+                    "changed_files": ["backend/scripts/b.py"],
+                },
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert prompt.count("DEV_EVENT_GROUP |") == 2
+    assert "branch=feat/a" in prompt
+    assert "branch=feat/b" in prompt
+
+
+def test_prompt_builder_limits_auto_git_snapshot_changed_files_and_omits_diff_body() -> None:
+    changed_files = [f"backend/scripts/file_{index}.py" for index in range(10)]
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 0, 5, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/limit",
+                status="unknown",
+                content="Git 변경 파일 확인",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-limit",
+                    "changed_files": changed_files,
+                    "diff_stat": "diff --git a/secret.py b/secret.py",
+                },
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "외 2개" in prompt
+    assert "backend/scripts/file_7.py" in prompt
+    assert "backend/scripts/file_8.py" not in prompt
+    assert "diff --git" not in prompt
+
+
 def test_gemini_client_returns_none_without_api_key() -> None:
     client = GeminiClient(api_key=None, model="gemini-2.5-flash")
 

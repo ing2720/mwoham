@@ -136,11 +136,12 @@ class PromptBuilder:
             lines.append("PRIORITY_MEMOS:")
             lines.extend(memo_lines[:10])
 
-        dev_event_lines = [
+        dev_event_lines = self._format_auto_git_snapshot_groups(report_items)
+        dev_event_lines.extend(
             self._format_timeline_item(item)
             for item in report_items
-            if item.type == "dev_event"
-        ]
+            if item.type == "dev_event" and not self._is_auto_git_snapshot(item)
+        )
         if dev_event_lines:
             lines.append("PRIORITY_DEV_EVENTS:")
             lines.extend(dev_event_lines[:20])
@@ -157,6 +158,8 @@ class PromptBuilder:
 
         for item in report_items:
             if item.type in {"memo", "transcript"}:
+                continue
+            if self._is_auto_git_snapshot(item):
                 continue
             lines.append(self._format_timeline_item(item))
         environment_summary = self._format_activity_environment_summary(activity_segments)
@@ -266,6 +269,8 @@ class PromptBuilder:
                 return f"화면 단서: {snippet}{keyword_text}"
             return ""
         if item.type == "dev_event":
+            if self._is_auto_git_snapshot(item):
+                return ""
             return f"개발 근거: {self._truncate(item.content, 180)}"
         if item.type == "event" and item.source != "mac_active_window":
             keywords = self._extract_work_keywords(item.content)
@@ -277,6 +282,98 @@ class PromptBuilder:
                 return ""
             return f"회의 전사: {self._truncate(transcript, 180)}"
         return ""
+
+    def _format_auto_git_snapshot_groups(self, items) -> list[str]:
+        grouped: dict[tuple[str, str], list] = defaultdict(list)
+        for item in items:
+            if not self._is_auto_git_snapshot(item):
+                continue
+            local_timestamp = self._as_kst(item.timestamp)
+            bucket_start = local_timestamp.replace(
+                minute=(local_timestamp.minute // 20) * 20,
+                second=0,
+                microsecond=0,
+            )
+            bucket_end = bucket_start + timedelta(minutes=20)
+            time_range = f"{bucket_start.strftime('%H:%M')}~{bucket_end.strftime('%H:%M')}"
+            branch = item.branch or "-"
+            grouped[(time_range, branch)].append(item)
+
+        lines: list[str] = []
+        for time_range, branch in sorted(grouped):
+            group_items = sorted(grouped[(time_range, branch)], key=lambda item: item.timestamp)
+            changed_files = self._collect_changed_files(group_items)
+            file_groups = self._summarize_file_groups(changed_files)
+            group_text = (
+                f"{file_groups} 중심으로 " if file_groups else ""
+            )
+            changed_file_text = self._format_changed_file_list(changed_files)
+            file_suffix = f" | changed_files={changed_file_text}" if changed_file_text else ""
+            lines.append(
+                "- DEV_EVENT_GROUP | "
+                f"time_range={time_range} | event_type=git_snapshot | "
+                f"source=watch | branch={branch} | "
+                f"summary=자동 Dev Tracking: {branch} 브랜치에서 "
+                f"{group_text}Git 변경 {len(group_items)}회 감지"
+                f"{file_suffix}"
+            )
+        return lines
+
+    def _is_auto_git_snapshot(self, item) -> bool:
+        if item.type != "dev_event" or item.event_type != "git_snapshot":
+            return False
+        details = item.details_json or {}
+        return details.get("tracking_mode") == "watch" or bool(details.get("tracking_signature"))
+
+    def _collect_changed_files(self, items) -> list[str]:
+        changed_files: list[str] = []
+        for item in items:
+            for file_path in self._details_list(item.details_json, "changed_files"):
+                if file_path not in changed_files:
+                    changed_files.append(file_path)
+        return changed_files
+
+    def _summarize_file_groups(self, changed_files: list[str]) -> str:
+        if not changed_files:
+            return ""
+
+        priority_prefixes = (
+            "backend/scripts",
+            "backend/tests",
+            "backend/app",
+            "mac-client/MwohamMac",
+            "docs",
+        )
+        groups: list[str] = []
+        for file_path in changed_files:
+            group = next(
+                (prefix for prefix in priority_prefixes if file_path.startswith(prefix)),
+                self._generic_file_group(file_path),
+            )
+            if group and group not in groups:
+                groups.append(group)
+        return ", ".join(groups[:4])
+
+    def _generic_file_group(self, file_path: str) -> str:
+        parts = [part for part in file_path.split("/") if part]
+        if len(parts) >= 2:
+            return "/".join(parts[:2])
+        return parts[0] if parts else ""
+
+    def _format_changed_file_list(self, changed_files: list[str], limit: int = 8) -> str:
+        if not changed_files:
+            return ""
+        visible_files = changed_files[:limit]
+        suffix = f" 외 {len(changed_files) - limit}개" if len(changed_files) > limit else ""
+        return ", ".join(visible_files) + suffix
+
+    def _details_list(self, details: dict | None, key: str) -> list[str]:
+        if not details:
+            return []
+        value = details.get(key)
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if item is not None]
 
     def _normalize_transcript_content(self, content: str) -> str:
         prefixes = ("회의 전사 수집됨:", "회의 전사 수집됨")
