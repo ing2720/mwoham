@@ -25,12 +25,14 @@ final class BackendStatusViewModel: ObservableObject {
     @Published var activeWindowTrackingStatus = "활성 창 추적 대기 중"
     @Published var isPrivateAppActive = false
     @Published var ocrStatus = "OCR 대기 중"
+    @Published var devTrackingStatus = "Dev Tracking: 대기 중"
     @Published var currentMeeting: MeetingResponse?
     @Published var meetingTranscription: MeetingTranscriptionViewModel!
 
     private let localApiClient: LocalApiClient
     private let activeWindowCollector: ActiveWindowCollector
     private let ocrCollector: OCRCollector
+    private let devTrackingProcessController: DevTrackingProcessController
     private var rawRecordingStatus = "unknown"
     private var sessionStartedAt: Date?
     private var statusElapsedSeconds: Int?
@@ -41,6 +43,7 @@ final class BackendStatusViewModel: ObservableObject {
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         self.ocrCollector = OCRCollector(localApiClient: localApiClient)
+        self.devTrackingProcessController = DevTrackingProcessController()
         configureMeetingTranscription(
             localApiClient: localApiClient,
             microphoneTranscriptionProvider: AppleSpeechTranscriptionProvider(),
@@ -59,6 +62,7 @@ final class BackendStatusViewModel: ObservableObject {
         self.localApiClient = localApiClient
         self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         self.ocrCollector = OCRCollector(localApiClient: localApiClient)
+        self.devTrackingProcessController = DevTrackingProcessController()
         configureMeetingTranscription(
             localApiClient: localApiClient,
             microphoneTranscriptionProvider: speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider(),
@@ -220,6 +224,11 @@ final class BackendStatusViewModel: ObservableObject {
                     self?.currentApp = "비공개 앱"
                     self?.currentWindow = "비공개 앱 사용 중"
                 }
+            },
+            onFrontmostAppChange: { [weak self] appName in
+                self?.devTrackingProcessController.handleActiveApplication(appName) { status in
+                    self?.devTrackingStatus = status
+                }
             }
         )
     }
@@ -247,6 +256,9 @@ final class BackendStatusViewModel: ObservableObject {
     func stopActiveWindowTracking() {
         activeWindowCollector.stop()
         ocrCollector.stop()
+        devTrackingProcessController.stop { [weak self] status in
+            self?.devTrackingStatus = status
+        }
         activeWindowTrackingStatus = "활성 창 추적 대기 중"
         ocrStatus = "OCR 대기 중"
     }

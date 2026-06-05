@@ -41,7 +41,8 @@ final class ActiveWindowCollector {
         isRecordingActive: @escaping @MainActor () -> Bool,
         onStatusChange: @escaping @MainActor (String) -> Void,
         onSnapshot: @escaping @MainActor (ActiveWindowSnapshot) -> Void,
-        onPrivateAppChange: @escaping @MainActor (Bool) -> Void
+        onPrivateAppChange: @escaping @MainActor (Bool) -> Void,
+        onFrontmostAppChange: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         guard pollingTask == nil else {
             return
@@ -58,7 +59,8 @@ final class ActiveWindowCollector {
                     isRecordingActive: isRecordingActive,
                     onStatusChange: onStatusChange,
                     onSnapshot: onSnapshot,
-                    onPrivateAppChange: onPrivateAppChange
+                    onPrivateAppChange: onPrivateAppChange,
+                    onFrontmostAppChange: onFrontmostAppChange
                 )
             }
         }
@@ -73,7 +75,8 @@ final class ActiveWindowCollector {
                     isRecordingActive: isRecordingActive,
                     onStatusChange: onStatusChange,
                     onSnapshot: onSnapshot,
-                    onPrivateAppChange: onPrivateAppChange
+                    onPrivateAppChange: onPrivateAppChange,
+                    onFrontmostAppChange: onFrontmostAppChange
                 )
 
                 do {
@@ -102,8 +105,14 @@ final class ActiveWindowCollector {
         isRecordingActive: @escaping @MainActor () -> Bool,
         onStatusChange: @escaping @MainActor (String) -> Void,
         onSnapshot: @escaping @MainActor (ActiveWindowSnapshot) -> Void,
-        onPrivateAppChange: @escaping @MainActor (Bool) -> Void
+        onPrivateAppChange: @escaping @MainActor (Bool) -> Void,
+        onFrontmostAppChange: @escaping @MainActor (String) -> Void
     ) async {
+        let snapshot = collectActiveWindowSnapshot()
+        if let snapshot {
+            onFrontmostAppChange(snapshot.appName)
+        }
+
         guard isRecordingActive() else {
             onStatusChange("기록 중일 때 활성 창 추적")
             onPrivateAppChange(false)
@@ -113,7 +122,7 @@ final class ActiveWindowCollector {
 
         await refreshPrivateAppsIfNeeded()
 
-        guard let snapshot = collectActiveWindowSnapshot() else {
+        guard let snapshot else {
             onStatusChange("활성 창 정보를 확인할 수 없습니다.")
             return
         }
