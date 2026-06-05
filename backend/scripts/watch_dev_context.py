@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import time
+from pathlib import Path
 
 try:
     from scripts._bootstrap import add_backend_root_to_path
@@ -24,10 +25,22 @@ def watch_dev_context(
     interval: int = 60,
     session_current: bool = False,
     once: bool = False,
+    state_path: str | None = None,
+    dedupe_ttl_seconds: int = 21600,
+    debounce_seconds: int | None = None,
     tracker: DevContextTracker | None = None,
 ) -> int:
     project_root = resolve_project_root(repo_path)
-    tracker = tracker or DevContextTracker()
+    effective_debounce_seconds = 0 if once and debounce_seconds is None else debounce_seconds
+    tracker = tracker or DevContextTracker(
+        state_path=Path(state_path).expanduser() if state_path else None,
+        dedupe_ttl_seconds=dedupe_ttl_seconds,
+        debounce_seconds=(
+            effective_debounce_seconds
+            if effective_debounce_seconds is not None
+            else 20
+        ),
+    )
     print(f"Dev tracking 감시 시작: repo={project_root} interval={interval}s")
 
     try:
@@ -50,6 +63,8 @@ def _format_result(status: str, *, summary: str | None = None) -> str:
         return "변경 없음"
     if status == "clean":
         return "변경 없음: clean baseline 설정"
+    if status == "pending":
+        return "변경 감지, 안정화 대기 중"
     if status == "not_git_repo":
         return "Git 저장소가 아닙니다"
     return f"상태 확인: {status}"
@@ -61,12 +76,18 @@ def main() -> int:
     parser.add_argument("--interval", type=int, default=60)
     parser.add_argument("--session-current", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--state-path")
+    parser.add_argument("--dedupe-ttl-seconds", type=int, default=21600)
+    parser.add_argument("--debounce-seconds", type=int)
     args = parser.parse_args()
     return watch_dev_context(
         repo_path=args.repo_path,
         interval=args.interval,
         session_current=args.session_current,
         once=args.once,
+        state_path=args.state_path,
+        dedupe_ttl_seconds=args.dedupe_ttl_seconds,
+        debounce_seconds=args.debounce_seconds,
     )
 
 
