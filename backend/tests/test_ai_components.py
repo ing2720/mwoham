@@ -1,9 +1,12 @@
+import subprocess
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import httpx
 import pytest
 
 from app.ai.gemini_client import GeminiClient
+from app.ai.git_diff_context import GitDiffContextBuilder
 from app.ai.prompt_builder import PromptBuilder
 from app.ai.report_content_cleaner import ReportContentCleaner
 from app.ai.summarizer import GeminiSummarizer
@@ -13,6 +16,67 @@ from app.services.screen_observation_summarizer import (
     SAFE_UNCLEAR_INFERENCE,
     ScreenObservationSummarizer,
 )
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test User",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
+
+
+def _init_git_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    return repo
+
+
+def _timeline_with_repo(repo: Path) -> TimelineResponse:
+    return TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                repo_path=str(repo),
+                branch="main",
+                content="Git 변경 감지",
+                details_json={
+                    "changed_files": ["backend/app/service.py"],
+                    "diff_summary": [
+                        {
+                            "file": "backend/app/service.py",
+                            "insertions": 1,
+                            "deletions": 0,
+                        }
+                    ],
+                },
+            )
+        ],
+    )
+
+
+def _prompt_section(prompt: str, header: str, next_header: str) -> str:
+    start = prompt.index(header)
+    end = prompt.index(next_header, start)
+    return prompt[start:end]
 
 
 def test_privacy_filter_masks_secret_patterns() -> None:
@@ -356,6 +420,13 @@ def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
                     "tracking_mode": "watch",
                     "tracking_signature": "sig-1",
                     "changed_files": ["backend/scripts/dev_tracking.py"],
+                    "diff_summary": [
+                        {
+                            "file": "backend/scripts/dev_tracking.py",
+                            "insertions": 120,
+                            "deletions": 20,
+                        }
+                    ],
                 },
             ),
             TimelineItem(
@@ -371,6 +442,13 @@ def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
                     "tracking_mode": "watch",
                     "tracking_signature": "sig-2",
                     "changed_files": ["backend/tests/test_dev_event_scripts.py"],
+                    "diff_summary": [
+                        {
+                            "file": "backend/tests/test_dev_event_scripts.py",
+                            "insertions": 80,
+                            "deletions": 5,
+                        }
+                    ],
                 },
             ),
             TimelineItem(
@@ -386,6 +464,13 @@ def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
                     "tracking_mode": "watch",
                     "tracking_signature": "sig-3",
                     "changed_files": ["backend/scripts/watch_dev_context.py"],
+                    "diff_summary": [
+                        {
+                            "file": "backend/scripts/watch_dev_context.py",
+                            "insertions": 15,
+                            "deletions": 3,
+                        }
+                    ],
                 },
             ),
             TimelineItem(
@@ -411,7 +496,8 @@ def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
     assert "time_range=09:00~09:20" in prompt
     assert "자동 Dev Tracking: feat/auto-dev-tracking 브랜치에서" in prompt
     assert "backend/scripts, backend/tests 중심으로 Git 변경 3회 감지" in prompt
-    assert "changed_files=backend/scripts/dev_tracking.py" in prompt
+    assert "backend/scripts/dev_tracking.py(+120/-20)" in prompt
+    assert "backend/tests/test_dev_event_scripts.py(+80/-5)" in prompt
     assert prompt.count("Git 변경 파일 확인: backend/scripts/dev_tracking.py") == 0
     assert "DEV_EVENT |" in prompt
     assert "manual_snapshot.py" in prompt
@@ -509,6 +595,14 @@ def test_prompt_builder_splits_auto_git_snapshot_groups_by_branch() -> None:
 
 def test_prompt_builder_limits_auto_git_snapshot_changed_files_and_omits_diff_body() -> None:
     changed_files = [f"backend/scripts/file_{index}.py" for index in range(10)]
+    diff_summary = [
+        {
+            "file": file_path,
+            "insertions": index + 1,
+            "deletions": index,
+        }
+        for index, file_path in enumerate(changed_files)
+    ]
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
         total=1,
@@ -526,6 +620,7 @@ def test_prompt_builder_limits_auto_git_snapshot_changed_files_and_omits_diff_bo
                     "tracking_mode": "watch",
                     "tracking_signature": "sig-limit",
                     "changed_files": changed_files,
+                    "diff_summary": diff_summary,
                     "diff_stat": "diff --git a/secret.py b/secret.py",
                 },
             )
@@ -535,9 +630,376 @@ def test_prompt_builder_limits_auto_git_snapshot_changed_files_and_omits_diff_bo
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "외 2개" in prompt
-    assert "backend/scripts/file_7.py" in prompt
-    assert "backend/scripts/file_8.py" not in prompt
+    assert "backend/scripts/file_7.py(+8/-7)" in prompt
+    assert "backend/scripts/file_8.py(+9/-8)" not in prompt
     assert "diff --git" not in prompt
+
+
+def test_prompt_builder_formats_binary_and_untracked_auto_git_diff_summary() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 0, 5, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/diff-summary",
+                status="unknown",
+                content="Git 변경 파일 확인",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-diff-summary",
+                    "changed_files": ["asset.bin", "new_file.py"],
+                    "diff_summary": [
+                        {"file": "asset.bin", "binary": True},
+                        {"file": "new_file.py", "untracked": True},
+                    ],
+                },
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "asset.bin(binary)" in prompt
+    assert "new_file.py(added)" in prompt
+
+
+def test_prompt_builder_includes_current_git_diff_context(tmp_path: Path) -> None:
+    repo = _init_git_repo(tmp_path)
+    (repo / "backend/app/service.py").parent.mkdir(parents=True)
+    (repo / "backend/app/service.py").write_text("def old():\n    return 1\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    (repo / "backend/app/service.py").write_text(
+        "def old():\n    token='secret-token'\n    return 2\n"
+    )
+    (repo / ".env").write_text("API_KEY=raw-secret")
+    (repo / "data.db").write_bytes(b"sqlite-data")
+    timeline = _timeline_with_repo(repo)
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:" in prompt
+    assert f"repo_path={repo}" in prompt
+    assert "diff_policy=not_stored_privacy_filtered" in prompt
+    assert "usage=latest_work_intent_primary_evidence" in prompt
+    assert "backend/app/service.py" in prompt
+    assert "return 2" in prompt
+    assert "secret-token" not in prompt
+    assert "[MASKED]" in prompt
+    assert "API_KEY=raw-secret" not in prompt
+    assert "data.db" not in prompt
+    assert "raw diff나 코드 라인을 그대로 인용하지 마세요." in prompt
+    assert "Git 변경 감지' 문구, 브랜치명, 파일 경로를 그대로 반복하지 마세요." in prompt
+    assert "실제 구현 의도와 작업 결과를 자연어로 요약하세요." in prompt
+    assert prompt.index("PRIORITY_CURRENT_GIT_DIFF_CONTEXT:") < prompt.index(
+        "PRIORITY_DEV_EVENTS:"
+    )
+
+
+def test_prompt_builder_adds_current_git_change_hints_before_diff_context(
+    tmp_path: Path,
+) -> None:
+    repo = _init_git_repo(tmp_path)
+    (repo / "backend/scripts/dev_tracking.py").parent.mkdir(parents=True)
+    (repo / "backend/scripts/dev_tracking.py").write_text("class Tracker:\n    pass\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    (repo / "backend/scripts/dev_tracking.py").write_text(
+        "\n".join(
+            [
+                "class DevTrackingStateStore:",
+                "    pass",
+                "dedupe_ttl_seconds = 21600",
+                "debounce_seconds = 20",
+                "pending_signatures = {}",
+                "tracking_signature = 'abc'",
+                "api_key='secret-token'",
+            ]
+        )
+    )
+    timeline = _timeline_with_repo(repo)
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "PRIORITY_CURRENT_GIT_CHANGE_HINTS:" in prompt
+    assert prompt.index("PRIORITY_CURRENT_GIT_CHANGE_HINTS:") < prompt.index(
+        "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:"
+    )
+    hint_section = _prompt_section(
+        prompt,
+        "PRIORITY_CURRENT_GIT_CHANGE_HINTS:",
+        "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:",
+    )
+    assert "backend/scripts/dev_tracking.py:" in hint_section
+    assert "Dev Tracking persistent state" in hint_section
+    assert "TTL dedupe" in hint_section
+    assert "debounce 안정화" in hint_section
+    assert "class DevTrackingStateStore" not in hint_section
+    assert "secret-token" not in hint_section
+    assert "[MASKED]" not in hint_section
+    assert "구체 기능 단위로 작성하세요." in prompt
+    assert "코드 리팩토링'처럼 근거 없는 일반 표현은 피하세요." in prompt
+
+
+def test_prompt_builder_adds_process_output_change_hint_for_swift_diff(
+    tmp_path: Path,
+) -> None:
+    repo = _init_git_repo(tmp_path)
+    swift_file = repo / "mac-client/MwohamMac/MwohamMac/DevTrackingProcessController.swift"
+    swift_file.parent.mkdir(parents=True)
+    swift_file.write_text("final class DevTrackingProcessController {}\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    swift_file.write_text(
+        "\n".join(
+            [
+                "let outputPipe = Pipe()",
+                "process.standardOutput = outputPipe",
+                "process.standardError = Pipe()",
+                "environment[\"PYTHONUNBUFFERED\"] = \"1\"",
+            ]
+        )
+    )
+    timeline = _timeline_with_repo(repo)
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    hint_section = _prompt_section(
+        prompt,
+        "PRIORITY_CURRENT_GIT_CHANGE_HINTS:",
+        "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:",
+    )
+    assert "DevTrackingProcessController.swift:" in hint_section
+    assert "watcher stdout/stderr 상태 표시" in hint_section
+    assert "process.standardOutput" not in hint_section
+
+
+def test_prompt_builder_instructs_report_to_merge_repetitive_dev_tracking_flow() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/dev-tracking",
+                content="Git 변경 감지: 테스트 코드 작성 및 수정",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig",
+                    "changed_files": ["backend/tests/test_dev_event_scripts.py"],
+                },
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "비슷한 자동 Dev Tracking, 테스트 코드 수정, diff context 개선 작업" in prompt
+    assert "여러 줄로 반복하지 말고 하나의 흐름으로 묶으세요." in prompt
+    assert "DEV_EVENT_GROUP의 20분 단위는 입력 압축 단위일 뿐입니다." in prompt
+    assert "30분~2시간 단위까지 병합할 수 있습니다." in prompt
+    assert "'테스트 코드 작성 및 수정' 같은 문장이 반복되면 합쳐서" in prompt
+
+
+def test_prompt_builder_instructs_report_to_focus_on_feature_flow_not_branches() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/dev-tracking-repo-path",
+                content="Git 변경 감지: mac-client/MwohamMac 파일 변경",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig",
+                    "changed_files": [
+                        "mac-client/MwohamMac/MwohamMac/DevTrackingProcessController.swift"
+                    ],
+                },
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "브랜치명은 꼭 필요한 경우에만 짧게 언급하세요." in prompt
+    assert "최종 리포트에는 기능 흐름 중심으로 합쳐서 작성하세요." in prompt
+    assert "'feat/...' 브랜치명을 반복하지 말고" in prompt
+    assert "해당 브랜치에서 수행한 기능 작업명으로 표현하세요." in prompt
+    assert "파일명도 근거로만 짧게 쓰고" in prompt
+    assert "문장의 중심은 persistent state, repo path 설정, report input 압축" in prompt
+
+
+def test_prompt_builder_instructs_troubleshooting_keywords_and_format() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="script",
+                status="failed",
+                command="uv run pytest",
+                content="pytest failed with PermissionError",
+                details_json={"exit_code": 1},
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "트러블슈팅 후보 키워드:" in prompt
+    assert "PermissionError" in prompt
+    assert "Operation not permitted" in prompt
+    assert "code 126" in prompt
+    assert "code 127" in prompt
+    assert "actor isolation" in prompt
+    assert "/private/tmp" in prompt
+    assert "'문제 / 원인 / 해결 방식' 형태" in prompt
+    assert "리팩토링 점검, 문서 정리, v0.6 태그 준비" in prompt
+
+
+def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                content="persistent state TTL dedupe debounce 구현",
+                details_json={"changed_files": ["backend/scripts/dev_tracking.py"]},
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "이미 오늘 완료된 기능을 다시 구현 과제로 제안하지 마세요." in prompt
+    assert "완료된 것으로 보이는 항목:" in prompt
+    assert "persistent state" in prompt
+    assert "TTL dedupe" in prompt
+    assert "debounce" in prompt
+    assert "repo path 설정" in prompt
+    assert "stdout/stderr 상태 표시" in prompt
+    assert "메뉴바/플로팅 Dev Tracking 상태 표시" in prompt
+    assert "report input 20분 압축" in prompt
+    assert "CURRENT_GIT_DIFF_CONTEXT" in prompt
+    assert "CURRENT_GIT_CHANGE_HINTS" in prompt
+    assert "터미널 명령 자동 기록은 v0.7 후보" in prompt
+    assert "timeline 필터링은 별도 작업" in prompt
+
+
+def test_prompt_builder_includes_safe_untracked_diff_context(tmp_path: Path) -> None:
+    repo = _init_git_repo(tmp_path)
+    (repo / "README.md").write_text("initial\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    (repo / "backend/scripts/new_tool.py").parent.mkdir(parents=True)
+    (repo / "backend/scripts/new_tool.py").write_text("print('new tool')\n")
+    (repo / "image.png").write_bytes(b"\x89PNG\r\n")
+    timeline = _timeline_with_repo(repo)
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:" in prompt
+    assert "backend/scripts/new_tool.py" in prompt
+    assert "print('new tool')" in prompt
+    assert "image.png" not in prompt
+
+
+def test_prompt_builder_limits_large_git_diff_context(tmp_path: Path) -> None:
+    repo = _init_git_repo(tmp_path)
+    (repo / "large.py").write_text("x = 1\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    (repo / "large.py").write_text("\n".join(f"line_{index} = {index}" for index in range(80)))
+    timeline = _timeline_with_repo(repo)
+    builder = GitDiffContextBuilder(
+        privacy_filter=PrivacyFilter(),
+        max_total_chars=500,
+        max_file_chars=200,
+    )
+
+    prompt = PromptBuilder(
+        privacy_filter=PrivacyFilter(),
+        git_diff_context_builder=builder,
+    ).build_daily_report_prompt(timeline)
+
+    assert "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:" in prompt
+    assert "... diff 일부 생략 ..." in prompt
+    assert len(prompt) < 7000
+
+
+def test_prompt_builder_omits_current_git_diff_context_when_clean(tmp_path: Path) -> None:
+    repo = _init_git_repo(tmp_path)
+    (repo / "README.md").write_text("initial\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    timeline = _timeline_with_repo(repo)
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:" not in prompt
+    assert "DEV_EVENT |" in prompt
+
+
+def test_prompt_builder_does_not_store_raw_diff_in_dev_event_details(tmp_path: Path) -> None:
+    repo = _init_git_repo(tmp_path)
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                repo_path=str(repo),
+                branch="main",
+                content="Git 변경 감지",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "abc",
+                    "changed_files": ["backend/app/service.py"],
+                    "diff_summary": [
+                        {
+                            "file": "backend/app/service.py",
+                            "insertions": 10,
+                            "deletions": 2,
+                        }
+                    ],
+                },
+            )
+        ],
+    )
+
+    details = timeline.items[0].details_json or {}
+
+    assert "diff --git" not in str(details)
+    assert "+++" not in str(details)
+    assert "@@" not in str(details)
 
 
 def test_gemini_client_returns_none_without_api_key() -> None:

@@ -2,6 +2,7 @@ import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+from app.ai.git_diff_context import GitDiffContextBuilder
 from app.core.timezone import KST, as_kst
 from app.schemas.timeline import TimelineResponse
 from app.services.privacy_filter import PrivacyFilter, get_privacy_filter
@@ -52,11 +53,15 @@ class PromptBuilder:
         privacy_filter: PrivacyFilter,
         self_observation_filter: SelfObservationFilter | None = None,
         transcript_quality_policy: TranscriptQualityPolicy | None = None,
+        git_diff_context_builder: GitDiffContextBuilder | None = None,
     ) -> None:
         self.privacy_filter = privacy_filter
         self.self_observation_filter = self_observation_filter or get_self_observation_filter()
         self.transcript_quality_policy = (
             transcript_quality_policy or get_transcript_quality_policy()
+        )
+        self.git_diff_context_builder = git_diff_context_builder or GitDiffContextBuilder(
+            privacy_filter=privacy_filter
         )
 
     def build_daily_report_prompt(self, timeline: TimelineResponse) -> str:
@@ -82,6 +87,55 @@ class PromptBuilder:
                 "기반해 구체 작업 단위로 작성하세요.",
                 "- 시간대별 작업 흐름은 앱 사용 시간이 아니라 실제로 진행한 작업 후보 중심으로 "
                 "작성하세요.",
+                "- PRIORITY_CURRENT_GIT_DIFF_CONTEXT가 있으면 최신 개발 작업 판단의 가장 강한 "
+                "근거로 우선 사용하세요.",
+                "- PRIORITY_CURRENT_GIT_CHANGE_HINTS가 있으면 오늘 한 일 요약과 시간대별 작업 "
+                "흐름에 힌트의 구체 기능명을 포함하세요.",
+                "- '자동 Dev Tracking 기능 개선'처럼 넓은 표현만 쓰지 말고, persistent state, "
+                "TTL dedupe, debounce, repo path 설정, stdout/stderr 상태 표시처럼 확인된 "
+                "구체 기능 단위로 작성하세요.",
+                "- '코드 리팩토링'처럼 근거 없는 일반 표현은 피하세요.",
+                "- 자동 Dev Tracking의 'Git 변경 감지' 문구, 브랜치명, 파일 경로를 그대로 "
+                "반복하지 마세요.",
+                "- 브랜치명은 꼭 필요한 경우에만 짧게 언급하세요. 여러 브랜치에서 작업했더라도 "
+                "최종 리포트에는 기능 흐름 중심으로 합쳐서 작성하세요.",
+                "- 'feat/...' 브랜치명을 반복하지 말고, 해당 브랜치에서 수행한 기능 작업명으로 "
+                "표현하세요.",
+                "- 파일명도 근거로만 짧게 쓰고, 문장의 중심은 persistent state, repo path 설정, "
+                "report input 압축 같은 기능명으로 작성하세요.",
+                "- Git 변경 횟수나 브랜치명이 아니라 diff 내용에서 드러나는 실제 구현 의도와 "
+                "작업 결과를 자연어로 요약하세요.",
+                "- 파일명은 필요한 경우에만 짧게 근거로 언급하고, 파일명 나열 위주로 쓰지 "
+                "마세요.",
+                "- 시간대별 작업 흐름에서 비슷한 자동 Dev Tracking, 테스트 코드 수정, diff "
+                "context 개선 작업이 연속되면 여러 줄로 반복하지 말고 하나의 흐름으로 "
+                "묶으세요.",
+                "- DEV_EVENT_GROUP의 20분 단위는 입력 압축 단위일 뿐입니다. 최종 리포트는 "
+                "반드시 20분마다 한 줄로 쓰지 말고, 읽기 좋은 작업 흐름 기준으로 30분~2시간 "
+                "단위까지 병합할 수 있습니다.",
+                "- '테스트 코드 작성 및 수정' 같은 문장이 반복되면 합쳐서 어떤 기능의 테스트를 "
+                "보강했는지 설명하세요.",
+                "- DEV_EVENT_GROUP은 시간대 흐름 보조 근거입니다. "
+                "PRIORITY_CURRENT_GIT_DIFF_CONTEXT가 있으면 최신 작업 내용은 diff context를 "
+                "우선 사용하세요.",
+                "- 주요 트러블슈팅 섹션에는 DEV_EVENT나 diff context에 오류, 실패, 해결 흔적이 "
+                "있을 때만 요약하세요.",
+                "- 트러블슈팅 후보 키워드: failed, failure, error, PermissionError, "
+                "Operation not permitted, code 126, code 127, ruff, import 정렬, "
+                "xcodebuild 실패, actor isolation, escaping closure, PATH, uv, /private/tmp, CI.",
+                "- 트러블슈팅은 근거가 있을 때만 '문제 / 원인 / 해결 방식' 형태로 짧게 "
+                "정리하세요.",
+                "- 다음 작업 후보에는 이미 오늘 완료된 기능을 다시 구현 과제로 제안하지 마세요.",
+                "- 완료된 것으로 보이는 항목: persistent state, TTL dedupe, debounce, repo path "
+                "설정, stdout/stderr 상태 표시, 메뉴바/플로팅 Dev Tracking 상태 표시, report "
+                "input 20분 압축, CURRENT_GIT_DIFF_CONTEXT, CURRENT_GIT_CHANGE_HINTS.",
+                "- 다음 작업 후보에는 이미 구현한 기능의 추가 테스트만 반복하지 말고, "
+                "리팩토링 점검, 문서 정리, v0.6 태그 준비처럼 다음 단계 후보를 제안하세요.",
+                "- 터미널 명령 자동 기록은 v0.7 후보로, timeline 필터링은 별도 작업으로 "
+                "분리 검토할 수 있습니다.",
+                "- raw diff나 코드 라인을 그대로 인용하지 마세요.",
+                "- secret/token/password로 보이는 값은 언급하지 마세요.",
+                "- diff 일부가 생략되어 있으면 DEV_EVENT 요약과 함께 보수적으로 추론하세요.",
                 "- 근거가 부족한 섹션은 '확인된 내용 없음.'으로 작성하세요.",
                 "- 아래 섹션 순서를 지키세요.",
                 "",
@@ -127,6 +181,24 @@ class PromptBuilder:
             "NOTE: ActivitySegment는 주요 작업 환경 보조 정보이며 "
             "작업 내용의 직접 근거가 아닙니다.",
         ]
+        git_diff_context = self.git_diff_context_builder.build_for_timeline(timeline)
+        if git_diff_context is not None:
+            if git_diff_context.change_hints:
+                lines.append("PRIORITY_CURRENT_GIT_CHANGE_HINTS:")
+                lines.extend(f"- {hint}" for hint in git_diff_context.change_hints[:8])
+            lines.extend(
+                [
+                    "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:",
+                    f"repo_path={git_diff_context.repo_path}",
+                    f"branch={git_diff_context.branch}",
+                    "diff_policy=not_stored_privacy_filtered",
+                    "usage=latest_work_intent_primary_evidence",
+                    "content:",
+                    "```diff",
+                    git_diff_context.content,
+                    "```",
+                ]
+            )
         memo_lines = [
             self._format_timeline_item(item)
             for item in report_items
@@ -303,11 +375,14 @@ class PromptBuilder:
         for time_range, branch in sorted(grouped):
             group_items = sorted(grouped[(time_range, branch)], key=lambda item: item.timestamp)
             changed_files = self._collect_changed_files(group_items)
+            diff_summary = self._collect_diff_summary(group_items)
             file_groups = self._summarize_file_groups(changed_files)
             group_text = (
                 f"{file_groups} 중심으로 " if file_groups else ""
             )
-            changed_file_text = self._format_changed_file_list(changed_files)
+            changed_file_text = self._format_diff_summary_list(diff_summary) or (
+                self._format_changed_file_list(changed_files)
+            )
             file_suffix = f" | changed_files={changed_file_text}" if changed_file_text else ""
             lines.append(
                 "- DEV_EVENT_GROUP | "
@@ -332,6 +407,28 @@ class PromptBuilder:
                 if file_path not in changed_files:
                     changed_files.append(file_path)
         return changed_files
+
+    def _collect_diff_summary(self, items) -> list[dict]:
+        summary_by_file: dict[str, dict] = {}
+        for item in items:
+            details = item.details_json or {}
+            diff_summary = details.get("diff_summary")
+            if not isinstance(diff_summary, list):
+                continue
+            for raw_entry in diff_summary:
+                if not isinstance(raw_entry, dict):
+                    continue
+                file_path = raw_entry.get("file")
+                if not isinstance(file_path, str) or not file_path:
+                    continue
+                if file_path not in summary_by_file:
+                    summary_by_file[file_path] = dict(raw_entry)
+        changed_files = self._collect_changed_files(items)
+        return [
+            summary_by_file[file_path]
+            for file_path in changed_files
+            if file_path in summary_by_file
+        ]
 
     def _summarize_file_groups(self, changed_files: list[str]) -> str:
         if not changed_files:
@@ -366,6 +463,30 @@ class PromptBuilder:
         visible_files = changed_files[:limit]
         suffix = f" 외 {len(changed_files) - limit}개" if len(changed_files) > limit else ""
         return ", ".join(visible_files) + suffix
+
+    def _format_diff_summary_list(self, diff_summary: list[dict], limit: int = 8) -> str:
+        if not diff_summary:
+            return ""
+        formatted_items = [
+            self._format_diff_summary_item(item)
+            for item in diff_summary[:limit]
+        ]
+        suffix = f" 외 {len(diff_summary) - limit}개" if len(diff_summary) > limit else ""
+        return ", ".join(item for item in formatted_items if item) + suffix
+
+    def _format_diff_summary_item(self, item: dict) -> str:
+        file_path = item.get("file")
+        if not isinstance(file_path, str) or not file_path:
+            return ""
+        if item.get("binary"):
+            return f"{file_path}(binary)"
+        if item.get("untracked"):
+            return f"{file_path}(added)"
+        insertions = item.get("insertions")
+        deletions = item.get("deletions")
+        if isinstance(insertions, int) and isinstance(deletions, int):
+            return f"{file_path}(+{insertions}/-{deletions})"
+        return file_path
 
     def _details_list(self, details: dict | None, key: str) -> list[str]:
         if not details:

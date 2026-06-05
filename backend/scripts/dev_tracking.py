@@ -99,6 +99,7 @@ class DevContextTracker:
                 "head_commit": tracked_snapshot.head_commit,
                 "dirty": tracked_snapshot.dirty,
                 "changed_files": tracked_snapshot.changed_files[:80],
+                "diff_summary": collect_git_diff_summary(tracked_snapshot)[:80],
                 "git_status_summary": summarize_git_status(tracked_snapshot.status_short),
                 "git_status_short": tracked_snapshot.status_short[:80],
             },
@@ -324,3 +325,94 @@ def summarize_git_status(status_short: list[str]) -> dict[str, int]:
         if unstaged_status.strip():
             summary["unstaged"] += 1
     return summary
+
+
+def collect_git_diff_summary(snapshot: GitStatusSnapshot) -> list[dict[str, object]]:
+    status_by_path = {
+        _path_from_status_line(line): _status_type(line)
+        for line in snapshot.status_short
+        if _path_from_status_line(line)
+    }
+    summary_by_file: dict[str, dict[str, object]] = {}
+    for line in _run_git_numstat(snapshot.repo):
+        item = _parse_numstat_line(line)
+        if item is None:
+            continue
+        file_path = str(item["file"])
+        if is_ignored_tracking_path(file_path):
+            continue
+        item["status"] = status_by_path.get(file_path, "modified")
+        summary_by_file[file_path] = item
+
+    for file_path in snapshot.changed_files:
+        if file_path in summary_by_file:
+            continue
+        status = status_by_path.get(file_path, "modified")
+        if status == "untracked":
+            summary_by_file[file_path] = {
+                "file": file_path,
+                "status": "untracked",
+                "untracked": True,
+            }
+
+    return [
+        summary_by_file[file_path]
+        for file_path in snapshot.changed_files
+        if file_path in summary_by_file
+    ]
+
+
+def _run_git_numstat(repo: Path) -> list[str]:
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--numstat", "HEAD", "--"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+    return result.stdout.splitlines()
+
+
+def _parse_numstat_line(line: str) -> dict[str, object] | None:
+    parts = line.split("\t")
+    if len(parts) < 3:
+        return None
+    insertions, deletions, file_path = parts[0], parts[1], parts[2]
+    if " => " in file_path:
+        file_path = _normalize_numstat_rename_path(file_path)
+    if insertions == "-" or deletions == "-":
+        return {
+            "file": file_path,
+            "binary": True,
+        }
+    return {
+        "file": file_path,
+        "insertions": int(insertions),
+        "deletions": int(deletions),
+    }
+
+
+def _normalize_numstat_rename_path(file_path: str) -> str:
+    if " => " not in file_path:
+        return file_path
+    suffix = file_path.split(" => ", 1)[1]
+    if "}" in suffix:
+        suffix = suffix.split("}", 1)[1]
+    return suffix.strip()
+
+
+def _status_type(status_line: str) -> str:
+    if status_line.startswith("??"):
+        return "untracked"
+    staged_status = status_line[:1]
+    unstaged_status = status_line[1:2]
+    if staged_status.strip() and unstaged_status.strip():
+        return "staged_unstaged"
+    if staged_status.strip():
+        return "staged"
+    if unstaged_status.strip():
+        return "unstaged"
+    return "modified"
