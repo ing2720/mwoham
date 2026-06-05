@@ -376,7 +376,7 @@ def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
             TimelineItem(
                 type="dev_event",
                 id=3,
-                timestamp=datetime(2026, 5, 26, 0, 40, tzinfo=UTC),
+                timestamp=datetime(2026, 5, 26, 0, 18, tzinfo=UTC),
                 event_type="git_snapshot",
                 source="script",
                 branch="feat/auto-dev-tracking",
@@ -408,12 +408,58 @@ def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert prompt.count("DEV_EVENT_GROUP |") == 1
+    assert "time_range=09:00~09:20" in prompt
     assert "자동 Dev Tracking: feat/auto-dev-tracking 브랜치에서" in prompt
     assert "backend/scripts, backend/tests 중심으로 Git 변경 3회 감지" in prompt
     assert "changed_files=backend/scripts/dev_tracking.py" in prompt
     assert prompt.count("Git 변경 파일 확인: backend/scripts/dev_tracking.py") == 0
     assert "DEV_EVENT |" in prompt
     assert "manual_snapshot.py" in prompt
+
+
+def test_prompt_builder_splits_auto_git_snapshot_groups_by_twenty_minute_bucket() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=2,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 0, 5, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/bucket",
+                status="unknown",
+                content="Git 변경 파일 확인",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-1",
+                    "changed_files": ["backend/scripts/a.py"],
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 0, 25, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/bucket",
+                status="unknown",
+                content="Git 변경 파일 확인",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-2",
+                    "changed_files": ["backend/scripts/b.py"],
+                },
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert prompt.count("DEV_EVENT_GROUP |") == 2
+    assert "time_range=09:00~09:20" in prompt
+    assert "time_range=09:20~09:40" in prompt
 
 
 def test_prompt_builder_splits_auto_git_snapshot_groups_by_branch() -> None:

@@ -289,8 +289,12 @@ class PromptBuilder:
             if not self._is_auto_git_snapshot(item):
                 continue
             local_timestamp = self._as_kst(item.timestamp)
-            bucket_start = local_timestamp.replace(minute=0, second=0, microsecond=0)
-            bucket_end = bucket_start + timedelta(hours=1)
+            bucket_start = local_timestamp.replace(
+                minute=(local_timestamp.minute // 20) * 20,
+                second=0,
+                microsecond=0,
+            )
+            bucket_end = bucket_start + timedelta(minutes=20)
             time_range = f"{bucket_start.strftime('%H:%M')}~{bucket_end.strftime('%H:%M')}"
             branch = item.branch or "-"
             grouped[(time_range, branch)].append(item)
