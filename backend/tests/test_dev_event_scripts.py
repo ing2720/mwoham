@@ -14,8 +14,10 @@ from scripts import (
     collect_git_snapshot,
     dev_check_output,
     dev_event_helpers,
+    dev_tracking,
     record_command_result,
     run_dev_checks,
+    watch_dev_context,
 )
 
 
@@ -329,9 +331,187 @@ def test_collect_dev_context_script_imports_without_pythonpath() -> None:
     assert "Collect Git and development check context." in result.stdout
 
 
+def test_dev_context_tracker_saves_dirty_snapshot_once(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    _patch_script_session(monkeypatch, dev_tracking, db)
+    tracker = dev_tracking.DevContextTracker()
+
+    first = tracker.check_once(str(repo))
+    second = tracker.check_once(str(repo))
+
+    events = db.query(DevEvent).all()
+    assert first.status == "saved"
+    assert second.status == "unchanged"
+    assert len(events) == 1
+    assert events[0].event_type == "git_snapshot"
+    assert events[0].summary.startswith("Git 변경 감지: 1 file changed on ")
+    assert events[0].details_json["tracking_mode"] == "watch"
+    assert events[0].details_json["changed_files"] == ["README.md"]
+    assert "diff" not in events[0].details_json
+
+
+def test_dev_context_tracker_saves_when_signature_changes(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    _patch_script_session(monkeypatch, dev_tracking, db)
+    tracker = dev_tracking.DevContextTracker()
+
+    first = tracker.check_once(str(repo))
+    (repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    second = tracker.check_once(str(repo))
+
+    events = db.query(DevEvent).order_by(DevEvent.id).all()
+    assert first.status == "saved"
+    assert second.status == "saved"
+    assert len(events) == 2
+    assert events[1].details_json["changed_files"] == ["README.md", "app.py"]
+    assert events[0].details_json["tracking_signature"] != events[1].details_json[
+        "tracking_signature"
+    ]
+
+
+def test_dev_context_tracker_does_not_save_clean_initial_snapshot(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _clean_git_repo(tmp_path)
+    _patch_script_session(monkeypatch, dev_tracking, db)
+    tracker = dev_tracking.DevContextTracker()
+
+    result = tracker.check_once(str(repo))
+
+    assert result.status == "clean"
+    assert db.query(DevEvent).count() == 0
+
+
+def test_dev_context_tracker_ignores_vim_swap_only(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _clean_git_repo(tmp_path)
+    (repo / ".README.md.swp").write_text("swap\n", encoding="utf-8")
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    result = dev_tracking.DevContextTracker().check_once(str(repo))
+
+    assert result.status == "clean"
+    assert db.query(DevEvent).count() == 0
+
+
+def test_dev_context_tracker_saves_real_change_with_vim_swap(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    (repo / ".README.md.swp").write_text("swap\n", encoding="utf-8")
+    _patch_script_session(monkeypatch, dev_tracking, db)
+
+    result = dev_tracking.DevContextTracker().check_once(str(repo))
+
+    event = db.query(DevEvent).one()
+    assert result.status == "saved"
+    assert event.details_json["changed_files"] == ["README.md"]
+    assert event.details_json["git_status_short"] == [" M README.md"]
+
+
+def test_dev_context_tracker_ignores_swap_signature_changes(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    _patch_script_session(monkeypatch, dev_tracking, db)
+    tracker = dev_tracking.DevContextTracker()
+
+    first = tracker.check_once(str(repo))
+    (repo / ".README.md.swp").write_text("swap\n", encoding="utf-8")
+    second = tracker.check_once(str(repo))
+    (repo / ".README.md.swp").unlink()
+    third = tracker.check_once(str(repo))
+
+    assert first.status == "saved"
+    assert second.status == "unchanged"
+    assert third.status == "unchanged"
+    assert db.query(DevEvent).count() == 1
+
+
+def test_dev_context_tracker_passes_session_current(monkeypatch, tmp_path: Path) -> None:
+    repo = _dirty_git_repo(tmp_path)
+    calls: list[bool] = []
+
+    def fake_save_dev_event(request, *, session_current: bool = False):
+        calls.append(session_current)
+        return type("SavedEvent", (), {"id": 1, "summary": request.summary})()
+
+    monkeypatch.setattr(dev_tracking, "save_dev_event", fake_save_dev_event)
+
+    result = dev_tracking.DevContextTracker().check_once(str(repo), session_current=True)
+
+    assert result.status == "saved"
+    assert calls == [True]
+
+
+def test_watch_dev_context_once_runs_single_check(monkeypatch, tmp_path: Path) -> None:
+    calls: list[bool] = []
+
+    class FakeTracker:
+        def check_once(self, repo_path: str, *, session_current: bool = False):
+            calls.append(session_current)
+            return dev_tracking.DevTrackingResult(
+                status="saved",
+                summary="Git 변경 감지: 1 file changed on main",
+            )
+
+    exit_code = watch_dev_context.watch_dev_context(
+        repo_path=str(tmp_path),
+        interval=1,
+        session_current=True,
+        once=True,
+        tracker=FakeTracker(),
+    )
+
+    assert exit_code == 0
+    assert calls == [True]
+
+
+def test_watch_dev_context_script_imports_without_pythonpath() -> None:
+    result = _run_script_without_pythonpath("scripts/watch_dev_context.py", "--help")
+
+    assert result.returncode == 0
+    assert "Watch Git changes and record DevEvents." in result.stdout
+
+
 def _patch_script_session(monkeypatch, _module, db: Session) -> None:
     testing_session_local = sessionmaker(bind=db.get_bind())
     monkeypatch.setattr(dev_event_helpers, "SessionLocal", testing_session_local)
+
+
+def _clean_git_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test User")
+    (repo / "README.md").write_text("hello\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "initial commit")
+    return repo
+
+
+def _dirty_git_repo(tmp_path: Path) -> Path:
+    repo = _clean_git_repo(tmp_path)
+    (repo / "README.md").write_text("hello\nupdated\n", encoding="utf-8")
+    return repo
 
 
 def _git(repo: Path, *args: str) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -27,29 +28,38 @@ except ModuleNotFoundError:
     )
 
 
+@dataclass(frozen=True)
+class GitStatusSnapshot:
+    repo: Path
+    branch: str
+    head_commit: str
+    status_short: list[str]
+    changed_files: list[str]
+    dirty: bool
+
+
 def collect_git_snapshot(repo_path: str, *, session_current: bool = False) -> int:
-    repo = Path(repo_path).expanduser().resolve()
-    if not _is_git_repo(repo):
-        print(f"Git 저장소가 아닙니다: {repo}")
+    snapshot = collect_git_status_snapshot(repo_path)
+    if snapshot is None:
+        print(f"Git 저장소가 아닙니다: {Path(repo_path).expanduser().resolve()}")
         return 1
 
-    branch = _run_git(repo, "branch", "--show-current").strip() or "detached"
-    status_short = _run_git(repo, "status", "--short").splitlines()
-    changed_files = _changed_files(status_short)
-    diff_stat = _run_git(repo, "diff", "--stat").strip()
-    recent_commits = _run_git(repo, "log", "-5", "--oneline").splitlines()
+    diff_stat = _run_git(snapshot.repo, "diff", "--stat").strip()
+    recent_commits = _run_git(snapshot.repo, "log", "-5", "--oneline").splitlines()
 
-    summary = _build_summary(changed_files, branch=branch)
+    summary = _build_summary(snapshot.changed_files, branch=snapshot.branch)
     request = build_dev_event_request(
         event_type="git_snapshot",
         source="script",
-        repo_path=compact_path(repo),
-        branch=branch,
+        repo_path=compact_path(snapshot.repo),
+        branch=snapshot.branch,
         status="unknown",
         summary=summary,
         details_json={
-            "changed_files": changed_files,
-            "git_status_short": status_short[:80],
+            "changed_files": snapshot.changed_files,
+            "git_status_short": snapshot.status_short[:80],
+            "head_commit": snapshot.head_commit,
+            "dirty": snapshot.dirty,
             "diff_stat": diff_stat,
             "recent_commits": recent_commits[:5],
         },
@@ -57,6 +67,24 @@ def collect_git_snapshot(repo_path: str, *, session_current: bool = False) -> in
 
     print_saved_event(save_dev_event(request, session_current=session_current))
     return 0
+
+
+def collect_git_status_snapshot(repo_path: str) -> GitStatusSnapshot | None:
+    repo = Path(repo_path).expanduser().resolve()
+    if not _is_git_repo(repo):
+        return None
+    branch = _run_git(repo, "branch", "--show-current").strip() or "detached"
+    head_commit = _run_git(repo, "rev-parse", "HEAD").strip()
+    status_short = _run_git(repo, "status", "--short").splitlines()
+    changed_files = _changed_files(status_short)
+    return GitStatusSnapshot(
+        repo=repo,
+        branch=branch,
+        head_commit=head_commit,
+        status_short=status_short,
+        changed_files=changed_files,
+        dirty=bool(status_short),
+    )
 
 
 def _is_git_repo(repo: Path) -> bool:
