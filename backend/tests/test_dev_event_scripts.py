@@ -339,7 +339,7 @@ def test_dev_context_tracker_saves_dirty_snapshot_once(
 ) -> None:
     repo = _dirty_git_repo(tmp_path)
     _patch_script_session(monkeypatch, dev_tracking, db)
-    tracker = dev_tracking.DevContextTracker()
+    tracker = _dev_context_tracker(tmp_path)
 
     first = tracker.check_once(str(repo))
     second = tracker.check_once(str(repo))
@@ -415,7 +415,7 @@ def test_dev_context_tracker_saves_when_signature_changes(
 ) -> None:
     repo = _dirty_git_repo(tmp_path)
     _patch_script_session(monkeypatch, dev_tracking, db)
-    tracker = dev_tracking.DevContextTracker()
+    tracker = _dev_context_tracker(tmp_path)
 
     first = tracker.check_once(str(repo))
     (repo / "app.py").write_text("print('hello')\n", encoding="utf-8")
@@ -459,7 +459,7 @@ def test_dev_context_tracker_debounces_until_signature_is_stable(
     repo = _dirty_git_repo(tmp_path)
     now = _FakeClock(datetime(2026, 6, 1, 0, 0, tzinfo=UTC))
     _patch_script_session(monkeypatch, dev_tracking, db)
-    tracker = dev_tracking.DevContextTracker(debounce_seconds=20, now=now)
+    tracker = _dev_context_tracker(tmp_path, debounce_seconds=20, now=now)
 
     first = tracker.check_once(str(repo))
     now.advance(seconds=19)
@@ -481,7 +481,7 @@ def test_dev_context_tracker_resets_debounce_when_signature_changes(
     repo = _dirty_git_repo(tmp_path)
     now = _FakeClock(datetime(2026, 6, 1, 0, 0, tzinfo=UTC))
     _patch_script_session(monkeypatch, dev_tracking, db)
-    tracker = dev_tracking.DevContextTracker(debounce_seconds=20, now=now)
+    tracker = _dev_context_tracker(tmp_path, debounce_seconds=20, now=now)
 
     first = tracker.check_once(str(repo))
     now.advance(seconds=10)
@@ -508,7 +508,7 @@ def test_dev_context_tracker_does_not_save_clean_initial_snapshot(
 ) -> None:
     repo = _clean_git_repo(tmp_path)
     _patch_script_session(monkeypatch, dev_tracking, db)
-    tracker = dev_tracking.DevContextTracker()
+    tracker = _dev_context_tracker(tmp_path)
 
     result = tracker.check_once(str(repo))
 
@@ -543,6 +543,15 @@ def test_dev_tracking_state_path_uses_environment_override(
     assert dev_tracking.get_default_state_path() == state_path
 
 
+def test_dev_tracking_state_path_uses_temp_directory(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("MWOHAM_DEV_TRACKING_STATE_PATH", raising=False)
+    monkeypatch.setattr(dev_tracking.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert dev_tracking.get_default_state_path() == (
+        tmp_path / "mwoham-dev-tracking-state.json"
+    )
+
+
 def test_dev_context_tracker_ignores_vim_swap_only(
     db: Session,
     monkeypatch,
@@ -552,7 +561,7 @@ def test_dev_context_tracker_ignores_vim_swap_only(
     (repo / ".README.md.swp").write_text("swap\n", encoding="utf-8")
     _patch_script_session(monkeypatch, dev_tracking, db)
 
-    result = dev_tracking.DevContextTracker().check_once(str(repo))
+    result = _dev_context_tracker(tmp_path).check_once(str(repo))
 
     assert result.status == "clean"
     assert db.query(DevEvent).count() == 0
@@ -567,7 +576,7 @@ def test_dev_context_tracker_saves_real_change_with_vim_swap(
     (repo / ".README.md.swp").write_text("swap\n", encoding="utf-8")
     _patch_script_session(monkeypatch, dev_tracking, db)
 
-    result = dev_tracking.DevContextTracker().check_once(str(repo))
+    result = _dev_context_tracker(tmp_path).check_once(str(repo))
 
     event = db.query(DevEvent).one()
     assert result.status == "saved"
@@ -582,7 +591,7 @@ def test_dev_context_tracker_ignores_swap_signature_changes(
 ) -> None:
     repo = _dirty_git_repo(tmp_path)
     _patch_script_session(monkeypatch, dev_tracking, db)
-    tracker = dev_tracking.DevContextTracker()
+    tracker = _dev_context_tracker(tmp_path)
 
     first = tracker.check_once(str(repo))
     (repo / ".README.md.swp").write_text("swap\n", encoding="utf-8")
@@ -606,7 +615,7 @@ def test_dev_context_tracker_passes_session_current(monkeypatch, tmp_path: Path)
 
     monkeypatch.setattr(dev_tracking, "save_dev_event", fake_save_dev_event)
 
-    result = dev_tracking.DevContextTracker().check_once(str(repo), session_current=True)
+    result = _dev_context_tracker(tmp_path).check_once(str(repo), session_current=True)
 
     assert result.status == "saved"
     assert calls == [True]
@@ -664,6 +673,19 @@ def test_watch_dev_context_script_imports_without_pythonpath() -> None:
 def _patch_script_session(monkeypatch, _module, db: Session) -> None:
     testing_session_local = sessionmaker(bind=db.get_bind())
     monkeypatch.setattr(dev_event_helpers, "SessionLocal", testing_session_local)
+
+
+def _dev_context_tracker(
+    tmp_path: Path,
+    *,
+    debounce_seconds: int = 0,
+    now: Callable[[], datetime] | None = None,
+) -> dev_tracking.DevContextTracker:
+    return dev_tracking.DevContextTracker(
+        state_path=tmp_path / "dev-tracking-state.json",
+        debounce_seconds=debounce_seconds,
+        now=now,
+    )
 
 
 def _clean_git_repo(tmp_path: Path) -> Path:

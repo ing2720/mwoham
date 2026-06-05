@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -198,7 +199,7 @@ def get_default_state_path() -> Path:
     configured_path = os.environ.get("MWOHAM_DEV_TRACKING_STATE_PATH")
     if configured_path:
         return Path(configured_path).expanduser()
-    return Path("/private/tmp/mwoham-dev-tracking-state.json")
+    return Path(tempfile.gettempdir()) / "mwoham-dev-tracking-state.json"
 
 
 def build_repo_state_key(repo_path: Path) -> str:
