@@ -38,6 +38,22 @@ final class BackendStatusViewModel: ObservableObject {
     private var statusElapsedSeconds: Int?
     private var statusReceivedAt: Date?
 
+    var shortDevTrackingStatus: String {
+        if devTrackingStatus.contains("오류") {
+            return "오류"
+        }
+
+        if devTrackingStatus.contains("감시 중")
+            || devTrackingStatus.contains("감시 시작")
+            || devTrackingStatus.contains("변경 없음")
+            || devTrackingStatus.contains("변경 감지")
+            || devTrackingStatus.contains("DevEvent 저장됨") {
+            return "Dev 추적 중"
+        }
+
+        return "대기"
+    }
+
     init() {
         let localApiClient = LocalApiClient()
         self.localApiClient = localApiClient
