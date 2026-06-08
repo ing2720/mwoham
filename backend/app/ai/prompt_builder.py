@@ -189,7 +189,7 @@ class PromptBuilder:
                 "결정사항을 만들지 마세요. source 값은 근거로만 참고하고 최종 리포트에 과하게 "
                 "나열하지 마세요.",
                 "- OCR/전사/화면 단서에서 나온 불확실한 단어, 깨진 버전명, 공백이 이상한 태그명은 "
-                "확정 사실처럼 쓰지 마세요. 예: command_talled, mianation, 공백이 섞인 tag명. "
+                "확정 사실처럼 쓰지 마세요. "
                 "명확한 파일명/명령/DevEvent 근거가 없으면 생략하세요.",
                 "- raw diff나 코드 라인을 그대로 인용하지 마세요.",
                 "- secret/token/password로 보이는 값은 언급하지 마세요.",
@@ -237,6 +237,14 @@ class PromptBuilder:
         if current_focus_lines:
             lines.append("CURRENT_WORK_FOCUS:")
             lines.extend(current_focus_lines)
+        pruned_context_lines = self._format_pruned_report_context(
+            report_items,
+            git_diff_context=git_diff_context,
+            current_focus_lines=current_focus_lines,
+        )
+        if pruned_context_lines:
+            lines.append("PRUNED_REPORT_CONTEXT:")
+            lines.extend(pruned_context_lines)
 
         if git_diff_context is not None:
             if git_diff_context.change_hints:
@@ -264,7 +272,10 @@ class PromptBuilder:
             lines.append("PRIORITY_MEMOS:")
             lines.extend(memo_lines[:10])
 
-        dev_event_lines = self._format_priority_dev_events(report_items)
+        dev_event_lines = self._format_priority_dev_events(
+            report_items,
+            current_focus_lines=current_focus_lines,
+        )
         if dev_event_lines:
             lines.append("PRIORITY_DEV_EVENTS:")
             lines.extend(dev_event_lines[:20])
@@ -278,7 +289,10 @@ class PromptBuilder:
             lines.append("PRIORITY_MEETING_TRANSCRIPTS:")
             lines.extend(transcript_lines[:12])
 
-        evidence_lines = self._format_work_evidence_by_time(report_items)
+        evidence_lines = self._format_work_evidence_by_time(
+            report_items,
+            current_focus_lines=current_focus_lines,
+        )
         if evidence_lines:
             lines.append("WORK_EVIDENCE_BY_TIME:")
             lines.extend(evidence_lines)
@@ -286,7 +300,11 @@ class PromptBuilder:
         for item in report_items:
             if item.type in {"memo", "transcript"}:
                 continue
-            if self._is_auto_git_snapshot(item):
+            if self._should_prune_item_from_direct_report_input(
+                item,
+                report_items,
+                current_focus_lines=current_focus_lines,
+            ):
                 continue
             lines.append(self._format_timeline_item(item))
         environment_summary = self._format_activity_environment_summary(activity_segments)
@@ -346,9 +364,11 @@ class PromptBuilder:
             )
         return f"- {item.type.upper()} | time={timestamp} | content={item.content}"
 
-    def _format_work_evidence_by_time(self, items) -> list[str]:
+    def _format_work_evidence_by_time(self, items, *, current_focus_lines=None) -> list[str]:
         grouped: dict[str, list[str]] = defaultdict(list)
         for item in items:
+            if self._is_background_event(item, current_focus_lines or []):
+                continue
             evidence = self._extract_item_evidence(item)
             if not evidence:
                 continue
@@ -373,6 +393,8 @@ class PromptBuilder:
         if item.type == "memo":
             return f"메모: {self._truncate(item.content, 140)}"
         if item.type == "screen_ocr":
+            if self._contains_uncertain_noise(item.content, item.ocr_text, item.ai_inference):
+                return ""
             inference = self._safe_inference(item.ai_inference or "")
             snippet = self._build_ocr_evidence_snippet(item.ocr_text or item.content)
             keywords = self._extract_work_keywords(
@@ -396,6 +418,14 @@ class PromptBuilder:
                 return f"화면 단서: {snippet}{keyword_text}"
             return ""
         if item.type == "dev_event":
+            if item.event_type == "command_result":
+                command = item.command or item.content
+                if (
+                    self._is_inspection_command(command)
+                    or self._is_destructive_cleanup_command(command)
+                    or "tests/not_exists.py" in self._normalize_command(command)
+                ):
+                    return ""
             if self._is_auto_git_snapshot(item):
                 return ""
             return f"개발 근거: {self._truncate(item.content, 180)}"
@@ -405,6 +435,8 @@ class PromptBuilder:
                 return f"이벤트: {self._truncate(item.content, 140)}"
         if item.type == "transcript":
             transcript = self._normalize_transcript_content(item.content)
+            if self._contains_uncertain_noise(transcript):
+                return ""
             if not self.transcript_quality_policy.is_meaningful_for_report(transcript):
                 return ""
             return f"회의 전사: {self._truncate(transcript, 180)}"
@@ -449,12 +481,17 @@ class PromptBuilder:
             )
         return lines
 
-    def _format_priority_dev_events(self, items) -> list[str]:
+    def _format_priority_dev_events(self, items, *, current_focus_lines=None) -> list[str]:
         grouped_lines = self._format_auto_git_snapshot_groups(items)
         manual_events = [
             item
             for item in items
-            if item.type == "dev_event" and not self._is_auto_git_snapshot(item)
+            if (
+                item.type == "dev_event"
+                and not self._is_auto_git_snapshot(item)
+                and not self._should_prune_command_from_direct_report_input(item, items)
+                and not self._is_background_event(item, current_focus_lines or [])
+            )
         ]
         manual_events.sort(key=self._dev_event_priority_key)
         return grouped_lines + [self._format_timeline_item(item) for item in manual_events]
@@ -492,6 +529,138 @@ class PromptBuilder:
             "우선 중심으로 작성"
         )
         return lines
+
+    def _format_pruned_report_context(
+        self,
+        items,
+        *,
+        git_diff_context,
+        current_focus_lines: list[str],
+    ) -> list[str]:
+        lines: list[str] = [
+            "- usage=이 섹션은 원본 이벤트 나열보다 우선하는 report input pruning 요약입니다."
+        ]
+        focus_summary = self._summarize_focus_relevant_events(
+            items,
+            git_diff_context=git_diff_context,
+            current_focus_lines=current_focus_lines,
+        )
+        if focus_summary:
+            lines.append(f"- focus_relevant={focus_summary}")
+        validation_summary = self._summarize_validation_commands(items)
+        if validation_summary:
+            lines.append(f"- validation={validation_summary}")
+        qa_failure_summary = self._summarize_intentional_qa_failures(items)
+        if qa_failure_summary:
+            lines.append(f"- qa_failures={qa_failure_summary}")
+        inspection_summary = self._summarize_inspection_commands(items)
+        if inspection_summary:
+            lines.append(f"- inspection={inspection_summary}")
+        cleanup_summary = self._summarize_cleanup_commands(items)
+        if cleanup_summary:
+            lines.append(f"- cleanup={cleanup_summary}")
+        background_summary = self._summarize_background_events(items, current_focus_lines)
+        if background_summary:
+            lines.append(f"- background={background_summary}")
+        if len(lines) <= 2:
+            return []
+        return lines
+
+    def _summarize_focus_relevant_events(
+        self,
+        items,
+        *,
+        git_diff_context,
+        current_focus_lines: list[str],
+    ) -> str:
+        focus_text = " ".join(current_focus_lines).lower()
+        evidence_files = self._current_focus_evidence_files(items, git_diff_context)
+        relevant_files: list[str] = []
+        for file_path in evidence_files:
+            if file_path not in relevant_files:
+                relevant_files.append(file_path)
+        if relevant_files:
+            file_text = ", ".join(relevant_files[:4])
+            if "report quality" in focus_text or "report quality 개선" in focus_text:
+                return f"report quality 개선 관련 {file_text} 변경과 테스트 보강"
+            return f"현재 focus 관련 {file_text} 변경"
+        return ""
+
+    def _summarize_validation_commands(self, items) -> str:
+        commands: list[str] = []
+        for item in self._terminal_command_items(items):
+            if item.status != "success" or not self._is_development_command(
+                item.command or item.content
+            ):
+                continue
+            family = self._command_family(item.command or item.content)
+            if family not in commands:
+                commands.append(family)
+        return ", ".join(commands[:6])
+
+    def _summarize_intentional_qa_failures(self, items) -> str:
+        failures = [
+            item
+            for item in self._terminal_command_items(items)
+            if self._is_intentional_qa_failure(item, items)
+        ]
+        if not failures:
+            return ""
+        return (
+            "tests/not_exists.py 실패는 failed command 기록 검증용 QA로 판단. "
+            "실제 제품 장애로 과장하지 말 것."
+        )
+
+    def _summarize_inspection_commands(self, items) -> str:
+        commands = [
+            item
+            for item in self._terminal_command_items(items)
+            if self._is_inspection_command(item.command or item.content)
+        ]
+        if not commands:
+            return ""
+        families: list[str] = []
+        for item in commands:
+            family = self._command_family(item.command or item.content)
+            if family not in families:
+                families.append(family)
+        return (
+            f"inspection/setup command {len(commands)}개는 DB 조회, report 생성, status 확인, "
+            f"브랜치 준비 보조 근거로 축약({', '.join(families[:5])})"
+        )
+
+    def _summarize_cleanup_commands(self, items) -> str:
+        commands = [
+            item
+            for item in self._terminal_command_items(items)
+            if self._is_destructive_cleanup_command(item.command or item.content)
+        ]
+        if not commands:
+            return ""
+        return "불필요한 앱/빌드 산출물 정리"
+
+    def _summarize_background_events(self, items, current_focus_lines: list[str]) -> str:
+        focus_text = " ".join(current_focus_lines).lower()
+        background_markers = []
+        for item in items:
+            text = " ".join(
+                str(value)
+                for value in [item.content, item.branch, item.event_type, item.source]
+                if value
+            ).lower()
+            if "timeline" in text and "filter" in text and "timeline filtering" not in focus_text:
+                background_markers.append("timeline filtering")
+            if "command tracking" in text and "command tracking" not in focus_text:
+                background_markers.append("command tracking")
+            if "xcodebuild" in text and "xcodebuild" not in focus_text:
+                background_markers.append("xcodebuild")
+        deduped = []
+        for marker in background_markers:
+            if marker not in deduped:
+                deduped.append(marker)
+        if not deduped:
+            return ""
+        return f"{', '.join(deduped[:4])} 관련 과거 이벤트는 현재 focus의 배경으로만 사용"
 
     def _current_focus_evidence_files(self, items, git_diff_context) -> list[str]:
         evidence_files: list[str] = []
@@ -596,15 +765,7 @@ class PromptBuilder:
         return ""
 
     def _format_command_flow_hints(self, items) -> list[str]:
-        terminal_commands = [
-            item
-            for item in items
-            if (
-                item.type == "dev_event"
-                and item.event_type == "command_result"
-                and item.source == "terminal"
-            )
-        ]
+        terminal_commands = self._terminal_command_items(items)
         if not terminal_commands:
             return []
 
@@ -712,10 +873,21 @@ class PromptBuilder:
         sorted_items = sorted(items, key=lambda item: item.timestamp)
         start_time = self._format_kst_time(sorted_items[0].timestamp)
         end_time = self._format_kst_time(sorted_items[-1].timestamp)
-        commands = [
-            self._truncate(self._normalize_command(item.command or item.content), 120)
-            for item in sorted_items
-        ]
+        if flow_type == "inspection":
+            commands = ["inspection/setup commands summarized"]
+        elif flow_type == "cleanup":
+            commands = ["cleanup command summarized"]
+        elif any(self._is_intentional_qa_failure(item, sorted_items) for item in sorted_items):
+            commands = ["intentional QA failure + validation command summarized"]
+            hint = (
+                f"{hint} tests/not_exists.py 실패는 failed command 기록 검증용 QA로 판단하고 "
+                "실제 제품 장애처럼 과장하지 마세요."
+            )
+        else:
+            commands = [
+                self._truncate(self._normalize_command(item.command or item.content), 120)
+                for item in sorted_items
+            ]
         statuses = "->".join(str(item.status or "unknown") for item in sorted_items)
         exit_codes = [
             str((item.details_json or {}).get("exit_code"))
@@ -727,6 +899,10 @@ class PromptBuilder:
             family = self._command_family(item.command or item.content)
             if family not in command_families:
                 command_families.append(family)
+        if flow_type == "inspection":
+            command_families = ["inspection/setup"]
+        elif flow_type == "cleanup":
+            command_families = ["cleanup"]
         return (
             "- COMMAND_FLOW | "
             f"time_range={start_time}~{end_time} | "
@@ -737,6 +913,48 @@ class PromptBuilder:
             f"commands={'; '.join(commands)} | "
             f"hint={hint}"
         )
+
+    def _terminal_command_items(self, items) -> list:
+        return [
+            item
+            for item in items
+            if (
+                item.type == "dev_event"
+                and item.event_type == "command_result"
+                and item.source == "terminal"
+            )
+        ]
+
+    def _should_prune_command_from_direct_report_input(self, item, items) -> bool:
+        if item.type != "dev_event" or item.event_type != "command_result":
+            return False
+        command = item.command or item.content
+        return (
+            self._is_inspection_command(command)
+            or self._is_destructive_cleanup_command(command)
+            or self._is_intentional_qa_failure(item, items)
+        )
+
+    def _should_prune_item_from_direct_report_input(
+        self,
+        item,
+        items,
+        *,
+        current_focus_lines: list[str],
+    ) -> bool:
+        if self._is_auto_git_snapshot(item):
+            return True
+        if item.type == "dev_event":
+            if item.event_type == "command_result":
+                return self._should_prune_command_from_direct_report_input(item, items)
+            return self._is_background_event(item, current_focus_lines)
+        if item.type in {"screen_ocr", "transcript", "event"}:
+            return self._contains_uncertain_noise(
+                item.content,
+                getattr(item, "ocr_text", None),
+                getattr(item, "ai_inference", None),
+            )
+        return False
 
     def _command_family(self, command: str | None) -> str:
         normalized = self._normalize_command(command)
@@ -760,6 +978,12 @@ class PromptBuilder:
             return "curl"
         if normalized.startswith("sqlite3"):
             return "sqlite3"
+        if normalized.startswith("source"):
+            return "source"
+        if normalized.startswith("git switch"):
+            return "git switch"
+        if normalized.startswith("git pull"):
+            return "git pull"
         first_words = normalized.split(maxsplit=2)
         return " ".join(first_words[:2]) if first_words else "-"
 
@@ -802,12 +1026,60 @@ class PromptBuilder:
                 "source .zshrc",
                 "mwoham_command_tracking_status",
                 "mwoham_command_tracking_disable",
+                "git switch",
+                "git pull",
             )
         ) or normalized.startswith("curl")
 
     def _is_destructive_cleanup_command(self, command: str | None) -> bool:
         normalized = self._normalize_command(command)
         return normalized.startswith("rm -rf") or " rm -rf " in f" {normalized} "
+
+    def _is_intentional_qa_failure(self, item, items) -> bool:
+        if item.status != "failed":
+            return False
+        normalized = self._normalize_command(item.command or item.content)
+        if "tests/not_exists.py" not in normalized:
+            return False
+        item_timestamp = getattr(item, "timestamp", None)
+        if item_timestamp is None:
+            return True
+        for candidate in self._terminal_command_items(items):
+            if candidate.status != "success":
+                continue
+            if not self._is_development_command(candidate.command or candidate.content):
+                continue
+            elapsed = abs((candidate.timestamp - item_timestamp).total_seconds())
+            if elapsed <= 45 * 60:
+                return True
+        return False
+
+    def _is_background_event(self, item, current_focus_lines: list[str]) -> bool:
+        focus_text = " ".join(current_focus_lines).lower()
+        text = " ".join(
+            str(value)
+            for value in [item.content, item.branch, item.event_type, item.source]
+            if value
+        ).lower()
+        if "timeline" in text and "filter" in text and "timeline filtering" not in focus_text:
+            return True
+        if "command tracking" in text and "command tracking" not in focus_text:
+            return True
+        if "xcodebuild" in text and "xcodebuild" not in focus_text:
+            return True
+        return False
+
+    def _contains_uncertain_noise(self, *values: str | None) -> bool:
+        text = " ".join(value for value in values if value).lower()
+        if not text:
+            return False
+        noise_tokens = (
+            "command_talled",
+            "mianation",
+            "time line-filtering",
+            "time line filtering",
+        )
+        return any(token in text for token in noise_tokens)
 
     def _normalize_command(self, command: str | None) -> str:
         return " ".join((command or "").split()).strip()
@@ -928,6 +1200,8 @@ class PromptBuilder:
             if item.type != "transcript":
                 continue
             text = self._normalize_transcript_content(item.content)
+            if self._contains_uncertain_noise(text):
+                continue
             if not self.transcript_quality_policy.is_meaningful_for_report(text):
                 continue
             key = item.meeting_id or f"transcript-{item.id}"

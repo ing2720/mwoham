@@ -820,6 +820,9 @@ def test_prompt_builder_adds_current_work_focus_before_priority_sections() -> No
     )
 
     assert prompt.index("CURRENT_WORK_FOCUS:") < prompt.index("PRIORITY_CURRENT_GIT_CHANGE_HINTS:")
+    assert prompt.index("PRUNED_REPORT_CONTEXT:") < prompt.index(
+        "PRIORITY_CURRENT_GIT_CHANGE_HINTS:"
+    )
     assert prompt.index("CURRENT_WORK_FOCUS:") < prompt.index("PRIORITY_COMMAND_FLOWS:")
     assert "current_focus=report quality 개선" in focus_section
     assert "backend/app/ai/prompt_builder.py" in focus_section
@@ -832,6 +835,193 @@ def test_prompt_builder_adds_current_work_focus_before_priority_sections() -> No
     assert "오늘 한 일 요약의 첫 문장은 이 주제를 중심" in prompt
     assert "시간대별 작업 흐름과 다음 작업 후보도 이 주제를 중심" in prompt
     assert "과거 마일스톤은 배경으로만 짧게" in prompt
+
+
+def test_prompt_builder_adds_pruned_report_context_near_top() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=10,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="sqlite3 data/mwoham.sqlite3 'select * from dev_events'",
+                content="명령 성공: sqlite3 data/mwoham.sqlite3",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 1, 1, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="curl http://127.0.0.1:8765/reports/daily",
+                content="명령 성공: curl http://127.0.0.1:8765/reports/daily",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 1, 2, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git switch feature/report-quality",
+                content="명령 성공: git switch feature/report-quality",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=4,
+                timestamp=datetime(2026, 5, 26, 1, 3, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git pull origin main",
+                content="명령 성공: git pull origin main",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=5,
+                timestamp=datetime(2026, 5, 26, 1, 4, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="source ~/.zshrc",
+                content="명령 성공: source ~/.zshrc",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=6,
+                timestamp=datetime(2026, 5, 26, 1, 3, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="uv run pytest tests/not_exists.py",
+                content="명령 실패: uv run pytest tests/not_exists.py exit_code=4",
+                details_json={"exit_code": 4},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=7,
+                timestamp=datetime(2026, 5, 26, 1, 4, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run pytest tests/test_ai_components.py",
+                content="명령 성공: uv run pytest tests/test_ai_components.py",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=8,
+                timestamp=datetime(2026, 5, 26, 1, 5, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="rm -rf /tmp/MwohamMacDerivedData",
+                content="명령 성공: rm -rf /tmp/MwohamMacDerivedData",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=9,
+                timestamp=datetime(2026, 5, 26, 1, 6, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/timeline-filtering",
+                content="timeline filtering 문서 정리 완료",
+                details_json={"changed_files": ["README.md"]},
+            ),
+            TimelineItem(
+                type="screen_ocr",
+                id=10,
+                timestamp=datetime(2026, 5, 26, 1, 7, tzinfo=UTC),
+                content="화면 텍스트 수집됨",
+                ocr_text="command_talled mianation v0.8.0-time line-filtering",
+                ai_inference="mianation 화면 단서",
+            ),
+        ],
+    )
+    context = GitDiffContext(
+        repo_path="/repo",
+        branch="feature/report-quality",
+        content="\n".join(
+            [
+                "diff --git a/backend/app/ai/prompt_builder.py b/backend/app/ai/prompt_builder.py",
+                "+ PRUNED_REPORT_CONTEXT",
+                "diff --git a/backend/tests/test_ai_components.py "
+                "b/backend/tests/test_ai_components.py",
+                "+ report input pruning test",
+            ]
+        ),
+        change_hints=[
+            "backend/app/ai/prompt_builder.py: report input pruning, PRUNED_REPORT_CONTEXT",
+            "backend/tests/test_ai_components.py: report input pruning test",
+        ],
+    )
+
+    prompt = PromptBuilder(
+        privacy_filter=PrivacyFilter(),
+        git_diff_context_builder=_StaticGitDiffContextBuilder(context),
+    ).build_daily_report_prompt(timeline)
+    pruned_section = _prompt_section(
+        prompt,
+        "PRUNED_REPORT_CONTEXT:",
+        "PRIORITY_CURRENT_GIT_CHANGE_HINTS:",
+    )
+    dev_event_section = _prompt_section(
+        prompt,
+        "PRIORITY_DEV_EVENTS:",
+        "PRIORITY_COMMAND_FLOWS:",
+    )
+    command_flow_section = _prompt_section(
+        prompt,
+        "PRIORITY_COMMAND_FLOWS:",
+        "WORK_EVIDENCE_BY_TIME:",
+    )
+
+    assert prompt.index("CURRENT_WORK_FOCUS:") < prompt.index("PRUNED_REPORT_CONTEXT:")
+    assert prompt.index("PRUNED_REPORT_CONTEXT:") < prompt.index(
+        "PRIORITY_CURRENT_GIT_CHANGE_HINTS:"
+    )
+    assert "focus_relevant=report quality 개선 관련" in pruned_section
+    assert "validation=uv run pytest" in pruned_section
+    assert "qa_failures=tests/not_exists.py 실패는 failed command 기록 검증용 QA" in pruned_section
+    assert "inspection=inspection/setup command" in pruned_section
+    assert "sqlite3, curl, git switch" in pruned_section
+    assert "cleanup=불필요한 앱/빌드 산출물 정리" in pruned_section
+    assert "background=timeline filtering 관련 과거 이벤트는 현재 focus의 배경으로만 사용" in (
+        pruned_section
+    )
+    assert "sqlite3 data/mwoham.sqlite3" not in dev_event_section
+    assert "curl http://127.0.0.1:8765/reports/daily" not in dev_event_section
+    assert "git switch feature/report-quality" not in dev_event_section
+    assert "git pull origin main" not in dev_event_section
+    assert "source ~/.zshrc" not in dev_event_section
+    assert "tests/not_exists.py" not in dev_event_section
+    assert "rm -rf /tmp/MwohamMacDerivedData" not in dev_event_section
+    assert "inspection/setup commands summarized" in command_flow_section
+    assert "cleanup command summarized" in command_flow_section
+    assert "intentional QA failure + validation command summarized" in command_flow_section
+    work_evidence_and_dump = prompt.split("WORK_EVIDENCE_BY_TIME:", 1)[1]
+    assert "sqlite3 data/mwoham.sqlite3" not in work_evidence_and_dump
+    assert "curl http://127.0.0.1:8765/reports/daily" not in work_evidence_and_dump
+    assert "git switch feature/report-quality" not in work_evidence_and_dump
+    assert "git pull origin main" not in work_evidence_and_dump
+    assert "source ~/.zshrc" not in work_evidence_and_dump
+    assert "rm -rf /tmp/MwohamMacDerivedData" not in work_evidence_and_dump
+    assert "timeline filtering 문서 정리 완료" not in prompt
+    assert "feat/timeline-filtering" not in prompt
+    assert "command_talled" not in prompt
+    assert "mianation" not in prompt
 
 
 def test_prompt_builder_adds_process_output_change_hint_for_swift_diff(
@@ -925,8 +1115,8 @@ def test_prompt_builder_instructs_to_ignore_uncertain_ocr_transcript_noise() -> 
     assert "OCR/전사/화면 단서에서 나온 불확실한 단어" in prompt
     assert "깨진 버전명" in prompt
     assert "공백이 이상한 태그명" in prompt
-    assert "command_talled" in prompt
-    assert "mianation" in prompt
+    assert "command_talled" not in prompt
+    assert "mianation" not in prompt
     assert "명확한 파일명/명령/DevEvent 근거가 없으면 생략하세요." in prompt
 
 
@@ -1162,7 +1352,11 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     )
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
-    dev_event_section = prompt.split("PRIORITY_DEV_EVENTS:", 1)[1]
+    dev_event_section = _prompt_section(
+        prompt,
+        "PRIORITY_DEV_EVENTS:",
+        "PRIORITY_COMMAND_FLOWS:",
+    )
     command_flow_section = prompt.split("PRIORITY_COMMAND_FLOWS:", 1)[1]
 
     assert "inspection/setup command는 직접 나열하지 말고 보조 근거로만 참고하세요." in prompt
@@ -1172,18 +1366,14 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     assert "검증/개발 command는 높은 우선순위" in prompt
     assert "flow_type=inspection" in command_flow_section
     assert "확인용 command입니다." in command_flow_section
+    assert "inspection/setup commands summarized" in command_flow_section
     assert "inspection/setup command는 직접 나열하지 말고" in prompt
     assert "git switch" in prompt
     assert "git pull" in prompt
-    assert dev_event_section.index("status=failed") < dev_event_section.index(
-        "uv run pytest tests/test_health.py"
-    )
-    assert dev_event_section.index("uv run pytest tests/test_health.py") < dev_event_section.index(
-        "sqlite3 data/mwoham.sqlite3"
-    )
-    assert dev_event_section.index("uv run pytest tests/test_health.py") < dev_event_section.index(
-        "echo ok"
-    )
+    assert "uv run pytest tests/test_health.py" in dev_event_section
+    assert "sqlite3 data/mwoham.sqlite3" not in dev_event_section
+    assert "echo ok" not in dev_event_section
+    assert "curl http://127.0.0.1:8765/reports/daily" not in dev_event_section
 
 
 def test_prompt_builder_instructs_destructive_commands_to_stay_concise() -> None:
