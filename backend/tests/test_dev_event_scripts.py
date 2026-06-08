@@ -139,6 +139,53 @@ def test_record_command_result_saves_successful_short_pytest_command(
     assert event.details_json["duration_ms"] == 5
 
 
+def test_record_command_result_saves_failed_pytest_command(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _clean_git_repo(tmp_path)
+    _patch_script_session(monkeypatch, record_command_result, db)
+
+    exit_code = record_command_result.record_command_result(
+        command="uv run pytest tests/not_exists.py",
+        exit_code=4,
+        duration_ms=5,
+        cwd=str(repo),
+        source="terminal",
+    )
+
+    event = db.query(DevEvent).one()
+    assert exit_code == 0
+    assert event.status == "failed"
+    assert event.command == "uv run pytest tests/not_exists.py"
+    assert event.details_json["exit_code"] == 4
+
+
+def test_record_command_result_normalizes_multiline_command() -> None:
+    command = "uv run pytest tests/test_health.py\nsqlite3 backend/app.db"
+
+    normalized = record_command_result.normalize_command(command)
+
+    assert normalized == "uv run pytest tests/test_health.py sqlite3 backend/app.db"
+
+
+def test_record_command_result_skips_multiline_command_block(
+    db: Session,
+    monkeypatch,
+) -> None:
+    _patch_script_session(monkeypatch, record_command_result, db)
+
+    exit_code = record_command_result.record_command_result(
+        command="uv run pytest tests/test_health.py\nsqlite3 backend/app.db",
+        exit_code=0,
+        source="terminal",
+    )
+
+    assert exit_code == 0
+    assert db.query(DevEvent).count() == 0
+
+
 def test_record_command_result_skips_simple_and_env_read_commands(
     db: Session,
     monkeypatch,
@@ -210,12 +257,28 @@ def test_zsh_tracking_hook_file_contains_required_hooks() -> None:
     hook_path = Path("scripts/mwoham_zsh_tracking.zsh")
     content = hook_path.read_text(encoding="utf-8")
 
+    assert "add-zsh-hook -d preexec _mwoham_command_tracking_preexec" in content
+    assert "add-zsh-hook -d precmd _mwoham_command_tracking_precmd" in content
     assert "add-zsh-hook preexec _mwoham_command_tracking_preexec" in content
     assert "add-zsh-hook precmd _mwoham_command_tracking_precmd" in content
+    assert "mwoham_command_tracking_disable()" in content
+    assert "mwoham_command_tracking_status()" in content
+    assert "_mwoham_command_tracking_clear_state" in content
+    assert "_mwoham_is_multiline_command_block" in content
+    assert "_mwoham_normalize_command_text" in content
     assert "scripts/record_command_result.py" in content
     assert "--source \"terminal\"" in content
     assert "_mwoham_is_dev_validation_command" in content
     assert "uv\\ run\\ pytest*" in content
+    assert "source\\ ~/.zshrc" in content
+
+
+def test_install_command_tracking_hook_activation_instructions() -> None:
+    instructions = "\n".join(install_command_tracking_hook.activation_instructions())
+
+    assert "source ~/.zshrc" in instructions
+    assert "새 터미널" in instructions
+    assert "mwoham_command_tracking_status" in instructions
 
 
 def test_install_command_tracking_hook_is_idempotent(tmp_path: Path) -> None:

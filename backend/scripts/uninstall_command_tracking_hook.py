@@ -59,8 +59,16 @@ def main() -> int:
     zshrc_path = args.zshrc or Path.home() / ".zshrc"
     if removed:
         print(f"Mwoham command tracking hook removed: {zshrc_path}")
+        print(
+            "현재 열려 있는 zsh에서는 필요하면 "
+            "`mwoham_command_tracking_disable`을 실행하세요."
+        )
     else:
         print(f"Mwoham command tracking hook was not installed: {zshrc_path}")
+        print(
+            "현재 shell에 hook이 남아 있으면 "
+            "`mwoham_command_tracking_disable`을 실행하세요."
+        )
     return 0
 
 

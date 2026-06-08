@@ -27,6 +27,14 @@ def source_line(hook_path: Path) -> str:
     return f'source "{hook_path.expanduser().resolve()}"'
 
 
+def activation_instructions() -> list[str]:
+    return [
+        "설치 스크립트는 ~/.zshrc에 source line만 추가합니다.",
+        "현재 shell에서는 source ~/.zshrc를 실행하거나 새 터미널을 열어야 활성화됩니다.",
+        "활성 상태 확인: mwoham_command_tracking_status",
+    ]
+
+
 def install_hook(
     *,
     zshrc_path: Path | None = None,
@@ -61,7 +69,8 @@ def main() -> int:
     else:
         print(f"Mwoham command tracking hook already installed: {zshrc_path}")
     print(f"source line: {source_line(hook_path)}")
-    print("Open a new terminal or source ~/.zshrc to enable tracking.")
+    for line in activation_instructions():
+        print(line)
     return 0
 
 

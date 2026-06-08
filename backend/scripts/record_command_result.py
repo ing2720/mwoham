@@ -61,6 +61,9 @@ def record_command_result(
     source: str = "script",
     session_current: bool = False,
 ) -> int:
+    if is_multiline_command_block(command):
+        return 0
+
     normalized_command = normalize_command(command)
     if should_skip_command(normalized_command):
         return 0
@@ -119,6 +122,11 @@ def record_command_result(
 
 def normalize_command(command: str) -> str:
     return " ".join(command.split()).strip()
+
+
+def is_multiline_command_block(command: str) -> bool:
+    non_empty_lines = [line for line in command.splitlines() if line.strip()]
+    return len(non_empty_lines) >= 2
 
 
 def should_skip_command(command: str) -> bool:
