@@ -70,6 +70,7 @@ curl http://127.0.0.1:8765/health
 
 - http://127.0.0.1:8765/dashboard
 - http://127.0.0.1:8765/timeline
+- http://127.0.0.1:8765/timeline/detail
 - http://127.0.0.1:8765/reports
 - http://127.0.0.1:8765/settings
 
@@ -227,6 +228,41 @@ uv run python scripts/uninstall_command_tracking_hook.py
 
 command, summary, details에는 `PrivacyFilter`가 적용되어 민감정보를 마스킹합니다.
 터미널 명령은 웹 타임라인에서 `명령 성공` 또는 `명령 실패` label로 표시됩니다.
+
+## Timeline Filtering
+
+웹 타임라인(`/timeline`, `/timeline/detail`)은 사용자가 최근 작업을 먼저 확인할 수 있도록 최신
+항목을 위에 표시합니다. 이 정렬은 웹 표시용 context에만 적용되며, Timeline API와 report input은
+기존 시간순 정렬을 유지합니다.
+
+API/report 정렬 정책:
+
+- `/timeline/today`: 기존 시간순 ASC 유지
+- `/timeline/today/detail`: 기존 시간순 ASC 유지
+- daily report input: 시간 흐름 이해를 위해 기존 시간순 유지
+
+웹 타임라인 필터는 `filter` query parameter를 사용합니다. `date` query와 함께 사용할 수 있고,
+알 수 없는 filter 값은 `all`로 fallback합니다.
+
+예:
+
+```text
+/timeline?filter=all
+/timeline?filter=command
+/timeline?filter=command_failed
+/timeline?date=2026-06-08&filter=git
+```
+
+지원 필터:
+
+- `all`: 전체
+- `dev`: DevEvent 전체
+- `git`: 자동 Git tracking 이벤트 확인용
+- `command`: terminal `command_result` 전체
+- `command_failed`: 실패한 터미널 명령 확인용
+- `meeting`: 회의 전사
+- `memo`: 수동 메모
+- `report`: 일일 리포트
 
 ## DevEvent 작업 마감 수집
 
