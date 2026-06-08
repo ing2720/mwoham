@@ -269,17 +269,10 @@ DEV_EVENT_GROUP | time_range=09:00~09:20 | source=watch | branch=feat/... | summ
 - 여러 repo 지원 없음
 - repo 자동 추정 없음
 - LaunchAgent/daemon 없음
-- 터미널 명령 자동 기록 없음
 - 수동 시작/종료 버튼 없음
-- timeline 필터 UI 없음
 
 ## 후속 작업 후보
 
-- 터미널 명령 자동 기록
-  - command
-  - exit code
-  - duration
-- timeline 필터링
 - 여러 repo 지원
 - repo 자동 추정
 - Dev Tracking LaunchAgent/daemon 여부 검토

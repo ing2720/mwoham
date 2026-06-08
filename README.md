@@ -132,6 +132,34 @@ v0.6 기준으로 macOS 앱은 개발 도구가 활성화되면 backend watcher 
 
 자세한 정책은 [Dev Tracking](docs/DEV_TRACKING.md)을 참고하세요.
 
+## Timeline Filtering
+
+v0.8 기준으로 웹 타임라인은 최신 항목이 위에 오도록 표시합니다. 이 정렬은 웹 표시용 context에만
+적용됩니다. Timeline API(`/timeline/today`, `/timeline/today/detail`)와 daily report 입력용
+timeline은 기존 시간순 흐름을 유지합니다.
+
+웹 타임라인은 `filter` query parameter로 항목을 좁혀 볼 수 있습니다.
+
+```text
+/timeline?filter=all
+/timeline?filter=command
+/timeline?filter=command_failed
+/timeline?date=2026-06-08&filter=git
+```
+
+지원 필터:
+
+- `all`: 전체
+- `dev`: DevEvent 전체
+- `git`: 자동 Git tracking 이벤트
+- `command`: 터미널 command_result 전체
+- `command_failed`: 실패한 터미널 명령 확인용
+- `meeting`: 회의 전사
+- `memo`: 수동 메모
+- `report`: 일일 리포트
+
+알 수 없는 filter 값은 `all`로 처리합니다. `date`와 `filter` query는 함께 사용할 수 있습니다.
+
 ## Command Tracking
 
 v0.7 기준으로 zsh hook 기반 터미널 명령 자동 기록을 지원합니다. 설치하면 `preexec`와

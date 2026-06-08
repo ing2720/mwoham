@@ -199,10 +199,24 @@ curl "http://127.0.0.1:8765/screen-observations?date=$(date +%F)&limit=20"
 ```bash
 curl "http://127.0.0.1:8765/timeline/today?date=$(date +%F)"
 open "http://127.0.0.1:8765/timeline"
+open "http://127.0.0.1:8765/timeline?filter=command"
+open "http://127.0.0.1:8765/timeline?filter=command_failed"
+open "http://127.0.0.1:8765/timeline?date=$(date +%F)&filter=git"
 ```
 
 정상 기대 결과:
 
+- 웹 기본 타임라인은 최신 항목이 위에 표시됩니다.
+- API `/timeline/today` 응답은 report 입력 흐름을 위해 기존 시간순을 유지합니다.
+- `filter=all` 또는 알 수 없는 filter 값은 전체 항목을 표시합니다.
+- `filter=dev`는 DevEvent 전체를 표시합니다.
+- `filter=git`은 자동 Git tracking 이벤트를 확인하는 용도입니다.
+- `filter=command`는 터미널 command_result 전체를 표시합니다.
+- `filter=command_failed`는 실패한 터미널 명령만 확인하는 용도입니다.
+- `filter=meeting`은 회의 전사를 표시합니다.
+- `filter=memo`는 수동 메모를 표시합니다.
+- `filter=report`는 일일 리포트를 표시합니다.
+- `date`와 `filter` query는 함께 동작합니다.
 - 기본 타임라인은 작업 흐름 중심으로 간결하게 보입니다.
 - ManualMemo는 표시됩니다.
 - 일반 WorkEvent는 표시됩니다.
@@ -225,11 +239,15 @@ open "http://127.0.0.1:8765/timeline"
 ```bash
 curl "http://127.0.0.1:8765/timeline/today/detail?date=$(date +%F)"
 open "http://127.0.0.1:8765/timeline/detail"
+open "http://127.0.0.1:8765/timeline/detail?filter=memo"
 ```
 
 정상 기대 결과:
 
 - 제목에 `상세 타임라인`이 표시됩니다.
+- 웹 상세 타임라인은 최신 항목이 위에 표시됩니다.
+- API `/timeline/today/detail` 응답은 report 입력 흐름을 위해 기존 시간순을 유지합니다.
+- 상세 타임라인에서도 `date`와 `filter` query가 함께 동작합니다.
 - ActivitySegment가 표시됩니다.
 - ScreenObservation은 OCR 발췌 중심으로 표시됩니다.
 - Memo, WorkEvent, Meeting, Transcript도 확인할 수 있습니다.
