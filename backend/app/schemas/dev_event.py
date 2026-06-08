@@ -12,7 +12,7 @@ DevEventType = Literal[
     "build_result",
     "note",
 ]
-DevEventSource = Literal["script", "api", "manual"]
+DevEventSource = Literal["script", "api", "manual", "terminal"]
 DevEventStatus = Literal["success", "failed", "unknown"]
 
 

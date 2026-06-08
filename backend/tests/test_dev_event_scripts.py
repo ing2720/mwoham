@@ -16,8 +16,10 @@ from scripts import (
     dev_check_output,
     dev_event_helpers,
     dev_tracking,
+    install_command_tracking_hook,
     record_command_result,
     run_dev_checks,
+    uninstall_command_tracking_hook,
     watch_dev_context,
 )
 
@@ -80,6 +82,112 @@ def test_record_command_result_saves_masked_summary_and_details(
     assert event.details_json["duration_seconds"] == 1.5
 
 
+def test_record_command_result_records_terminal_metadata_and_git_context(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _clean_git_repo(tmp_path)
+    _patch_script_session(monkeypatch, record_command_result, db)
+
+    exit_code = record_command_result.record_command_result(
+        command="uv run pytest --token=abc123",
+        exit_code=1,
+        duration_ms=12345,
+        cwd=str(repo),
+        started_at="2026-06-08T01:00:00+00:00",
+        ended_at="2026-06-08T01:00:12+00:00",
+        shell="zsh",
+        source="terminal",
+        session_current=True,
+    )
+
+    event = db.query(DevEvent).one()
+    assert exit_code == 0
+    assert event.event_type == "command_result"
+    assert event.source == "terminal"
+    assert event.status == "failed"
+    assert event.repo_path == str(repo)
+    assert event.branch in {"master", "main"}
+    assert "abc123" not in event.command
+    assert event.details_json["duration_ms"] == 12345
+    assert event.details_json["cwd"] == str(repo)
+    assert event.details_json["tracking_mode"] == "command_hook"
+    assert event.details_json["shell"] == "zsh"
+
+
+def test_record_command_result_saves_successful_short_pytest_command(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo = _clean_git_repo(tmp_path)
+    _patch_script_session(monkeypatch, record_command_result, db)
+
+    exit_code = record_command_result.record_command_result(
+        command="uv run pytest tests/test_health.py",
+        exit_code=0,
+        duration_ms=5,
+        cwd=str(repo),
+        source="terminal",
+    )
+
+    event = db.query(DevEvent).one()
+    assert exit_code == 0
+    assert event.status == "success"
+    assert event.command == "uv run pytest tests/test_health.py"
+    assert event.details_json["duration_ms"] == 5
+
+
+def test_record_command_result_skips_simple_and_env_read_commands(
+    db: Session,
+    monkeypatch,
+) -> None:
+    _patch_script_session(monkeypatch, record_command_result, db)
+
+    assert record_command_result.record_command_result(command="pwd", source="terminal") == 0
+    assert record_command_result.record_command_result(
+        command="cat .env",
+        source="terminal",
+    ) == 0
+
+    assert db.query(DevEvent).count() == 0
+
+
+def test_record_command_result_handles_non_git_cwd(
+    db: Session,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _patch_script_session(monkeypatch, record_command_result, db)
+
+    record_command_result.record_command_result(
+        command="python script.py",
+        exit_code=0,
+        cwd=str(tmp_path),
+        source="terminal",
+    )
+
+    event = db.query(DevEvent).one()
+    assert event.repo_path is None
+    assert event.branch is None
+    assert event.details_json["cwd"] == str(tmp_path)
+
+
+def test_record_command_result_truncates_long_command(
+    db: Session,
+    monkeypatch,
+) -> None:
+    _patch_script_session(monkeypatch, record_command_result, db)
+    long_command = "python " + ("x" * 700)
+
+    record_command_result.record_command_result(command=long_command, source="terminal")
+
+    event = db.query(DevEvent).one()
+    assert len(event.command) <= record_command_result.MAX_COMMAND_CHARS
+    assert event.command.endswith("...")
+
+
 def test_collect_git_snapshot_script_runs_without_pythonpath(tmp_path: Path) -> None:
     result = _run_script_without_pythonpath(
         "scripts/collect_git_snapshot.py",
@@ -96,6 +204,53 @@ def test_record_command_result_script_imports_without_pythonpath() -> None:
 
     assert result.returncode == 0
     assert "Record a command result as DevEvent." in result.stdout
+
+
+def test_zsh_tracking_hook_file_contains_required_hooks() -> None:
+    hook_path = Path("scripts/mwoham_zsh_tracking.zsh")
+    content = hook_path.read_text(encoding="utf-8")
+
+    assert "add-zsh-hook preexec _mwoham_command_tracking_preexec" in content
+    assert "add-zsh-hook precmd _mwoham_command_tracking_precmd" in content
+    assert "scripts/record_command_result.py" in content
+    assert "--source \"terminal\"" in content
+    assert "_mwoham_is_dev_validation_command" in content
+    assert "uv\\ run\\ pytest*" in content
+
+
+def test_install_command_tracking_hook_is_idempotent(tmp_path: Path) -> None:
+    zshrc = tmp_path / ".zshrc"
+    hook_path = tmp_path / "mwoham_zsh_tracking.zsh"
+    hook_path.write_text("# hook\n", encoding="utf-8")
+
+    first = install_command_tracking_hook.install_hook(
+        zshrc_path=zshrc,
+        hook_path=hook_path,
+    )
+    second = install_command_tracking_hook.install_hook(
+        zshrc_path=zshrc,
+        hook_path=hook_path,
+    )
+
+    content = zshrc.read_text(encoding="utf-8")
+    assert first is True
+    assert second is False
+    assert content.count("source ") == 1
+    assert str(hook_path) in content
+
+
+def test_uninstall_command_tracking_hook_removes_source_line(tmp_path: Path) -> None:
+    zshrc = tmp_path / ".zshrc"
+    hook_path = tmp_path / "mwoham_zsh_tracking.zsh"
+    install_command_tracking_hook.install_hook(zshrc_path=zshrc, hook_path=hook_path)
+
+    removed = uninstall_command_tracking_hook.uninstall_hook(
+        zshrc_path=zshrc,
+        hook_path=hook_path,
+    )
+
+    assert removed is True
+    assert "mwoham_zsh_tracking.zsh" not in zshrc.read_text(encoding="utf-8")
 
 
 def test_run_dev_checks_saves_success_results(db: Session, monkeypatch, tmp_path: Path) -> None:

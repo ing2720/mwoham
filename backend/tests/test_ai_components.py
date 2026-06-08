@@ -876,6 +876,115 @@ def test_prompt_builder_instructs_troubleshooting_keywords_and_format() -> None:
     assert "리팩토링 점검, 문서 정리, v0.6 태그 준비" in prompt
 
 
+def test_prompt_builder_prioritizes_failed_terminal_commands() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=2,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 5, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run pytest",
+                content="명령 성공: uv run pytest",
+                details_json={"exit_code": 0, "duration_ms": 2000},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="uv run pytest",
+                content="명령 실패: uv run pytest exit_code=1",
+                details_json={"exit_code": 1, "duration_ms": 1000, "cwd": "/repo"},
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    dev_event_section = prompt.split("PRIORITY_DEV_EVENTS:", 1)[1]
+
+    assert "source=terminal인 command_result" in prompt
+    assert "실패한 terminal command는 성공한 명령보다 우선적으로" in prompt
+    assert "터미널 출력 전문은 입력에 포함되지 않습니다." in prompt
+    assert dev_event_section.index("status=failed") < dev_event_section.index("status=success")
+    assert "duration_ms=1000" in dev_event_section
+    assert "tracking_mode=command_hook" not in dev_event_section
+
+
+def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=4,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="sqlite3 data/mwoham.sqlite3 'select * from dev_events'",
+                content="명령 성공: sqlite3 data/mwoham.sqlite3",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 1, 1, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="echo ok",
+                content="명령 성공: echo ok",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 1, 2, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run pytest tests/test_health.py",
+                content="명령 성공: uv run pytest tests/test_health.py",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=4,
+                timestamp=datetime(2026, 5, 26, 1, 3, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="curl http://127.0.0.1:8765/reports/daily",
+                content="명령 실패: curl http://127.0.0.1:8765/reports/daily exit_code=7",
+                details_json={"exit_code": 7},
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    dev_event_section = prompt.split("PRIORITY_DEV_EVENTS:", 1)[1]
+
+    assert "확인용 terminal command는 작업 검증 보조 정보로만 낮은 우선순위" in prompt
+    assert "검증/개발 command는 높은 우선순위" in prompt
+    assert dev_event_section.index("status=failed") < dev_event_section.index(
+        "uv run pytest tests/test_health.py"
+    )
+    assert dev_event_section.index("uv run pytest tests/test_health.py") < dev_event_section.index(
+        "sqlite3 data/mwoham.sqlite3"
+    )
+    assert dev_event_section.index("uv run pytest tests/test_health.py") < dev_event_section.index(
+        "echo ok"
+    )
+
+
 def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
@@ -906,7 +1015,10 @@ def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() 
     assert "report input 20분 압축" in prompt
     assert "CURRENT_GIT_DIFF_CONTEXT" in prompt
     assert "CURRENT_GIT_CHANGE_HINTS" in prompt
-    assert "터미널 명령 자동 기록은 v0.7 후보" in prompt
+    assert (
+        "terminal command 자동 기록이 이미 입력에 있으면 다음 작업 후보로 반복 제안하지"
+        in prompt
+    )
     assert "timeline 필터링은 별도 작업" in prompt
 
 

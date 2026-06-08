@@ -147,6 +147,8 @@ uv run python scripts/collect_git_snapshot.py --repo-path ..
 uv run python scripts/record_command_result.py --command "uv run pytest" --status success --summary "pytest 통과" --event-type test_result
 uv run python scripts/collect_dev_context.py --repo-path ..
 uv run python scripts/watch_dev_context.py --repo-path .. --interval 60
+uv run python scripts/install_command_tracking_hook.py
+uv run python scripts/uninstall_command_tracking_hook.py
 ```
 
 - `run_dev_checks.py --no-record`: ruff, pytest, alembic, git diff check를 실행하고 DevEvent는 저장하지 않습니다.
@@ -155,6 +157,10 @@ uv run python scripts/watch_dev_context.py --repo-path .. --interval 60
 - `record_command_result.py`: 개발 명령 결과를 summary 중심으로 DevEvent에 저장합니다.
 - `collect_dev_context.py`: Git snapshot 수집 후 dev checks를 실행해 작업 마감용 DevEvent를 남깁니다.
 - `watch_dev_context.py`: Git 상태를 주기적으로 감지해 변경 시 DevEvent를 저장합니다.
+- `install_command_tracking_hook.py`: zsh command tracking hook을 `~/.zshrc`에 설치합니다.
+- `uninstall_command_tracking_hook.py`: zsh command tracking hook source line을 제거합니다.
+
+터미널 명령 자동 기록 설치/해제와 저장 정책은 [Command Tracking 문서](../docs/COMMAND_TRACKING.md)를 참고하세요.
 
 ## DevEvent 작업 마감 수집
 

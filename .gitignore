@@ -4,6 +4,7 @@ docs/*
 !docs/TESTER_INSTALL_GUIDE.md
 !docs/SYSTEM_AUDIO_CAPTURE_SPIKE.md
 !docs/DEV_TRACKING.md
+!docs/COMMAND_TRACKING.md
 
 # Build and tester distribution artifacts
 dist/

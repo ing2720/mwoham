@@ -657,6 +657,43 @@ def test_git_dev_events_have_manual_and_watcher_display_labels(
     ]
 
 
+def test_terminal_command_dev_events_have_success_and_failure_labels(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "terminal",
+            "command": "uv run pytest",
+            "status": "success",
+            "summary": "명령 성공: uv run pytest",
+            "details_json": {"exit_code": 0, "duration_ms": 1200},
+            "occurred_at": datetime(2026, 5, 26, 13, 0, tzinfo=UTC).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "terminal",
+            "command": "uv run pytest",
+            "status": "failed",
+            "summary": "명령 실패: uv run pytest exit_code=1",
+            "details_json": {"exit_code": 1, "duration_ms": 800},
+            "occurred_at": datetime(2026, 5, 26, 13, 5, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    timeline = client.get("/timeline/today?date=2026-05-26").json()["items"]
+    detail_timeline = client.get("/timeline/today/detail?date=2026-05-26").json()["items"]
+
+    assert [item["display_label"] for item in timeline] == ["명령 성공", "명령 실패"]
+    assert timeline[0]["content"].startswith("명령 성공:")
+    assert timeline[1]["content"].startswith("명령 실패:")
+    assert "duration_ms=800" in detail_timeline[1]["content"]
+
+
 def test_dev_event_masks_sensitive_summary_and_details(client: TestClient) -> None:
     response = client.post(
         "/dev-events",

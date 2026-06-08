@@ -261,10 +261,15 @@ class TimelineBuilder:
             label = "테스트 실행 결과" if event.event_type == "test_result" else "빌드 실행 결과"
             return f"{label}: {event.summary}"
         if event.event_type == "command_result":
+            if event.source == "terminal":
+                label = "명령 성공" if event.status == "success" else "명령 실패"
+                return f"{label}: {event.summary}"
             return f"개발 명령 실행 결과: {event.summary}"
         return event.summary
 
     def _dev_event_display_label(self, event: DevEvent) -> str | None:
+        if event.event_type == "command_result" and event.source == "terminal":
+            return "명령 성공" if event.status == "success" else "명령 실패"
         if event.event_type != "git_snapshot":
             return None
         if (event.details_json or {}).get("tracking_mode") == "watch":
@@ -279,7 +284,9 @@ class TimelineBuilder:
         recent_commits = self._details_list(details, "recent_commits")
         diff_stat = details.get("diff_stat")
         exit_code = details.get("exit_code")
+        duration_ms = details.get("duration_ms")
         duration_seconds = details.get("duration_seconds")
+        cwd = details.get("cwd")
         if changed_files:
             parts.append(f"changed_files={', '.join(changed_files[:8])}")
         if diff_stat:
@@ -288,8 +295,12 @@ class TimelineBuilder:
             parts.append(f"recent_commits={'; '.join(recent_commits[:3])}")
         if exit_code is not None:
             parts.append(f"exit_code={exit_code}")
+        if duration_ms is not None:
+            parts.append(f"duration_ms={duration_ms}")
         if duration_seconds is not None:
             parts.append(f"duration_seconds={duration_seconds}")
+        if cwd:
+            parts.append(f"cwd={self._truncate(str(cwd), 80)}")
         return " | ".join(parts)
 
     def _details_list(self, details: dict | None, key: str) -> list[str]:

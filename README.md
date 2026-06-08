@@ -20,6 +20,7 @@ Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 �
   - Git snapshot
   - 개발 검증 명령 결과
   - 자동 Dev Tracking watcher
+  - zsh 터미널 명령 metadata
 - Gemini 기반 일일 리포트 생성
 - Markdown/PDF export와 브라우저 다운로드
 - 개발/테스트 데이터 초기화
@@ -143,6 +144,7 @@ Mwoham의 현재 구현 원칙:
 - [Development Guide](DEVELOPMENT.md)
 - [Backend Development Guide](docs/BACKEND_DEVELOPMENT_GUIDE.md)
 - [Dev Tracking](docs/DEV_TRACKING.md)
+- [Command Tracking](docs/COMMAND_TRACKING.md)
 - [System Audio Capture/Transcription](docs/SYSTEM_AUDIO_CAPTURE_SPIKE.md)
 - [QA Checklist](docs/QA_CHECKLIST.md)
 - [Tester Install Guide](docs/TESTER_INSTALL_GUIDE.md)
