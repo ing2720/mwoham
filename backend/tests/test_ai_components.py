@@ -184,7 +184,7 @@ def test_prompt_builder_summarizes_activity_segments_as_auxiliary_context() -> N
 
     assert "ACTIVITY_SEGMENT |" not in prompt
     assert "ACTIVITY_ENVIRONMENT_SUMMARY |" in prompt
-    assert "보조 작업 컨텍스트" in prompt
+    assert "보조 정보" in prompt
     assert "Chrome / PR 작성 900초" in prompt
 
 
@@ -830,6 +830,7 @@ def test_prompt_builder_adds_current_work_focus_before_priority_sections() -> No
     assert "meeting transcript instruction" in focus_section
     assert "next action 후보 보정" in focus_section
     assert "오늘 한 일 요약의 첫 문장은 이 주제를 중심" in prompt
+    assert "시간대별 작업 흐름과 다음 작업 후보도 이 주제를 중심" in prompt
     assert "과거 마일스톤은 배경으로만 짧게" in prompt
 
 
@@ -890,11 +891,43 @@ def test_prompt_builder_instructs_report_to_merge_repetitive_dev_tracking_flow()
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
-    assert "비슷한 자동 Dev Tracking, 테스트 코드 수정, diff context 개선 작업" in prompt
+    assert "반복되는 자동 Dev Tracking, 테스트 코드 수정, diff context 개선" in prompt
     assert "여러 줄로 반복하지 말고 하나의 흐름으로 묶으세요." in prompt
     assert "DEV_EVENT_GROUP의 20분 단위는 입력 압축 단위일 뿐입니다." in prompt
     assert "30분~2시간 단위까지 병합할 수 있습니다." in prompt
-    assert "'테스트 코드 작성 및 수정' 같은 문장이 반복되면 합쳐서" in prompt
+    assert "'테스트 코드 작성 및 수정'이 반복되면" in prompt
+    assert "상세 리포트 기준으로 오늘 한 일 요약은 2~4문장" in prompt
+    assert "시간대별 작업 흐름은 고정 5~6개 제한을 두지 말고" in prompt
+    assert "6~10개 bullet까지 허용" in prompt
+    assert "구현 기능, 수정 로직, 검증 테스트" in prompt
+    assert "QA 결과 중 하나 이상을 담은 작업 단위 설명" in prompt
+    assert "시간대별 작업 흐름은 최대 5~6개 bullet로 제한" not in prompt
+    assert "REPORT_MODE" not in prompt
+
+
+def test_prompt_builder_instructs_to_ignore_uncertain_ocr_transcript_noise() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="screen_ocr",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                content="화면 텍스트 수집됨",
+                ocr_text="command_talled mianation v0.8.0-time line-filtering",
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "OCR/전사/화면 단서에서 나온 불확실한 단어" in prompt
+    assert "깨진 버전명" in prompt
+    assert "공백이 이상한 태그명" in prompt
+    assert "command_talled" in prompt
+    assert "mianation" in prompt
+    assert "명확한 파일명/명령/DevEvent 근거가 없으면 생략하세요." in prompt
 
 
 def test_prompt_builder_instructs_report_to_focus_on_feature_flow_not_branches() -> None:
@@ -958,7 +991,7 @@ def test_prompt_builder_instructs_troubleshooting_keywords_and_format() -> None:
     assert "code 127" in prompt
     assert "actor isolation" in prompt
     assert "/private/tmp" in prompt
-    assert "'문제 / 원인 / 해결 방식' 형태" in prompt
+    assert "'문제 / 원인 / 해결 방식'으로 짧게" in prompt
     assert "현재 작업의 후속 리팩토링 점검, 문서 정리, 최종 검증, 다음 태그 준비" in prompt
 
 
@@ -1062,7 +1095,7 @@ def test_prompt_builder_adds_command_flow_hints_for_failed_then_success() -> Non
     assert "statuses=failed->success" in command_flow_section
     assert "개별 명령 나열보다 수정/보완/검증" in command_flow_section
     assert "같은 시간대의 git_snapshot, command_result, diff context를 묶어" in prompt
-    assert "무슨 기능을 구현/보완했고 어떻게 검증했는지" in prompt
+    assert "작업 단위와 검증 흐름으로 요약하세요." in prompt
 
 
 def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
@@ -1132,13 +1165,16 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     dev_event_section = prompt.split("PRIORITY_DEV_EVENTS:", 1)[1]
     command_flow_section = prompt.split("PRIORITY_COMMAND_FLOWS:", 1)[1]
 
-    assert "확인용 command는 낮은 우선순위의 보조" in prompt
+    assert "inspection/setup command는 직접 나열하지 말고 보조 근거로만 참고하세요." in prompt
     assert "mwoham_command_tracking_status" in prompt
     assert "mwoham_command_tracking_disable" in prompt
     assert "DB 조회와 report 생성으로 저장 결과를 확인했다" in prompt
     assert "검증/개발 command는 높은 우선순위" in prompt
     assert "flow_type=inspection" in command_flow_section
     assert "확인용 command입니다." in command_flow_section
+    assert "inspection/setup command는 직접 나열하지 말고" in prompt
+    assert "git switch" in prompt
+    assert "git pull" in prompt
     assert dev_event_section.index("status=failed") < dev_event_section.index(
         "uv run pytest tests/test_health.py"
     )
@@ -1208,12 +1244,17 @@ def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() 
     assert "CURRENT_GIT_CHANGE_HINTS" in prompt
     assert "command_result" in prompt
     assert "timeline filtering" in prompt
+    assert "PRIORITY_COMMAND_FLOWS" in prompt
+    assert "CURRENT_WORK_FOCUS" in prompt
     assert (
         "terminal command 자동 기록이 이미 입력에 있으면 다음 작업 후보로 반복 제안하지"
         in prompt
     )
     assert "timeline filtering 구현/검증이 이미 입력에 있으면 반복 제안하지" in prompt
     assert "문서 정리 완료, 태그 완료, 검증 통과로 보이는 힌트" in prompt
+    assert "timeline filtering 문서 정리" in prompt
+    assert "command tracking report input 압축" in prompt
+    assert "CURRENT_WORK_FOCUS 구현은 입력에 완료 근거가 있으면" in prompt
     assert "다음 작업 후보는 3~5개로 제한" in prompt
 
 
@@ -1239,7 +1280,7 @@ def test_prompt_builder_instructs_current_work_topic_from_context() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "PRIORITY_COMMAND_FLOWS, command_result를 보고 현재 작업 주제를 먼저" in prompt
-    assert "현재 작업 주제가 command tracking이면 터미널 명령 자동 기록 중심" in prompt
+    assert "작업 주제가 command tracking이면 터미널 명령 자동 기록 중심" in prompt
     assert "이전 마일스톤에서 완료된 기능명이 입력에 있어도" in prompt
     assert "직접 관련이 약하면 배경 정보로만 다루세요." in prompt
 
