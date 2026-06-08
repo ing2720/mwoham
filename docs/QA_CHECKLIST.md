@@ -8,7 +8,10 @@
 - macOS 앱과 백엔드는 같은 머신에서 실행합니다.
 - 백엔드는 `http://127.0.0.1:8765`에서 실행합니다.
 - 화면 OCR 검증 전 macOS 화면 기록 권한을 허용합니다.
-- 회의 전사 검증 전 macOS 음성 인식 권한과 마이크 권한을 허용합니다.
+- 회의 전사 검증 전 선택한 source에 맞는 권한을 허용합니다.
+  - 마이크: 음성 인식, 마이크
+  - 시스템 오디오: 음성 인식, 화면 기록
+  - 회의 전체: 음성 인식, 마이크, 화면 기록
 - 실제 Gemini 호출은 quota를 소모합니다. 기본 정책상 개별 ScreenObservation AI 해석은 비활성화되어 있고, 일일 리포트 생성에 Gemini 호출을 우선 사용합니다.
 - `LOCAL_API_TOKEN`을 설정한 경우 모든 보호 API 호출에 `Authorization: Bearer <token>` 헤더를 추가합니다.
 
@@ -230,7 +233,6 @@ open "http://127.0.0.1:8765/timeline/detail"
 - ActivitySegment가 표시됩니다.
 - ScreenObservation은 OCR 발췌 중심으로 표시됩니다.
 - Memo, WorkEvent, Meeting, Transcript도 확인할 수 있습니다.
-- 개발/검증용 원시 로그 확인 화면임을 알 수 있습니다.
 
 실패 시 의심 원인:
 
@@ -243,15 +245,21 @@ open "http://127.0.0.1:8765/timeline/detail"
 
 - backend가 실행 중이어야 합니다.
 - Mac 앱이 실행 중이어야 합니다.
-- macOS 시스템 설정에서 MwohamMac 또는 Xcode 실행 앱에 음성 인식 권한과 마이크 권한을 부여합니다.
+- macOS 시스템 설정에서 MwohamMac 또는 Xcode 실행 앱에 선택한 전사 source별 권한을 부여합니다.
 
 절차:
 
-1. Mac 앱에서 `회의 전사 시작`을 누릅니다.
-2. 권한 요청이 표시되면 음성 인식과 마이크 권한을 허용합니다.
-3. 한국어로 짧은 문장과 의미 있는 문장을 말합니다.
-4. Mac 앱에서 최근 전사 텍스트가 표시되는지 확인합니다.
-5. `회의 전사 종료`를 누릅니다.
+1. Mac 앱에서 전사 입력 source를 선택합니다.
+   - 마이크
+   - 시스템 오디오
+   - 회의 전체
+2. Mac 앱에서 `회의 전사 시작`을 누릅니다.
+3. 권한 요청이 표시되면 필요한 권한을 허용합니다.
+4. 마이크 source에서는 한국어로 짧은 문장과 의미 있는 문장을 말합니다.
+5. 시스템 오디오 source에서는 브라우저, ZEP, Meet, Zoom 등에서 한국어 음성을 재생합니다.
+6. 회의 전체 source에서는 마이크 발화와 시스템 오디오 재생을 함께 확인합니다.
+7. Mac 앱에서 최근 전사 텍스트가 표시되는지 확인합니다.
+8. `회의 전사 종료`를 누릅니다.
 
 확인 명령:
 
@@ -263,7 +271,10 @@ curl "http://127.0.0.1:8765/status"
 정상 기대 결과:
 
 - `/status`에서 회의 중에는 `meeting_mode=true`로 표시됩니다.
-- `/meeting-transcripts/today`에 `source="apple_speech"` transcript가 저장됩니다.
+- `/meeting-transcripts/today`에 선택한 source에 맞는 transcript가 저장됩니다.
+  - `apple_speech_microphone`
+  - `apple_speech_system_audio`
+  - `apple_speech_full_meeting`
 - 원본 오디오 파일은 저장되지 않습니다.
 - backend로 audio data가 전송되지 않고 transcript text만 저장됩니다.
 - 회의 전사 종료 후 앱 상태가 `회의 전사 종료됨` 또는 `전사 저장 후 종료됨` 계열로 표시됩니다.
@@ -275,7 +286,49 @@ curl "http://127.0.0.1:8765/status"
 - 너무 짧은 전사 조각이 저장 품질 정책에 의해 제외되었습니다.
 - backend가 실행 중이 아니거나 Local API Token 설정이 앱과 맞지 않습니다.
 
-## 10. 리포트 생성 확인
+## 10. 자동 Dev Tracking 확인
+
+사전 확인:
+
+- backend가 실행 중이어야 합니다.
+- Mac 앱이 실행 중이어야 합니다.
+- uv와 git이 설치되어 있어야 합니다.
+- 앱 설정의 Dev Tracking 추적 repo 경로가 비어 있거나 유효한 Git repo여야 합니다.
+
+절차:
+
+1. PyCharm, Visual Studio Code, Code, Terminal, iTerm, iTerm2, Cursor 중 하나를 활성화합니다.
+2. 앱 상태, 메뉴바, 플로팅 위젯에서 Dev Tracking 상태를 확인합니다.
+3. Git repo에서 파일을 수정합니다.
+4. debounce/interval 이후 DevEvent 저장 여부를 확인합니다.
+5. Chrome 같은 비개발 앱으로 이동한 뒤 grace period 후 watcher가 종료되는지 확인합니다.
+
+확인 명령:
+
+```bash
+curl "http://127.0.0.1:8765/dev-events/today?date=$(date +%F)"
+curl "http://127.0.0.1:8765/timeline/today/detail?date=$(date +%F)"
+```
+
+정상 기대 결과:
+
+- 개발 도구 활성화 시 `Dev Tracking: 감시 시작` 또는 `Dev Tracking: 개발 도구 감지됨, 감시 중`이 표시됩니다.
+- 변경이 없으면 `Dev Tracking: 변경 없음`이 표시됩니다.
+- 변경 직후에는 `Dev Tracking: 변경 감지, 안정화 대기 중`이 표시될 수 있습니다.
+- 안정화 후 `Git 변경 감지: ...` 요약이 표시됩니다.
+- watcher가 같은 signature를 반복 저장하지 않습니다.
+- `*.swp`, `*.swo`, `.DS_Store`, cache, coverage 산출물만 있는 경우 DevEvent가 저장되지 않습니다.
+- DevEvent details에는 diff_summary 같은 안전한 메타데이터가 저장되고 raw diff 본문은 저장되지 않습니다.
+
+실패 시 의심 원인:
+
+- 활성 앱이 개발 도구 목록에 없습니다.
+- repo path가 존재하지 않거나 Git repo가 아닙니다.
+- 앱 실행 환경 PATH에서 uv 또는 git을 찾지 못합니다.
+- backend 경로 fallback이 현재 실행 위치와 맞지 않습니다.
+- watcher stdout/stderr에 오류가 표시됐는지 확인합니다.
+
+## 11. 리포트 생성 확인
 
 확인 명령:
 
@@ -296,6 +349,9 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 - Gemini 호출에 성공하면 `created_by="ai"`입니다.
 - Gemini API key가 없거나 quota 초과면 `created_by="system"` fallback 리포트가 생성됩니다.
 - fallback 리포트는 raw timeline 전체 덤프가 아니라 요약, 주요 메모, 주요 화면 관찰, 주요 작업 환경 중심으로 짧게 생성됩니다.
+- 자동 watcher 기반 `git_snapshot`은 report input에서 20분 버킷과 branch 기준으로 압축됩니다.
+- report 생성 시점의 `CURRENT_GIT_CHANGE_HINTS`와 `CURRENT_GIT_DIFF_CONTEXT`가 있으면 구체 작업 의도 파악에 우선 사용됩니다.
+- raw git diff는 DB, DevEvent, log, Report.content에 그대로 저장되지 않습니다.
 
 실패 시 의심 원인:
 
@@ -304,7 +360,7 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 - Gemini 모델명이 잘못되었습니다.
 - 타임라인에 리포트에 넣을 데이터가 거의 없습니다.
 
-## 11. PDF 다운로드 확인
+## 12. PDF 다운로드 확인
 
 1. 리포트를 생성합니다.
 2. 리포트 ID를 확인합니다.
@@ -331,7 +387,7 @@ curl -OJ "http://127.0.0.1:8765/reports/${REPORT_ID}/download?format=pdf"
 - PDF 생성 의존성 또는 시스템 폰트 문제가 있습니다.
 - export 디렉터리 쓰기 권한이 없습니다.
 
-## 12. 원본 이미지 파일 미저장 확인
+## 13. 원본 이미지/오디오/raw diff 미저장 확인
 
 확인 명령:
 
@@ -348,6 +404,8 @@ git status --short
 - OCR 수집 때문에 새 스크린샷 이미지 파일이 생성되지 않습니다.
 - backend에는 OCR 텍스트만 저장됩니다.
 - `git status --short`에 캡처 이미지 파일이 나타나지 않습니다.
+- 회의 전사 때문에 원본 오디오 파일이나 raw audio buffer 파일이 생성되지 않습니다.
+- DevEvent에는 raw git diff 본문이나 파일 내용이 저장되지 않습니다.
 
 실패 시 의심 원인:
 
@@ -355,7 +413,7 @@ git status --short
 - 외부 캡처 도구가 파일을 저장했습니다.
 - 앱 코드가 아닌 별도 디버깅 스크립트가 이미지를 저장했습니다.
 
-## 13. Gemini quota 초과 fallback 확인
+## 14. Gemini quota 초과 fallback 확인
 
 확인 명령:
 

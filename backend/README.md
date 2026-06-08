@@ -2,6 +2,8 @@
 
 Mwoham Backend는 로컬 작업 기록 에이전트의 FastAPI 서버입니다. SQLite에 작업 기록을 저장하고, TimelineBuilder와 Gemini 요약을 통해 일일 업무 리포트를 생성합니다.
 
+macOS 앱은 backend API를 통해 기록 세션, 활성 앱/창 구간, OCR 텍스트, 수동 메모, 회의 전사, DevEvent를 저장합니다. backend는 웹 대시보드, 기본/상세 타임라인, Markdown/PDF export, 개발용 스크립트를 제공합니다.
+
 ## 기술 스택
 
 - FastAPI
@@ -94,7 +96,7 @@ LOCAL_API_TOKEN=""
 
 ## QA 체크리스트
 
-2차 MVP 실사용 검증 절차는 [QA_CHECKLIST.md](../docs/QA_CHECKLIST.md)를 참고하세요.
+실사용 검증 절차는 [QA_CHECKLIST.md](../docs/QA_CHECKLIST.md)를 참고하세요.
 
 Xcode 없이 지인 테스트용 앱을 실행하는 절차는 [TESTER_INSTALL_GUIDE.md](../docs/TESTER_INSTALL_GUIDE.md)를 참고하세요.
 
@@ -135,6 +137,25 @@ uv run pytest --cov=app --cov-report=term-missing --cov-report=html
 
 현재 coverage threshold는 적용하지 않습니다. 핵심 service 테스트를 더 보강한 뒤 도입합니다.
 
+## 주요 개발 스크립트
+
+```bash
+cd backend
+uv run python scripts/run_dev_checks.py --no-record
+uv run python scripts/run_dev_checks.py
+uv run python scripts/collect_git_snapshot.py --repo-path ..
+uv run python scripts/record_command_result.py --command "uv run pytest" --status success --summary "pytest 통과" --event-type test_result
+uv run python scripts/collect_dev_context.py --repo-path ..
+uv run python scripts/watch_dev_context.py --repo-path .. --interval 60
+```
+
+- `run_dev_checks.py --no-record`: ruff, pytest, alembic, git diff check를 실행하고 DevEvent는 저장하지 않습니다.
+- `run_dev_checks.py`: 같은 검증을 실행하고 각 결과를 DevEvent로 저장합니다.
+- `collect_git_snapshot.py`: branch, git status, changed files, diff stat, recent commits를 DevEvent로 저장합니다. Git diff 본문은 저장하지 않습니다.
+- `record_command_result.py`: 개발 명령 결과를 summary 중심으로 DevEvent에 저장합니다.
+- `collect_dev_context.py`: Git snapshot 수집 후 dev checks를 실행해 작업 마감용 DevEvent를 남깁니다.
+- `watch_dev_context.py`: Git 상태를 주기적으로 감지해 변경 시 DevEvent를 저장합니다.
+
 ## DevEvent 작업 마감 수집
 
 작업 종료 시 Git 상태와 개발 검증 결과를 DevEvent로 저장한 뒤 일일 리포트를 생성합니다.
@@ -152,6 +173,81 @@ uv run python scripts/collect_dev_context.py --session-current
 2. 검증 결과를 DevEvent로 남기려면 `run_dev_checks.py` 실행
 3. 작업 종료 시 `collect_dev_context.py --repo-path ..` 실행
 4. 브라우저 또는 API에서 `/reports/daily` 생성
+
+## 자동 Dev Tracking watcher
+
+`watch_dev_context.py`는 v0.6 자동 Dev Tracking의 backend watcher입니다.
+
+```bash
+cd backend
+uv run python scripts/watch_dev_context.py --repo-path ..
+uv run python scripts/watch_dev_context.py --repo-path .. --interval 60
+uv run python scripts/watch_dev_context.py --repo-path .. --session-current
+uv run python scripts/watch_dev_context.py --repo-path .. --once
+uv run python scripts/watch_dev_context.py --repo-path .. --state-path /tmp/mwoham-dev-tracking-state.json
+```
+
+정책:
+
+- Git 상태 signature가 바뀌었을 때만 DevEvent를 저장합니다.
+- signature는 branch, head commit, ignore policy 적용 후 `git status --short` 기준입니다.
+- Vim swap, editor temp, cache, coverage 산출물은 변경 감지 대상에서 제외합니다.
+- persistent state에는 repo key, signature, updated_at만 저장합니다.
+- state에는 파일 내용, raw diff, changed_files 목록을 저장하지 않습니다.
+- dedupe TTL 기본값은 6시간입니다.
+- debounce 기본값은 20초입니다.
+- `--once`는 기본 debounce 0초로 1회 확인 후 종료합니다.
+- `--state-path`와 `MWOHAM_DEV_TRACKING_STATE_PATH` override를 지원합니다.
+- `diff_summary`에는 파일별 insertions/deletions, binary 여부, untracked 여부 같은 안전한 메타데이터만 저장합니다.
+- raw diff 본문과 파일 내용은 DevEvent, DB, log에 저장하지 않습니다.
+
+자세한 내용은 [Dev Tracking 문서](../docs/DEV_TRACKING.md)를 참고하세요.
+
+## DevEvent API
+
+DevEvent는 Git snapshot, 개발 명령 결과, 자동 watcher 이벤트를 저장하는 개발 작업 근거입니다.
+
+주요 API:
+
+- `POST /dev-events`
+- `GET /dev-events`
+- `GET /dev-events/today`
+
+`POST /dev-events`는 Local API Token 보호 대상입니다. `LOCAL_API_TOKEN`을 설정한 경우 `Authorization: Bearer <token>` 헤더가 필요합니다.
+
+자동 watcher 기반 `git_snapshot`은 웹 타임라인에서는 DevEvent로 확인할 수 있고, report input에서는 20분 버킷과 branch 기준으로 압축됩니다. 수동 `collect_git_snapshot.py` 이벤트는 기존 DevEvent로 유지됩니다.
+
+## Report input과 Git diff context
+
+일일 리포트 생성 시 PromptBuilder는 timeline 데이터를 압축해 Gemini prompt를 만듭니다.
+
+우선순위:
+
+1. `PRIORITY_CURRENT_GIT_CHANGE_HINTS`
+2. `PRIORITY_CURRENT_GIT_DIFF_CONTEXT`
+3. 수동 메모
+4. DevEvent
+5. 회의 전사
+6. 화면 관찰
+7. 작업 환경 요약
+
+자동 watcher 기반 `git_snapshot`은 다음 정책으로 압축합니다.
+
+- KST 기준 20분 버킷
+- branch 기준 그룹
+- `DEV_EVENT_GROUP`으로 report input에 포함
+- 개별 자동 watcher 이벤트는 priority/work evidence/final dump에서 중복 제외
+
+`CURRENT_GIT_DIFF_CONTEXT`는 report 생성 시점에만 현재 repo의 git diff를 읽어 prompt context에 넣습니다.
+
+- `PrivacyFilter` 적용
+- DB 저장 없음
+- DevEvent 저장 없음
+- log 출력 없음
+- 최종 `Report.content`에 raw diff를 그대로 쓰지 않도록 prompt에서 지시
+- clean working tree면 diff context 없이 기존 DevEvent 기반으로 리포트 생성
+
+`CURRENT_GIT_CHANGE_HINTS`는 diff에서 기능 단위 힌트를 추출합니다. 예를 들어 persistent state, TTL dedupe, debounce, repo path 설정, stdout/stderr 상태 표시 같은 구체 기능명이 리포트에 반영되도록 돕습니다.
 
 ## Meeting Transcript
 

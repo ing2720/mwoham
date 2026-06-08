@@ -1,20 +1,40 @@
-# mwoham
+# Mwoham
 
-뭐함은 macOS에서 사용자의 작업 흐름을 로컬에 기록하고, Gemini를 이용해 일일 업무 리포트로 정리하는 개인용 작업 기록 에이전트입니다.
+Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 작업 흐름을 수집하고, 로컬 FastAPI backend가 SQLite에 저장한 뒤 Gemini를 이용해 일일 리포트를 생성합니다.
 
-현재 구현 범위는 macOS SwiftUI 클라이언트와 FastAPI 백엔드 기반 MVP입니다. 로컬 API, 웹 대시보드, 메뉴바/플로팅 위젯, 활성 앱/창 구간 추적, OCR 수집, Apple Speech 기반 회의 전사, 일일 리포트 생성을 제공합니다.
+현재 구현은 macOS SwiftUI 클라이언트와 FastAPI 로컬 서버 기반입니다. 일반 창, 메뉴바, 플로팅 위젯, 웹 대시보드, 기본/상세 타임라인, Markdown/PDF 리포트 export를 제공합니다.
 
 ## 현재 기능
 
 - 기록 세션 제어: 시작, 일시정지, 재개, 종료
-- 작업 이벤트, 수동 메모, 화면 OCR 관찰, 회의 세션, 회의 전사 저장
-- 오늘 타임라인 생성
+- 활성 앱/창 메타데이터 기반 작업 구간 저장
+- PrivateApp 제외 정책
+- 화면 OCR 텍스트 수집
+- 빠른 메모 저장
+- MeetingSession과 MeetingTranscript 저장
+- Apple Speech 기반 회의 전사
+  - 마이크
+  - 시스템 오디오
+  - 회의 전체
+- DevEvent 저장
+  - Git snapshot
+  - 개발 검증 명령 결과
+  - 자동 Dev Tracking watcher
 - Gemini 기반 일일 리포트 생성
 - Markdown/PDF export와 브라우저 다운로드
-- 로컬 웹 대시보드
-- 설정과 기록 제외 앱 관리
+- 개발/테스트 데이터 초기화
 - Local API Bearer 토큰 인증
-- 개발용 샘플 데이터 생성 스크립트
+
+## 구조
+
+```text
+backend/
+  FastAPI, SQLite, TimelineBuilder, Gemini report, web dashboard
+mac-client/MwohamMac/
+  macOS SwiftUI app, menu bar, floating widget, OCR, meeting transcription, Dev Tracking process
+docs/
+  QA, tester guide, Dev Tracking, system audio transcription notes
+```
 
 ## 빠른 시작
 
@@ -28,9 +48,12 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 브라우저에서 확인:
 
 - 대시보드: http://127.0.0.1:8765/dashboard
-- 타임라인: http://127.0.0.1:8765/timeline
+- 기본 타임라인: http://127.0.0.1:8765/timeline
+- 상세 타임라인: http://127.0.0.1:8765/timeline/detail
 - 리포트: http://127.0.0.1:8765/reports
 - 설정: http://127.0.0.1:8765/settings
+
+macOS 앱은 Xcode에서 실행하거나, 내부 테스트용 Release 앱 번들을 받아 실행합니다. 현재 테스트 배포는 backend를 앱에 번들링하지 않으므로 backend는 별도로 실행해야 합니다.
 
 ## 환경 설정
 
@@ -39,13 +62,25 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 주요 설정:
 
 - `DATABASE_URL`: 기본값 `sqlite:///./data/mwoham.sqlite3`
-- `GEMINI_API_KEY`: Gemini API 키. 비어 있으면 placeholder 리포트를 생성합니다.
-- `GEMINI_MODEL`: Gemini 모델명
+- `GEMINI_API_KEY`: Gemini API 키. 비어 있으면 system fallback 리포트를 생성할 수 있습니다.
+- `GEMINI_MODEL`: 기본값 `gemini-2.5-flash-lite`
 - `GEMINI_MAX_OUTPUT_TOKENS`: Gemini 리포트 최대 출력 토큰
+- `ENABLE_SCREEN_OBSERVATION_AI_INFERENCE`: 개별 화면 관찰 AI 해석 호출 여부. 기본값은 `false`
+- `SCREEN_AI_MIN_INTERVAL_SECONDS`: 화면 관찰 AI 해석 최소 간격
+- `SCREEN_AI_DAILY_LIMIT`: 화면 관찰 AI 해석 일일 제한
 - `LOCAL_API_TOKEN`: 설정 시 보호 API에 `Authorization: Bearer <token>` 필요
 - `REPORT_EXPORT_DIR`: 리포트 export 저장 경로
 
-## 개발 명령
+## 개발 검증
+
+로컬 검증만 실행하고 DevEvent를 저장하지 않으려면:
+
+```bash
+cd backend
+uv run python scripts/run_dev_checks.py --no-record
+```
+
+개별 검증:
 
 ```bash
 cd backend
@@ -55,27 +90,79 @@ uv run alembic check
 git diff --check
 ```
 
-## CI
-
-- Backend CI는 ruff, pytest, coverage, alembic, git diff check를 검증합니다.
-- macOS client CI는 `MwohamMac`의 xcodebuild build만 검증합니다.
-- 화면 기록 권한, OCR 수집, Speech/마이크 권한, 메뉴바/플로팅 동작은 macOS 권한과 실제 사용자 세션이 필요하므로 수동 QA에서 검증합니다.
-
-샘플 데이터 생성:
+coverage 확인:
 
 ```bash
 cd backend
-uv run python scripts/seed_sample_data.py --reset
+uv run pytest --cov=app --cov-report=term-missing --cov-report=html
 ```
+
+작업 마감 시 Git snapshot과 검증 결과를 DevEvent로 남기려면:
+
+```bash
+cd backend
+uv run python scripts/collect_dev_context.py --repo-path ..
+```
+
+## Dev Tracking
+
+v0.6 기준으로 macOS 앱은 개발 도구가 활성화되면 backend watcher process를 자동 실행합니다. 사용자가 직접 시작/종료 버튼을 누르는 방식은 아닙니다.
+
+자동 실행 대상 앱:
+
+- PyCharm
+- Visual Studio Code
+- Code
+- Terminal
+- iTerm
+- iTerm2
+- Cursor
+
+앱은 설정된 repo path 1개를 추적합니다. 설정값이 비어 있으면 현재 mwoham repo fallback을 사용하고, repo 검증은 `git rev-parse --show-toplevel` 기준으로 수행합니다.
+
+자세한 정책은 [Dev Tracking](docs/DEV_TRACKING.md)을 참고하세요.
+
+## Privacy / Safety
+
+Mwoham의 현재 구현 원칙:
+
+- 원본 화면 이미지 저장 없음
+- OCR용 캡처 이미지를 backend로 전송하지 않음
+- 원본 오디오 파일 저장 없음
+- raw audio buffer 저장 없음
+- backend로 audio data 전송 없음
+- 전사 text만 `/meeting-transcripts` API로 저장
+- raw git diff를 DB, DevEvent, log, Report.content에 저장하지 않음
+- report 생성 시 제한된 git diff context만 prompt context로 일시 사용
+- token, password, secret, api_key, bearer, authorization 계열 문자열은 PrivacyFilter로 마스킹
 
 ## 문서
 
 - [Backend README](backend/README.md)
+- [macOS Client README](mac-client/README.md)
 - [Development Guide](DEVELOPMENT.md)
-- [MVP QA Checklist](docs/QA_CHECKLIST.md)
+- [Backend Development Guide](docs/BACKEND_DEVELOPMENT_GUIDE.md)
+- [Dev Tracking](docs/DEV_TRACKING.md)
+- [System Audio Capture/Transcription](docs/SYSTEM_AUDIO_CAPTURE_SPIKE.md)
+- [QA Checklist](docs/QA_CHECKLIST.md)
 - [Tester Install Guide](docs/TESTER_INSTALL_GUIDE.md)
+- [Codex Workflow](docs/CODEX_WORKFLOW.md)
 
-## 주의사항
+## CI
 
-- `.env`, `backend/data/`, `backend/exports/`, SQLite DB 파일은 git에 포함하지 않습니다.
-- 실제 Gemini 호출 테스트는 수동 확인이 필요할 때만 수행하고, 자동 테스트에서는 mock/fallback 중심으로 검증합니다.
+- Backend CI는 ruff, pytest, coverage, alembic, git diff check를 검증합니다.
+- macOS client CI는 `MwohamMac`의 `xcodebuild build`만 검증합니다.
+- 화면 기록 권한, OCR 수집, Speech/마이크 권한, 메뉴바/플로팅 동작은 macOS 권한과 실제 사용자 세션이 필요하므로 수동 QA에서 검증합니다.
+
+## Git 제외 대상
+
+다음은 로컬 산출물이므로 git에 포함하지 않습니다.
+
+- `backend/.env`
+- `backend/.venv/`
+- `backend/data/`
+- `backend/exports/`
+- SQLite DB 파일
+- `dist/`
+- coverage 산출물
+- 캐시 파일

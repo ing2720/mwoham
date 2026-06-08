@@ -1,5 +1,20 @@
 # Mwoham macOS Client
 
+MwohamMac은 로컬 backend와 연결되는 macOS SwiftUI 앱입니다. 일반 창, 메뉴바, 플로팅 위젯에서 기록 상태를 확인하고, 빠른 메모, OCR, 회의 전사, 자동 Dev Tracking 상태를 표시합니다.
+
+backend 기본 주소는 `http://127.0.0.1:8765`입니다. backend가 실행 중이지 않으면 앱은 연결 실패 안내와 대시보드 열기/새로고침 동작을 제공합니다.
+
+## 주요 역할
+
+- backend `/health`, `/status` 연결 상태 표시
+- 기록 시작, 일시정지, 재개, 종료
+- 빠른 메모 저장
+- 활성 앱/창 메타데이터 추적
+- OCR 텍스트 수집
+- Apple Speech 기반 회의 전사
+- 자동 Dev Tracking watcher process 실행과 상태 표시
+- 메뉴바와 플로팅 위젯 상태 표시
+
 ## macOS 권한 안내
 
 활성 앱 이름은 일반적으로 별도 권한 없이 확인할 수 있습니다. 활성 창 제목은 macOS 개인정보 보호 설정에 따라 비어 있을 수 있습니다.
@@ -15,6 +30,58 @@
 OCR 수집은 macOS 화면 기록 권한이 필요합니다. MwohamMac 앱에 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 권한을 허용해 주세요.
 
 OCR은 캡처 이미지를 파일로 저장하거나 backend로 전송하지 않습니다. 화면 이미지는 메모리에서 Apple Vision OCR 처리에만 사용하며, backend에는 추출된 텍스트와 중복 방지용 해시만 저장합니다.
+
+## Dev Tracking
+
+macOS 앱은 개발 도구가 활성화되면 backend watcher process를 자동 실행합니다. 시작/종료 버튼은 없습니다.
+
+개발 도구 판단 대상:
+
+- PyCharm
+- Visual Studio Code
+- Code
+- Terminal
+- iTerm
+- iTerm2
+- Cursor
+
+자동 실행 정책:
+
+- 개발 도구 활성화 시 watcher가 꺼져 있으면 자동 시작합니다.
+- watcher가 이미 실행 중이면 중복 실행하지 않습니다.
+- 비개발 앱으로 이동하면 grace period 후 watcher를 종료합니다.
+- 다시 개발 도구로 돌아오면 종료 예약을 취소합니다.
+- 앱 종료 시 child process를 종료합니다.
+- watcher stdout/stderr를 읽어 앱 상태에 반영합니다.
+
+실행 방식:
+
+```bash
+cd backend
+uv run python scripts/watch_dev_context.py --repo-path <repo> --interval 60 --session-current
+```
+
+앱은 `PATH`, `UV_CACHE_DIR`, `PYTHONUNBUFFERED`를 보강해 watcher stdout/stderr가 막히지 않게 처리합니다.
+
+## Dev Tracking repo path 설정
+
+앱 설정 영역에서 `Dev Tracking 추적 repo 경로`를 1개 입력할 수 있습니다.
+
+- 저장 위치: `UserDefaults`의 `devTrackingRepoPath`
+- 비어 있으면 현재 mwoham repo fallback 사용
+- 여러 repo 지원 없음
+- repo 자동 추정 없음
+- 수동 시작/종료 버튼 없음
+
+유효성 검사는 다음 순서로 수행합니다.
+
+1. path 존재 여부
+2. 디렉터리 여부
+3. `git -C <repoPath> rev-parse --show-toplevel` 성공 여부
+
+Git repo가 아니거나 path가 없으면 앱은 종료되지 않고 `Dev Tracking 오류: ...` 상태를 표시합니다.
+
+Dev Tracking 상태는 메인 상태 영역, 메뉴바, 플로팅 위젯에 표시됩니다.
 
 ## 회의 전사 구조
 
@@ -50,8 +117,20 @@ backend에는 Apple Speech가 반환한 transcript text만 기존 `/meeting-tran
 
 DB schema, migration, API endpoint는 시스템 오디오 전사 연결 과정에서 변경하지 않았습니다.
 
-## 시스템 오디오 캡처 Spike
+## 시스템 오디오 캡처/전사
 
 시스템 오디오 캡처는 ScreenCaptureKit 기반 display-wide capture로 검증했습니다. 현재 개발용 캡처 probe UI는 제거되었고, 시스템 오디오 단독 전사와 회의 전체 전사 흐름에 필요한 구조만 남아 있습니다.
 
-시스템 오디오 전사도 원본 오디오를 파일로 저장하지 않고 backend로 전송하지 않습니다. 자세한 내용은 [시스템 오디오 캡처 Spike](../docs/SYSTEM_AUDIO_CAPTURE_SPIKE.md)를 참고하세요.
+시스템 오디오 전사도 원본 오디오를 파일로 저장하지 않고 backend로 전송하지 않습니다. 자세한 내용은 [시스템 오디오 캡처/전사](../docs/SYSTEM_AUDIO_CAPTURE_SPIKE.md)를 참고하세요.
+
+## Privacy / Safety
+
+현재 macOS 앱 구현은 다음 원칙을 유지합니다.
+
+- 원본 화면 이미지 저장 없음
+- OCR 캡처 이미지를 backend로 전송하지 않음
+- 원본 오디오 파일 저장 없음
+- raw audio buffer 저장 없음
+- backend로 audio data 전송 없음
+- transcript text만 `/meeting-transcripts` API로 저장
+- Dev Tracking은 Git diff 본문이나 파일 내용을 저장하지 않음

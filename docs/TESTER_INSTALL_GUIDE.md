@@ -7,7 +7,7 @@
 ## 구성
 
 - `MwohamMac.app`: macOS SwiftUI 앱입니다. 메뉴바, 플로팅 위젯, OCR 수집, 회의 전사, 기록 제어를 담당합니다.
-- `backend`: FastAPI 로컬 서버입니다. SQLite 저장, 회의 transcript 저장, Gemini 리포트, PDF export, 웹 대시보드를 담당합니다.
+- `backend`: FastAPI 로컬 서버입니다. SQLite 저장, 회의 transcript 저장, DevEvent 저장, Gemini 리포트, PDF export, 웹 대시보드를 담당합니다.
 - backend 기본 주소: `http://127.0.0.1:8765`
 
 ## 앱 준비 방식
@@ -95,6 +95,7 @@ OCR, 활성 창 추적, 회의 전사 검증을 위해 권한 허용이 필요�
 
 - 화면 기록 권한
   - OCR 수집에 필요합니다.
+  - 시스템 오디오 전사와 회의 전체 전사에도 필요합니다.
   - 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 허용합니다.
 - 음성 인식 권한
   - Apple Speech 기반 회의 전사에 필요합니다.
@@ -109,6 +110,45 @@ OCR, 활성 창 추적, 회의 전사 검증을 위해 권한 허용이 필요�
 권한을 허용한 뒤에는 앱을 완전히 종료하고 다시 실행합니다.
 
 회의 전사는 원본 오디오 파일을 저장하지 않고, backend로 audio data를 전송하지 않습니다. backend에는 transcript text만 저장합니다.
+
+회의 전사 source별 권한:
+
+- 마이크: 음성 인식, 마이크
+- 시스템 오디오: 음성 인식, 화면 기록
+- 회의 전체: 음성 인식, 마이크, 화면 기록
+
+회의 전체는 마이크와 시스템 오디오 입력을 하나의 Apple Speech recognitionTask로 처리합니다.
+
+## Dev Tracking
+
+앱은 개발 도구가 활성화되면 자동으로 backend watcher process를 실행해 Git 변경 상태를 DevEvent로 저장합니다. 별도 시작/종료 버튼은 없습니다.
+
+개발 도구 판단 대상:
+
+- PyCharm
+- Visual Studio Code
+- Code
+- Terminal
+- iTerm
+- iTerm2
+- Cursor
+
+동작:
+
+- 개발 도구 활성화 시 자동 시작
+- 비개발 앱 이동 시 grace period 후 종료
+- watcher 중복 실행 방지
+- 앱 종료 시 watcher 종료
+- watcher stdout/stderr를 앱 상태, 메뉴바, 플로팅 위젯에 표시
+
+추적 repo path는 앱 설정 영역에서 1개만 입력할 수 있습니다.
+
+- 비어 있으면 현재 mwoham repo fallback 사용
+- repo 검증은 `git rev-parse --show-toplevel` 기준
+- 여러 repo 지원 없음
+- repo 자동 추정 없음
+
+backend watcher는 raw git diff 본문이나 파일 내용을 저장하지 않습니다. DevEvent에는 Git 상태 요약과 diff_summary 같은 안전한 메타데이터만 저장합니다.
 
 ## Gemini 설정
 
@@ -148,10 +188,12 @@ GEMINI_MAX_OUTPUT_TOKENS="8192"
 4. Chrome, PyCharm, Xcode 등 몇 가지 앱으로 전환합니다.
 5. PrivateApp으로 등록한 앱을 켜고 UI가 `비공개 앱`으로 표시되는지 확인합니다.
 6. OCR 상태가 `OCR 저장됨`, `OCR 텍스트 부족`, `권한 필요` 등 상황에 맞게 표시되는지 확인합니다.
-7. 빠른 메모를 저장합니다.
-8. 기본 타임라인과 상세 타임라인을 확인합니다.
-9. 리포트를 생성합니다.
-10. PDF export와 다운로드를 확인합니다.
+7. 개발 도구를 활성화하고 Dev Tracking 상태가 `감시 시작`, `변경 없음`, `Git 변경 감지` 등으로 바뀌는지 확인합니다.
+8. 빠른 메모를 저장합니다.
+9. 회의 전사 source를 선택해 transcript text 저장을 확인합니다.
+10. 기본 타임라인과 상세 타임라인을 확인합니다.
+11. 리포트를 생성합니다.
+12. PDF export와 다운로드를 확인합니다.
 
 상세 시나리오는 [QA_CHECKLIST.md](QA_CHECKLIST.md)를 참고하세요.
 
@@ -163,6 +205,8 @@ curl "http://127.0.0.1:8765/timeline/today?date=$(date +%F)"
 curl "http://127.0.0.1:8765/timeline/today/detail?date=$(date +%F)"
 curl "http://127.0.0.1:8765/screen-observations?date=$(date +%F)&limit=20"
 curl "http://127.0.0.1:8765/activity-segments?date=$(date +%F)"
+curl "http://127.0.0.1:8765/dev-events/today?date=$(date +%F)"
+curl "http://127.0.0.1:8765/meeting-transcripts/today"
 curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 ```
 
@@ -186,6 +230,13 @@ OCR이 저장되지 않음:
 - `GEMINI_API_KEY`가 없거나 잘못됐을 수 있습니다.
 - Gemini 무료 quota를 초과했을 수 있습니다.
 - `GEMINI_MODEL`이 계정에서 사용할 수 없는 모델일 수 있습니다.
+
+Dev Tracking 오류:
+
+- backend 경로를 찾을 수 없는지 확인합니다.
+- repo path가 실제 디렉터리인지 확인합니다.
+- `git -C <repoPath> rev-parse --show-toplevel`이 성공하는지 확인합니다.
+- uv가 설치되어 있고 앱 실행 환경 PATH에서 찾을 수 있는지 확인합니다.
 
 앱 실행이 macOS에서 차단됨:
 
