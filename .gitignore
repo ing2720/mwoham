@@ -8,6 +8,7 @@ docs/*
 
 # Build and tester distribution artifacts
 dist/
+.derivedData/
 
 # Backend local environment and runtime files
 backend/.env

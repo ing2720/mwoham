@@ -56,6 +56,12 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 macOS 앱은 Xcode에서 실행하거나, 내부 테스트용 Release 앱 번들을 받아 실행합니다. 현재 테스트 배포는 backend를 앱에 번들링하지 않으므로 backend는 별도로 실행해야 합니다.
 
+개발 중 macOS 권한을 안정적으로 유지하려면 고정 경로의 `MwohamMac.app` bundle을 사용합니다:
+
+```bash
+./scripts/build_macos_app.sh --open
+```
+
 ## 환경 설정
 
 백엔드는 `backend/.env`를 읽습니다. 실제 `.env`는 git에 포함하지 않습니다. 예시는 [backend/.env.example](backend/.env.example)을 참고하세요.
