@@ -39,6 +39,7 @@ def db_engine() -> Generator[Engine]:
         yield engine
     finally:
         Base.metadata.drop_all(bind=engine)
+        engine.dispose()
 
 
 @pytest.fixture
@@ -69,7 +70,8 @@ def client(db_engine: Engine) -> Generator[TestClient]:
         _build_unconfigured_screen_observation_service
     )
     try:
-        yield TestClient(app)
+        with TestClient(app) as test_client:
+            yield test_client
     finally:
         settings.local_api_token = original_token
         app.dependency_overrides.clear()
