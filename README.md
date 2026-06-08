@@ -20,7 +20,7 @@ Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 �
   - Git snapshot
   - 개발 검증 명령 결과
   - 자동 Dev Tracking watcher
-  - zsh 터미널 명령 metadata
+  - zsh hook 기반 터미널 명령 metadata
 - Gemini 기반 일일 리포트 생성
 - Markdown/PDF export와 브라우저 다운로드
 - 개발/테스트 데이터 초기화
@@ -61,6 +61,9 @@ macOS 앱은 Xcode에서 실행하거나, 내부 테스트용 Release 앱 번들
 ```bash
 ./scripts/build_macos_app.sh --open
 ```
+
+화면 기록, 마이크, 음성 인식 등 macOS 권한은 이 스크립트가 여는 고정 앱 번들인
+`~/Applications/MwohamMac.app` 기준으로 부여합니다.
 
 ## 환경 설정
 
@@ -129,6 +132,44 @@ v0.6 기준으로 macOS 앱은 개발 도구가 활성화되면 backend watcher 
 
 자세한 정책은 [Dev Tracking](docs/DEV_TRACKING.md)을 참고하세요.
 
+## Command Tracking
+
+v0.7 기준으로 zsh hook 기반 터미널 명령 자동 기록을 지원합니다. 설치하면 `preexec`와
+`precmd` hook이 명령 metadata를 수집해 `command_result` DevEvent로 저장합니다.
+
+```bash
+cd backend
+uv run python scripts/install_command_tracking_hook.py
+```
+
+설치 후 새 터미널부터 자동 적용됩니다. 현재 열려 있는 터미널에서는 다음 명령으로 적용합니다.
+
+```bash
+source ~/.zshrc
+```
+
+상태 확인과 현재 터미널 비활성화:
+
+```bash
+mwoham_command_tracking_status
+mwoham_command_tracking_disable
+```
+
+해제:
+
+```bash
+cd backend
+uv run python scripts/uninstall_command_tracking_hook.py
+```
+
+저장 대상은 `command`, `exit_code`, `duration_ms`, `cwd`, `repo_path`, `branch` 같은
+metadata입니다. stdout/stderr 전체, shell history, 키 입력 내용은 저장하지 않으며
+민감정보는 마스킹합니다. failed command는 리포트에서 우선 근거로 다루고,
+`sqlite3`, `curl`, `echo`, `source` 같은 확인용 command는 낮은 우선순위로 참고합니다.
+타임라인에는 `명령 성공` 또는 `명령 실패` label로 표시됩니다.
+
+자세한 정책은 [Command Tracking](docs/COMMAND_TRACKING.md)을 참고하세요.
+
 ## Privacy / Safety
 
 Mwoham의 현재 구현 원칙:
@@ -139,6 +180,7 @@ Mwoham의 현재 구현 원칙:
 - raw audio buffer 저장 없음
 - backend로 audio data 전송 없음
 - 전사 text만 `/meeting-transcripts` API로 저장
+- terminal command tracking은 stdout/stderr 전체, shell history, 키 입력 내용을 저장하지 않음
 - raw git diff를 DB, DevEvent, log, Report.content에 저장하지 않음
 - report 생성 시 제한된 git diff context만 prompt context로 일시 사용
 - token, password, secret, api_key, bearer, authorization 계열 문자열은 PrivacyFilter로 마스킹

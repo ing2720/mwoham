@@ -4,6 +4,14 @@ Mwoham Backend는 로컬 작업 기록 에이전트의 FastAPI 서버입니다. 
 
 macOS 앱은 backend API를 통해 기록 세션, 활성 앱/창 구간, OCR 텍스트, 수동 메모, 회의 전사, DevEvent를 저장합니다. backend는 웹 대시보드, 기본/상세 타임라인, Markdown/PDF export, 개발용 스크립트를 제공합니다.
 
+개발 중 macOS 권한을 안정적으로 유지하려면 repo root에서 고정 앱 번들을 실행합니다.
+
+```bash
+./scripts/build_macos_app.sh --open
+```
+
+화면 기록, 마이크, 음성 인식 등 앱 권한은 `~/Applications/MwohamMac.app` 기준으로 부여합니다.
+
 ## 기술 스택
 
 - FastAPI
@@ -157,10 +165,68 @@ uv run python scripts/uninstall_command_tracking_hook.py
 - `record_command_result.py`: 개발 명령 결과를 summary 중심으로 DevEvent에 저장합니다.
 - `collect_dev_context.py`: Git snapshot 수집 후 dev checks를 실행해 작업 마감용 DevEvent를 남깁니다.
 - `watch_dev_context.py`: Git 상태를 주기적으로 감지해 변경 시 DevEvent를 저장합니다.
-- `install_command_tracking_hook.py`: zsh command tracking hook을 `~/.zshrc`에 설치합니다.
-- `uninstall_command_tracking_hook.py`: zsh command tracking hook source line을 제거합니다.
+- `install_command_tracking_hook.py`: zsh command tracking hook source line을 `~/.zshrc`에 설치합니다.
+- `uninstall_command_tracking_hook.py`: zsh command tracking hook source line을 `~/.zshrc`에서 제거합니다.
 
 터미널 명령 자동 기록 설치/해제와 저장 정책은 [Command Tracking 문서](../docs/COMMAND_TRACKING.md)를 참고하세요.
+
+## zsh Command Tracking
+
+v0.7 command tracking은 zsh `preexec`/`precmd` hook 기반입니다. hook은 사용자 명령의
+metadata를 `record_command_result.py`로 전달하고, backend는 이를 `command_result`
+DevEvent로 저장합니다.
+
+설치:
+
+```bash
+cd backend
+uv run python scripts/install_command_tracking_hook.py
+```
+
+설치 후 새 터미널부터 자동 적용됩니다. 현재 터미널에서 바로 쓰려면 다음 명령을 실행합니다.
+
+```bash
+source ~/.zshrc
+```
+
+상태 확인:
+
+```bash
+mwoham_command_tracking_status
+```
+
+현재 터미널에서만 비활성화:
+
+```bash
+mwoham_command_tracking_disable
+```
+
+해제:
+
+```bash
+cd backend
+uv run python scripts/uninstall_command_tracking_hook.py
+```
+
+저장되는 command metadata:
+
+- `command`
+- `exit_code`
+- `duration_ms`
+- `cwd`
+- `repo_path`
+- `branch`
+
+저장하지 않는 항목:
+
+- stdout/stderr 전체
+- shell history
+- 키 입력 내용
+- 파일 내용
+- raw git diff
+
+command, summary, details에는 `PrivacyFilter`가 적용되어 민감정보를 마스킹합니다.
+터미널 명령은 웹 타임라인에서 `명령 성공` 또는 `명령 실패` label로 표시됩니다.
 
 ## DevEvent 작업 마감 수집
 
@@ -211,7 +277,7 @@ uv run python scripts/watch_dev_context.py --repo-path .. --state-path /tmp/mwoh
 
 ## DevEvent API
 
-DevEvent는 Git snapshot, 개발 명령 결과, 자동 watcher 이벤트를 저장하는 개발 작업 근거입니다.
+DevEvent는 Git snapshot, 개발 명령 결과, 자동 watcher 이벤트, terminal command 결과를 저장하는 개발 작업 근거입니다.
 
 주요 API:
 
@@ -221,7 +287,7 @@ DevEvent는 Git snapshot, 개발 명령 결과, 자동 watcher 이벤트를 저�
 
 `POST /dev-events`는 Local API Token 보호 대상입니다. `LOCAL_API_TOKEN`을 설정한 경우 `Authorization: Bearer <token>` 헤더가 필요합니다.
 
-자동 watcher 기반 `git_snapshot`은 웹 타임라인에서는 DevEvent로 확인할 수 있고, report input에서는 20분 버킷과 branch 기준으로 압축됩니다. 수동 `collect_git_snapshot.py` 이벤트는 기존 DevEvent로 유지됩니다.
+자동 watcher 기반 `git_snapshot`은 웹 타임라인에서는 DevEvent로 확인할 수 있고, report input에서는 20분 버킷과 branch 기준으로 압축됩니다. 수동 `collect_git_snapshot.py` 이벤트는 기존 DevEvent로 유지됩니다. terminal command 기반 `command_result`는 웹 타임라인에서 `명령 성공` 또는 `명령 실패` label로 확인할 수 있습니다.
 
 ## Report input과 Git diff context
 
@@ -254,6 +320,11 @@ DevEvent는 Git snapshot, 개발 명령 결과, 자동 watcher 이벤트를 저�
 - clean working tree면 diff context 없이 기존 DevEvent 기반으로 리포트 생성
 
 `CURRENT_GIT_CHANGE_HINTS`는 diff에서 기능 단위 힌트를 추출합니다. 예를 들어 persistent state, TTL dedupe, debounce, repo path 설정, stdout/stderr 상태 표시 같은 구체 기능명이 리포트에 반영되도록 돕습니다.
+
+terminal command 기반 `command_result`는 `PRIORITY_DEV_EVENTS`에 포함됩니다. failed command는
+성공 command보다 우선 근거로 배치하고, 실패 후 성공한 같은 계열 명령은 하나의 해결 흐름으로
+요약하도록 prompt에서 지시합니다. `sqlite3`, `curl`, `echo`, `source ~/.zshrc` 같은 확인용
+inspection command는 리포트에서 낮은 우선순위로 참고합니다.
 
 ## Meeting Transcript
 

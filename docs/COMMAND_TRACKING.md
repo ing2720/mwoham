@@ -9,14 +9,14 @@
 저장 대상:
 
 - command
-- cwd
-- started_at
-- ended_at
-- duration_ms
 - exit_code
-- success / failed
+- duration_ms
+- cwd
 - repo_path
 - branch
+- started_at
+- ended_at
+- success / failed
 - shell
 - session_current 여부
 
@@ -29,7 +29,7 @@
 - 파일 내용
 - raw git diff
 - shell history 전체
-- 키 입력 내용
+- 키 입력 감시 또는 키 입력 내용
 
 ## 설치
 
@@ -44,7 +44,25 @@ uv run python scripts/install_command_tracking_hook.py
 source "<repo>/backend/scripts/mwoham_zsh_tracking.zsh"
 ```
 
-중복 설치는 하지 않습니다. 설치 후 새 터미널을 열거나 `source ~/.zshrc`를 실행합니다.
+중복 설치는 하지 않습니다. 설치 후 새 터미널부터 자동 적용됩니다.
+
+현재 열려 있는 터미널에서 바로 적용하려면 다음 명령을 실행합니다.
+
+```bash
+source ~/.zshrc
+```
+
+상태 확인:
+
+```bash
+mwoham_command_tracking_status
+```
+
+현재 터미널에서만 비활성화:
+
+```bash
+mwoham_command_tracking_disable
+```
 
 ## 해제
 
@@ -54,6 +72,13 @@ uv run python scripts/uninstall_command_tracking_hook.py
 ```
 
 해제 스크립트는 설치된 source line을 제거합니다.
+
+이미 열려 있는 zsh에는 hook이 남아 있을 수 있습니다. 현재 터미널에서 즉시 끄려면 다음 명령을
+실행합니다.
+
+```bash
+mwoham_command_tracking_disable
+```
 
 ## zsh hook 동작
 
@@ -79,6 +104,9 @@ uv run python scripts/record_command_result.py \
 
 hook 실패는 사용자 명령 실행을 막지 않도록 조용히 처리합니다.
 
+hook은 stdout/stderr 전체를 읽거나 저장하지 않습니다. shell history 전체를 읽지 않고, 사용자의
+키 입력을 감시하지 않습니다.
+
 ## 저장 정책
 
 `record_command_result.py`는 command metadata를 `DevEvent`로 저장합니다.
@@ -88,6 +116,8 @@ hook 실패는 사용자 명령 실행을 막지 않도록 조용히 처리합�
 - `status`: exit code 0이면 `success`, 아니면 `failed`
 - `summary`: `명령 성공: ...` 또는 `명령 실패: ... exit_code=...`
 - `details_json.tracking_mode`: `command_hook`
+
+주요 metadata는 `command`, `exit_code`, `duration_ms`, `cwd`, `repo_path`, `branch`입니다.
 
 cwd가 Git repo 안이면 다음 값을 함께 저장합니다.
 
@@ -136,7 +166,15 @@ terminal command DevEvent는 report input의 `PRIORITY_DEV_EVENTS`에 포함됩�
 
 - 실패한 terminal command를 성공 command보다 우선 근거로 배치합니다.
 - 실패 후 성공한 같은 계열 명령은 하나의 해결 흐름으로 요약하도록 prompt에서 지시합니다.
+- `sqlite3`, `curl`, `echo`, `source ~/.zshrc` 같은 확인용 inspection command는 report에서 낮은 우선순위로 참고합니다.
 - 터미널 출력 전문은 없으므로 실패 원인은 command, exit_code, 주변 DevEvent, CURRENT_GIT_DIFF_CONTEXT 근거가 있을 때만 보수적으로 판단합니다.
+
+## Timeline 표시
+
+terminal command 기반 `command_result` DevEvent는 timeline에서 상태에 따라 다음 label로 표시됩니다.
+
+- 성공: `명령 성공`
+- 실패: `명령 실패`
 
 ## 현재 한계
 
@@ -144,4 +182,5 @@ terminal command DevEvent는 report input의 `PRIORITY_DEV_EVENTS`에 포함됩�
 - bash/fish 통합은 없습니다.
 - 터미널 출력 전문은 저장하지 않습니다.
 - shell history 전체를 읽지 않습니다.
+- 키 입력 감시를 하지 않습니다.
 - LaunchAgent/daemon은 없습니다.
