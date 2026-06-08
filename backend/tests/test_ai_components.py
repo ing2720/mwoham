@@ -278,6 +278,9 @@ def test_prompt_builder_includes_meeting_transcripts() -> None:
     assert "meeting_id=7" in prompt
     assert "배포 전 리포트 생성을 확인합니다." in prompt
     assert "text=회의 전사 수집됨" not in prompt
+    assert "회의 전사는 결정사항, 논의사항, 후속작업 후보로 나눠 반영" in prompt
+    assert "근거 없이 결정사항을 만들지 마세요." in prompt
+    assert "source 값은 근거로만 참고하고 최종 리포트에 과하게 나열하지 마세요." in prompt
 
 
 def test_prompt_builder_groups_meeting_transcripts_and_skips_short_fragments() -> None:
@@ -918,6 +921,65 @@ def test_prompt_builder_prioritizes_failed_terminal_commands() -> None:
     assert "tracking_mode=command_hook" not in dev_event_section
 
 
+def test_prompt_builder_adds_command_flow_hints_for_failed_then_success() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=3,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="uv run pytest tests/not_exists.py",
+                content="명령 실패: uv run pytest tests/not_exists.py exit_code=4",
+                details_json={"exit_code": 4, "duration_ms": 900},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 1, 5, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run pytest tests/test_health.py",
+                content="명령 성공: uv run pytest tests/test_health.py",
+                details_json={"exit_code": 0, "duration_ms": 500},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 1, 10, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/report-quality",
+                content="Git 변경 파일 확인: backend/app/ai/prompt_builder.py",
+                details_json={
+                    "changed_files": ["backend/app/ai/prompt_builder.py"],
+                },
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    command_flow_section = _prompt_section(
+        prompt,
+        "PRIORITY_COMMAND_FLOWS:",
+        "WORK_EVIDENCE_BY_TIME:",
+    )
+
+    assert "PRIORITY_COMMAND_FLOWS:" in prompt
+    assert "COMMAND_FLOW |" in command_flow_section
+    assert "flow_type=failed_to_success" in command_flow_section
+    assert "command_family=uv run pytest" in command_flow_section
+    assert "statuses=failed->success" in command_flow_section
+    assert "개별 명령 나열보다 수정/보완/검증" in command_flow_section
+    assert "같은 시간대의 git_snapshot, command_result, diff context를 묶어" in prompt
+    assert "무슨 기능을 구현/보완했고 어떻게 검증했는지" in prompt
+
+
 def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
@@ -967,16 +1029,32 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
                 content="명령 실패: curl http://127.0.0.1:8765/reports/daily exit_code=7",
                 details_json={"exit_code": 7},
             ),
+            TimelineItem(
+                type="dev_event",
+                id=5,
+                timestamp=datetime(2026, 5, 26, 1, 4, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="mwoham_command_tracking_status",
+                content="명령 성공: mwoham_command_tracking_status",
+                details_json={"exit_code": 0},
+            ),
         ],
     )
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
     dev_event_section = prompt.split("PRIORITY_DEV_EVENTS:", 1)[1]
+    command_flow_section = prompt.split("PRIORITY_COMMAND_FLOWS:", 1)[1]
 
     assert "확인용 terminal command는 최종 리포트에 직접 나열하지 말고" in prompt
     assert "최종 리포트에 직접 나열하지 말고" in prompt
+    assert "mwoham_command_tracking_status" in prompt
+    assert "mwoham_command_tracking_disable" in prompt
     assert "DB 조회와 report 생성으로 저장 결과를 확인했다" in prompt
     assert "검증/개발 command는 높은 우선순위" in prompt
+    assert "flow_type=inspection" in command_flow_section
+    assert "확인용 command입니다." in command_flow_section
     assert dev_event_section.index("status=failed") < dev_event_section.index(
         "uv run pytest tests/test_health.py"
     )
@@ -986,6 +1064,32 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     assert dev_event_section.index("uv run pytest tests/test_health.py") < dev_event_section.index(
         "echo ok"
     )
+
+
+def test_prompt_builder_instructs_destructive_commands_to_stay_concise() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="rm -rf /tmp/MwohamMacDerivedData",
+                content="명령 성공: rm -rf /tmp/MwohamMacDerivedData",
+                details_json={"exit_code": 0},
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "rm -rf 같은 destructive command" in prompt
+    assert "불필요한 앱/빌드 산출물 정리" in prompt
+    assert "flow_type=cleanup" in prompt
 
 
 def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() -> None:
@@ -1008,7 +1112,7 @@ def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert "이미 오늘 완료된 기능을 다시 구현 과제로 제안하지 마세요." in prompt
-    assert "완료된 것으로 보이는 항목:" in prompt
+    assert "입력에 구현/검증 완료로 보이는 항목이 있으면" in prompt
     assert "persistent state" in prompt
     assert "TTL dedupe" in prompt
     assert "debounce" in prompt
@@ -1018,11 +1122,14 @@ def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() 
     assert "report input 20분 압축" in prompt
     assert "CURRENT_GIT_DIFF_CONTEXT" in prompt
     assert "CURRENT_GIT_CHANGE_HINTS" in prompt
+    assert "command_result" in prompt
+    assert "timeline filtering" in prompt
     assert (
         "terminal command 자동 기록이 이미 입력에 있으면 다음 작업 후보로 반복 제안하지"
         in prompt
     )
-    assert "timeline 필터링은 별도 작업" in prompt
+    assert "timeline filtering 구현/검증이 이미 입력에 있으면 반복 제안하지" in prompt
+    assert "다음 작업 후보는 3~5개로 제한" in prompt
 
 
 def test_prompt_builder_instructs_current_work_topic_from_context() -> None:
@@ -1046,10 +1153,7 @@ def test_prompt_builder_instructs_current_work_topic_from_context() -> None:
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
-    assert (
-        "CURRENT_GIT_CHANGE_HINTS, CURRENT_GIT_DIFF_CONTEXT, PRIORITY_DEV_EVENTS, "
-        "command_result를 보고 현재 작업 주제를 먼저 추론하세요."
-    ) in prompt
+    assert "PRIORITY_COMMAND_FLOWS, command_result를 보고 현재 작업 주제를 먼저" in prompt
     assert "현재 작업 주제가 command tracking이면 터미널 명령 자동 기록 중심" in prompt
     assert "이전 마일스톤에서 완료된 기능명이 입력에 있어도" in prompt
     assert "직접 관련이 약하면 배경 정보로만 다루세요." in prompt
