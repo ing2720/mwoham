@@ -198,6 +198,28 @@ metadata입니다. stdout/stderr 전체, shell history, 키 입력 내용은 저
 
 자세한 정책은 [Command Tracking](docs/COMMAND_TRACKING.md)을 참고하세요.
 
+## Report Quality
+
+v0.9 기준 daily report는 detailed report 품질 개선에 집중합니다. summary/simple/compact
+요약본 분리는 아직 공식 기능이 아닙니다.
+
+리포트 입력은 현재 작업 주제를 먼저 잡기 위해 `CURRENT_WORK_FOCUS`를 우선 반영합니다.
+`command_result`는 `PRIORITY_COMMAND_FLOWS`에서 `failed_to_success`, `failed_only`,
+`development_validation`, `inspection`, `cleanup` 흐름으로 구분해 전달합니다.
+
+report 작성 정책:
+
+- failed command는 실제 장애로 과장하지 않고 주변 DevEvent, diff context, command 흐름과 함께 해석
+- inspection/setup command는 보조 근거로만 사용
+- cleanup command는 명령 원문을 길게 나열하지 않고 간결하게 요약
+- meeting transcript는 결정사항, 논의사항, 후속작업 후보로 나눠 반영하되 근거 없이 결정사항을 만들지 않음
+- 이미 완료된 기능은 다음 작업 후보로 반복 제안하지 않도록 prompt에서 지시
+- raw diff는 저장하지 않고 report 생성 시 prompt context에만 제한적으로 사용
+- stdout/stderr 전체, shell history, 키 입력 내용은 저장하지 않음
+
+남은 후속 후보는 report input pruning, event relevance scoring, QA/noise event tagging,
+meeting transcript report quality, daily review dashboard입니다.
+
 ## Privacy / Safety
 
 Mwoham의 현재 구현 원칙:
