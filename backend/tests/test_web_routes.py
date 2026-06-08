@@ -100,7 +100,7 @@ def test_dashboard_recent_timeline_uses_basic_timeline(client: TestClient) -> No
     assert "작업 구간" not in response.text
 
 
-def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> None:
+def test_timeline_renders_events_and_memos_newest_first(client: TestClient) -> None:
     client.post("/recording/start", json={})
     client.post(
         "/events",
@@ -122,9 +122,20 @@ def test_timeline_renders_events_and_memos_in_time_order(client: TestClient) -> 
 
     assert response.status_code == 200
     assert "타임라인" in response.text
-    assert response.text.index("Ran pytest") < response.text.index("Document edge case")
+    assert response.text.index("Document edge case") < response.text.index("Ran pytest")
     assert "2026-05-26 17:30" in response.text
     assert "2026-05-26T08:30" not in response.text
+
+
+def test_timeline_filter_query_is_preserved_in_detail_link(client: TestClient) -> None:
+    response = client.get("/timeline?date=2026-05-26&filter=command")
+
+    assert response.status_code == 200
+    assert "터미널 명령" in response.text
+    assert "/timeline/detail?date=2026-05-26" in response.text
+    assert "filter=command" in response.text
+    assert 'name="date" value="2026-05-26"' in response.text
+    assert '<option value="command" selected>터미널 명령</option>' in response.text
 
 
 def test_timeline_renders_manual_and_watcher_git_dev_event_labels(
@@ -276,6 +287,110 @@ def test_timeline_renders_meeting_and_transcript_items(client: TestClient) -> No
     assert "회의" in response.text
     assert "전사" in response.text
     assert "전사 내용은 리포트 입력에 포함합니다." in response.text
+
+
+def test_timeline_filters_items_by_query_parameter(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime(2026, 5, 26, 1, 0, tzinfo=UTC).isoformat(),
+            "content": "수동 필터 메모",
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "git_snapshot",
+            "source": "script",
+            "summary": "Git 변경 감지: 1 file changed",
+            "details_json": {
+                "tracking_mode": "watch",
+                "changed_files": ["backend/app.py"],
+            },
+            "occurred_at": datetime(2026, 5, 26, 1, 10, tzinfo=UTC).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "terminal",
+            "command": "uv run pytest",
+            "status": "success",
+            "summary": "명령 성공: uv run pytest",
+            "details_json": {"exit_code": 0, "duration_ms": 1200},
+            "occurred_at": datetime(2026, 5, 26, 1, 20, tzinfo=UTC).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "terminal",
+            "command": "uv run pytest tests/not_exists.py",
+            "status": "failed",
+            "summary": "명령 실패: uv run pytest tests/not_exists.py exit_code=4",
+            "details_json": {"exit_code": 4, "duration_ms": 800},
+            "occurred_at": datetime(2026, 5, 26, 1, 30, tzinfo=UTC).isoformat(),
+        },
+    )
+    meeting = client.post(
+        "/meetings/start",
+        json={
+            "started_at": datetime(2026, 5, 26, 1, 40, tzinfo=UTC).isoformat(),
+            "title": "필터 회의",
+            "meeting_app": "Zoom",
+            "transcript_enabled": True,
+        },
+    ).json()
+    client.post(
+        "/transcripts",
+        json={
+            "meeting_id": meeting["id"],
+            "timestamp": datetime(2026, 5, 26, 1, 45, tzinfo=UTC).isoformat(),
+            "speaker": "mentor",
+            "text": "필터 회의 전사 내용입니다.",
+        },
+    )
+    client.post(
+        "/events",
+        json={
+            "timestamp": datetime(2026, 5, 26, 2, 0, tzinfo=UTC).isoformat(),
+            "source": "web",
+            "content": "리포트 필터 입력 이벤트",
+        },
+    )
+    client.post("/reports/daily", json={"date": "2026-05-26"})
+
+    all_response = client.get("/timeline?date=2026-05-26&filter=all")
+    unknown_response = client.get("/timeline?date=2026-05-26&filter=unknown")
+    dev_response = client.get("/timeline?date=2026-05-26&filter=dev")
+    git_response = client.get("/timeline?date=2026-05-26&filter=git")
+    command_response = client.get("/timeline?date=2026-05-26&filter=command")
+    failed_response = client.get("/timeline?date=2026-05-26&filter=command_failed")
+    meeting_response = client.get("/timeline?date=2026-05-26&filter=meeting")
+    memo_response = client.get("/timeline?date=2026-05-26&filter=memo")
+    report_response = client.get("/timeline?date=2026-05-26&filter=report")
+
+    assert all_response.status_code == 200
+    assert unknown_response.status_code == 200
+    assert "전체" in unknown_response.text
+    assert "수동 필터 메모" in all_response.text
+    assert "개발 이벤트" in dev_response.text
+    assert "수동 필터 메모" not in dev_response.text
+    assert "자동 Git 변경 감지" in git_response.text
+    assert "명령 성공" not in git_response.text
+    assert "명령 성공" in command_response.text
+    assert "명령 실패" in command_response.text
+    assert "명령 실패" in failed_response.text
+    assert "명령 성공" not in failed_response.text
+    assert "필터 회의 전사 내용입니다." in meeting_response.text
+    assert "필터 회의 시작" not in meeting_response.text
+    assert "수동 필터 메모" in memo_response.text
+    assert "명령 실패" not in memo_response.text
+    assert "일일 작업 리포트" in report_response.text
+    assert "수동 필터 메모" not in report_response.text
 
 
 @pytest.mark.parametrize("path,title", [("/reports", "리포트"), ("/settings", "설정")])

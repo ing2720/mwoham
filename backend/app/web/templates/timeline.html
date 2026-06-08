@@ -6,19 +6,33 @@
   <div class="page-title">
     <h1>{% if is_detail %}상세 타임라인{% else %}타임라인{% endif %}</h1>
     <span class="muted">{{ timeline.date }}</span>
+    <span class="badge">{{ timeline_filter_label }}</span>
     {% if is_detail %}
-      <a class="badge" href="/timeline{% if timeline.date %}?date={{ timeline.date }}{% endif %}">상세 타임라인</a>
+      <a class="badge" href="/timeline?date={{ timeline.date }}&filter={{ timeline_filter }}">기본 타임라인</a>
     {% else %}
-      <a class="badge" href="/timeline/detail{% if timeline.date %}?date={{ timeline.date }}{% endif %}">기본 타임라인</a>
+      <a class="badge" href="/timeline/detail?date={{ timeline.date }}&filter={{ timeline_filter }}">상세 타임라인</a>
     {% endif %}
   </div>
+
+  <form class="timeline-controls" method="get" action="{% if is_detail %}/timeline/detail{% else %}/timeline{% endif %}">
+    <input type="hidden" name="date" value="{{ timeline.date }}">
+    <label>
+      필터
+      <select name="filter">
+        {% for option in timeline_filter_options %}
+          <option value="{{ option.value }}" {% if option.value == timeline_filter %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">적용</button>
+  </form>
 
   <section class="timeline">
     {% for item in timeline.items %}
       <article class="timeline-item">
         <div>
           <span class="badge">
-            {% if item.display_label %}{{ item.display_label }}{% elif item.type == "event" %}이벤트{% elif item.type == "dev_event" %}개발 이벤트{% elif item.type == "activity_segment" %}작업 구간{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% elif item.type == "memo" %}메모{% else %}{{ item.type }}{% endif %}
+            {% if item.display_label %}{{ item.display_label }}{% elif item.type == "event" %}이벤트{% elif item.type == "dev_event" %}개발 이벤트{% elif item.type == "activity_segment" %}작업 구간{% elif item.type == "screen_ocr" %}화면 OCR{% elif item.type == "meeting" %}회의{% elif item.type == "transcript" %}전사{% elif item.type == "memo" %}메모{% elif item.type == "report" %}리포트{% else %}{{ item.type }}{% endif %}
           </span>
         </div>
         {% if item.type == "event" %}
@@ -70,6 +84,15 @@
           <div class="item-meta">
             {{ item.timestamp | kst_time }}
             {% if item.speaker %} · {{ item.speaker }}{% endif %}
+          </div>
+        {% elif item.type == "report" %}
+          <div class="item-title">
+            <a href="/reports/{{ item.id }}/view">{{ item.content }}</a>
+          </div>
+          <div class="item-meta">
+            {{ item.timestamp | kst_time }}
+            {% if item.source %} · {{ item.source }}{% endif %}
+            {% if item.event_type %} · {{ item.event_type }}{% endif %}
           </div>
         {% else %}
           <div class="item-title">{{ item.content }}</div>
