@@ -87,6 +87,13 @@ class PromptBuilder:
                 "기반해 구체 작업 단위로 작성하세요.",
                 "- 시간대별 작업 흐름은 앱 사용 시간이 아니라 실제로 진행한 작업 후보 중심으로 "
                 "작성하세요.",
+                "- CURRENT_GIT_CHANGE_HINTS, CURRENT_GIT_DIFF_CONTEXT, PRIORITY_DEV_EVENTS, "
+                "command_result를 보고 현재 작업 주제를 먼저 추론하세요.",
+                "- 현재 작업 주제가 command tracking이면 터미널 명령 자동 기록 중심으로 "
+                "작성하세요. report 품질 개선이면 report prompt/input 개선 중심으로, 문서 "
+                "정리이면 docs/README 정리 중심으로 작성하세요.",
+                "- 이전 마일스톤에서 완료된 기능명이 입력에 있어도 현재 diff나 command_result와 "
+                "직접 관련이 약하면 배경 정보로만 다루세요.",
                 "- PRIORITY_CURRENT_GIT_DIFF_CONTEXT가 있으면 최신 개발 작업 판단의 가장 강한 "
                 "근거로 우선 사용하세요.",
                 "- PRIORITY_CURRENT_GIT_CHANGE_HINTS가 있으면 오늘 한 일 요약과 시간대별 작업 "
@@ -120,19 +127,45 @@ class PromptBuilder:
                 "우선 사용하세요.",
                 "- 주요 트러블슈팅 섹션에는 DEV_EVENT나 diff context에 오류, 실패, 해결 흔적이 "
                 "있을 때만 요약하세요.",
+                "- source=terminal인 command_result는 사용자가 zsh에서 실행한 개발 명령입니다. "
+                "command, exit_code, duration_ms, cwd, branch를 작업 흐름 근거로 사용하세요.",
+                "- zsh hook, preexec, precmd, command_result, record_command_result.py, "
+                "install_command_tracking_hook.py, uninstall_command_tracking_hook.py, "
+                "mwoham_zsh_tracking.zsh, mwoham_command_tracking_status, "
+                "mwoham_command_tracking_disable, exit_code, duration_ms, failed command, "
+                "success command, inspection command priority가 보이면 command tracking 작업 "
+                "근거로 해석하세요.",
+                "- 실패한 terminal command는 성공한 명령보다 우선적으로 트러블슈팅 후보로 "
+                "검토하세요. 같은 계열 명령이 실패 후 성공했다면 하나의 해결 흐름으로 "
+                "요약하세요.",
+                "- sqlite3, curl, echo, source ~/.zshrc 같은 확인용 terminal command는 "
+                "최종 리포트에 직접 나열하지 말고 작업 검증 보조 정보로만 낮은 우선순위로 "
+                "참고하세요. 필요하면 'DB 조회와 report 생성으로 저장 결과를 확인했다'처럼 "
+                "묶어서 표현하세요.",
+                "- uv run pytest, uv run python scripts/run_dev_checks.py, uv run alembic check, "
+                "git diff --check, ruff, xcodebuild 같은 검증/개발 command는 높은 우선순위로 "
+                "참고하세요.",
+                "- 터미널 출력 전문은 입력에 포함되지 않습니다. 실패 원인은 command, exit_code, "
+                "주변 DevEvent, diff context 근거가 있을 때만 보수적으로 판단하세요.",
+                "- failed command가 의도적 QA인지 실제 장애인지 주변 context로 구분하세요. "
+                "tests/not_exists.py처럼 존재하지 않는 파일 실행은 failed command 기록 검증용일 "
+                "수 있으므로 실제 장애처럼 과장하지 마세요.",
                 "- 트러블슈팅 후보 키워드: failed, failure, error, PermissionError, "
                 "Operation not permitted, code 126, code 127, ruff, import 정렬, "
                 "xcodebuild 실패, actor isolation, escaping closure, PATH, uv, /private/tmp, CI.",
                 "- 트러블슈팅은 근거가 있을 때만 '문제 / 원인 / 해결 방식' 형태로 짧게 "
                 "정리하세요.",
+                "- 버전명은 DevEvent, git tag, branch, memo, command context 등 입력에 명확한 "
+                "근거가 있을 때만 사용하세요. 특정 버전 번호를 추측해서 쓰지 마세요.",
                 "- 다음 작업 후보에는 이미 오늘 완료된 기능을 다시 구현 과제로 제안하지 마세요.",
                 "- 완료된 것으로 보이는 항목: persistent state, TTL dedupe, debounce, repo path "
                 "설정, stdout/stderr 상태 표시, 메뉴바/플로팅 Dev Tracking 상태 표시, report "
                 "input 20분 압축, CURRENT_GIT_DIFF_CONTEXT, CURRENT_GIT_CHANGE_HINTS.",
                 "- 다음 작업 후보에는 이미 구현한 기능의 추가 테스트만 반복하지 말고, "
-                "리팩토링 점검, 문서 정리, v0.6 태그 준비처럼 다음 단계 후보를 제안하세요.",
-                "- 터미널 명령 자동 기록은 v0.7 후보로, timeline 필터링은 별도 작업으로 "
-                "분리 검토할 수 있습니다.",
+                "현재 작업의 후속 리팩토링 점검, 문서 정리, 최종 검증, 다음 태그 준비처럼 "
+                "근거 있는 다음 단계 후보를 제안하세요.",
+                "- terminal command 자동 기록이 이미 입력에 있으면 다음 작업 후보로 반복 제안하지 "
+                "마세요. timeline 필터링은 별도 작업으로 분리 검토할 수 있습니다.",
                 "- raw diff나 코드 라인을 그대로 인용하지 마세요.",
                 "- secret/token/password로 보이는 값은 언급하지 마세요.",
                 "- diff 일부가 생략되어 있으면 DEV_EVENT 요약과 함께 보수적으로 추론하세요.",
@@ -208,12 +241,7 @@ class PromptBuilder:
             lines.append("PRIORITY_MEMOS:")
             lines.extend(memo_lines[:10])
 
-        dev_event_lines = self._format_auto_git_snapshot_groups(report_items)
-        dev_event_lines.extend(
-            self._format_timeline_item(item)
-            for item in report_items
-            if item.type == "dev_event" and not self._is_auto_git_snapshot(item)
-        )
+        dev_event_lines = self._format_priority_dev_events(report_items)
         if dev_event_lines:
             lines.append("PRIORITY_DEV_EVENTS:")
             lines.extend(dev_event_lines[:20])
@@ -394,6 +422,57 @@ class PromptBuilder:
             )
         return lines
 
+    def _format_priority_dev_events(self, items) -> list[str]:
+        grouped_lines = self._format_auto_git_snapshot_groups(items)
+        manual_events = [
+            item
+            for item in items
+            if item.type == "dev_event" and not self._is_auto_git_snapshot(item)
+        ]
+        manual_events.sort(key=self._dev_event_priority_key)
+        return grouped_lines + [self._format_timeline_item(item) for item in manual_events]
+
+    def _dev_event_priority_key(self, item) -> tuple[int, datetime]:
+        if item.event_type == "command_result" and item.source == "terminal":
+            if item.status == "failed":
+                return (0, item.timestamp)
+            if self._is_development_command(item.command or item.content):
+                return (1, item.timestamp)
+            if self._is_inspection_command(item.command or item.content):
+                return (4, item.timestamp)
+            return (2, item.timestamp)
+        if item.event_type in {"test_result", "build_result"} and item.status == "failed":
+            return (3, item.timestamp)
+        return (5, item.timestamp)
+
+    def _is_development_command(self, command: str | None) -> bool:
+        normalized = self._normalize_command(command)
+        return normalized.startswith(
+            (
+                "uv run pytest",
+                "uv run python scripts/run_dev_checks.py",
+                "uv run alembic check",
+                "git diff --check",
+                "ruff",
+                "uv run ruff",
+                "xcodebuild",
+            )
+        )
+
+    def _is_inspection_command(self, command: str | None) -> bool:
+        normalized = self._normalize_command(command)
+        return normalized.startswith(
+            (
+                "sqlite3",
+                "echo",
+                "source ~/.zshrc",
+                "source .zshrc",
+            )
+        ) or normalized.startswith("curl http://127.0.0.1:8765/reports/daily")
+
+    def _normalize_command(self, command: str | None) -> str:
+        return " ".join((command or "").split()).strip()
+
     def _is_auto_git_snapshot(self, item) -> bool:
         if item.type != "dev_event" or item.event_type != "git_snapshot":
             return False
@@ -550,7 +629,10 @@ class PromptBuilder:
         recent_commits = details.get("recent_commits")
         diff_stat = details.get("diff_stat")
         exit_code = details.get("exit_code")
+        duration_ms = details.get("duration_ms")
         duration_seconds = details.get("duration_seconds")
+        cwd = details.get("cwd")
+        tracking_mode = details.get("tracking_mode")
         if isinstance(changed_files, list) and changed_files:
             parts.append(f"changed_files={', '.join(str(item) for item in changed_files[:8])}")
         if diff_stat:
@@ -559,8 +641,14 @@ class PromptBuilder:
             parts.append(f"recent_commits={'; '.join(str(item) for item in recent_commits[:3])}")
         if exit_code is not None:
             parts.append(f"exit_code={exit_code}")
+        if duration_ms is not None:
+            parts.append(f"duration_ms={duration_ms}")
         if duration_seconds is not None:
             parts.append(f"duration_seconds={duration_seconds}")
+        if cwd:
+            parts.append(f"cwd={self._truncate(str(cwd), 120)}")
+        if tracking_mode:
+            parts.append(f"tracking_mode={tracking_mode}")
         return " | ".join(parts) if parts else "-"
 
     def _build_ocr_evidence_snippet(self, text: str | None, *, limit: int = 180) -> str:
