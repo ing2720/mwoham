@@ -367,9 +367,25 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 - Gemini 호출에 성공하면 `created_by="ai"`입니다.
 - Gemini API key가 없거나 quota 초과면 `created_by="system"` fallback 리포트가 생성됩니다.
 - fallback 리포트는 raw timeline 전체 덤프가 아니라 요약, 주요 메모, 주요 화면 관찰, 주요 작업 환경 중심으로 짧게 생성됩니다.
+- daily report는 현재 detailed report 중심입니다. summary/simple/compact 요약본 분리는 아직 공식 기능이 아닙니다.
+- `CURRENT_WORK_FOCUS`가 있으면 오늘 한 일 요약과 시간대별 작업 흐름이 최신 작업 주제를 우선 반영합니다.
 - 자동 watcher 기반 `git_snapshot`은 report input에서 20분 버킷과 branch 기준으로 압축됩니다.
 - report 생성 시점의 `CURRENT_GIT_CHANGE_HINTS`와 `CURRENT_GIT_DIFF_CONTEXT`가 있으면 구체 작업 의도 파악에 우선 사용됩니다.
+- terminal `command_result`는 `PRIORITY_COMMAND_FLOWS`에서 `failed_to_success`, `failed_only`, `development_validation`, `inspection`, `cleanup` 흐름으로 구분됩니다.
+- failed command는 실제 장애로 과장되지 않고 주변 context와 함께 보수적으로 해석됩니다.
+- inspection/setup command는 보조 근거로만 쓰이며, cleanup command는 간결하게 요약됩니다.
+- 회의 전사는 결정사항, 논의사항, 후속작업 후보로 나뉘어 반영됩니다.
+- 이미 완료/검증/문서화된 기능이 다음 작업 후보로 반복 제안되지 않습니다.
 - raw git diff는 DB, DevEvent, log, Report.content에 그대로 저장되지 않습니다.
+- stdout/stderr 전체, shell history, 키 입력 내용은 저장되지 않습니다.
+
+후속 개선 후보:
+
+- report input pruning
+- event relevance scoring
+- QA/noise event tagging
+- meeting transcript report quality
+- daily review dashboard
 
 실패 시 의심 원인:
 

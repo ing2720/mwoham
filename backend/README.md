@@ -325,19 +325,23 @@ DevEvent는 Git snapshot, 개발 명령 결과, 자동 watcher 이벤트, termin
 
 자동 watcher 기반 `git_snapshot`은 웹 타임라인에서는 DevEvent로 확인할 수 있고, report input에서는 20분 버킷과 branch 기준으로 압축됩니다. 수동 `collect_git_snapshot.py` 이벤트는 기존 DevEvent로 유지됩니다. terminal command 기반 `command_result`는 웹 타임라인에서 `명령 성공` 또는 `명령 실패` label로 확인할 수 있습니다.
 
-## Report input과 Git diff context
+## Report input과 Report Quality
 
 일일 리포트 생성 시 PromptBuilder는 timeline 데이터를 압축해 Gemini prompt를 만듭니다.
+v0.9 기준 report quality 개선은 detailed report 중심입니다. summary/simple/compact 요약본
+분리는 아직 공식 기능이 아닙니다.
 
 우선순위:
 
-1. `PRIORITY_CURRENT_GIT_CHANGE_HINTS`
-2. `PRIORITY_CURRENT_GIT_DIFF_CONTEXT`
-3. 수동 메모
-4. DevEvent
-5. 회의 전사
-6. 화면 관찰
-7. 작업 환경 요약
+1. `CURRENT_WORK_FOCUS`
+2. `PRIORITY_CURRENT_GIT_CHANGE_HINTS`
+3. `PRIORITY_CURRENT_GIT_DIFF_CONTEXT`
+4. 수동 메모
+5. `PRIORITY_DEV_EVENTS`
+6. `PRIORITY_COMMAND_FLOWS`
+7. 회의 전사
+8. 화면 관찰
+9. 작업 환경 요약
 
 자동 watcher 기반 `git_snapshot`은 다음 정책으로 압축합니다.
 
@@ -357,10 +361,37 @@ DevEvent는 Git snapshot, 개발 명령 결과, 자동 watcher 이벤트, termin
 
 `CURRENT_GIT_CHANGE_HINTS`는 diff에서 기능 단위 힌트를 추출합니다. 예를 들어 persistent state, TTL dedupe, debounce, repo path 설정, stdout/stderr 상태 표시 같은 구체 기능명이 리포트에 반영되도록 돕습니다.
 
-terminal command 기반 `command_result`는 `PRIORITY_DEV_EVENTS`에 포함됩니다. failed command는
-성공 command보다 우선 근거로 배치하고, 실패 후 성공한 같은 계열 명령은 하나의 해결 흐름으로
-요약하도록 prompt에서 지시합니다. `sqlite3`, `curl`, `echo`, `source ~/.zshrc` 같은 확인용
-inspection command는 리포트에서 낮은 우선순위로 참고합니다.
+`CURRENT_WORK_FOCUS`는 `CURRENT_GIT_CHANGE_HINTS`, `CURRENT_GIT_DIFF_CONTEXT`, 현재 변경 파일,
+command flow를 보고 최신 작업 주제를 짧게 요약합니다. report는 하루 전체 이벤트를 보더라도
+이 최신 작업 주제를 먼저 반영하도록 지시합니다.
+
+terminal command 기반 `command_result`는 `PRIORITY_DEV_EVENTS`와 `PRIORITY_COMMAND_FLOWS`에
+포함됩니다. `PRIORITY_COMMAND_FLOWS`는 다음 흐름을 구분합니다.
+
+- `failed_to_success`: 같은 계열 command가 실패 후 성공한 검증 흐름
+- `failed_only`: 아직 이어지는 성공 command가 확인되지 않은 실패 흐름
+- `development_validation`: pytest, run_dev_checks, alembic check, git diff check, ruff, xcodebuild 같은 개발 검증 흐름
+- `inspection`: sqlite3, curl, echo, source, command tracking status/disable 같은 확인용 흐름
+- `cleanup`: rm -rf 같은 cleanup 흐름
+
+failed command는 실제 장애로 과장하지 않고 command, exit_code, 주변 DevEvent, diff context를
+함께 보고 보수적으로 해석합니다. inspection/setup command는 report 본문을 지배하지 않도록
+보조 근거로만 사용하고, cleanup command는 명령 원문을 길게 나열하지 않고 간결하게 요약하도록
+prompt에서 지시합니다.
+
+회의 전사는 결정사항, 논의사항, 후속작업 후보로 나눠 반영하도록 instruction을 보강했습니다.
+의미 없는 전사나 OCR/전사 노이즈는 확정 사실처럼 쓰지 않도록 지시합니다.
+
+다음 작업 후보는 이미 완료/검증/문서화된 기능을 반복 제안하지 않고 현재 작업의 자연스러운
+후속 단계만 3~5개 정도 제안하도록 지시합니다.
+
+후속 개선 후보:
+
+- report input pruning
+- event relevance scoring
+- QA/noise event tagging
+- meeting transcript report quality
+- daily review dashboard
 
 ## Meeting Transcript
 
