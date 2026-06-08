@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.ai.gemini_client import GeminiClient
-from app.ai.git_diff_context import GitDiffContextBuilder
+from app.ai.git_diff_context import GitDiffContext, GitDiffContextBuilder
 from app.ai.prompt_builder import PromptBuilder
 from app.ai.report_content_cleaner import ReportContentCleaner
 from app.ai.summarizer import GeminiSummarizer
@@ -79,6 +79,14 @@ def _prompt_section(prompt: str, header: str, next_header: str) -> str:
     return prompt[start:end]
 
 
+class _StaticGitDiffContextBuilder:
+    def __init__(self, context: GitDiffContext | None) -> None:
+        self.context = context
+
+    def build_for_timeline(self, timeline: TimelineResponse) -> GitDiffContext | None:
+        return self.context
+
+
 def test_privacy_filter_masks_secret_patterns() -> None:
     text = "api_key=abc123 token: xyz password='pw123' Bearer ey.secret"
 
@@ -114,12 +122,12 @@ def test_prompt_builder_uses_only_compressed_masked_timeline() -> None:
     assert "## 오늘 한 일 요약" in prompt
     assert "## 시간대별 작업 흐름" in prompt
     assert "앱 이름은 작업 도구나 환경 정보로만 참고하세요." in prompt
-    assert "'Codex 앱에서', 'Chrome 앱에서', 'VSCode 앱에서'" in prompt
+    assert "앱 이름은 업무 주체가 아니라 작업 환경 보조 정보로만 다루고" in prompt
     assert "secret-token" not in prompt
     assert "[MASKED]" in prompt
     assert "deploy" in prompt
     assert "EVENT |" in prompt
-    assert "앱 이름을 작업 내용으로 착각하지 마세요." in prompt
+    assert "실제 작업 내용, 결정사항, 문제 해결 과정을 중심으로 요약하세요." in prompt
 
 
 def test_prompt_builder_prioritizes_screen_ocr_inference_and_keywords() -> None:
@@ -697,8 +705,8 @@ def test_prompt_builder_includes_current_git_diff_context(tmp_path: Path) -> Non
     assert "API_KEY=raw-secret" not in prompt
     assert "data.db" not in prompt
     assert "raw diff나 코드 라인을 그대로 인용하지 마세요." in prompt
-    assert "Git 변경 감지' 문구, 브랜치명, 파일 경로를 그대로 반복하지 마세요." in prompt
-    assert "실제 구현 의도와 작업 결과를 자연어로 요약하세요." in prompt
+    assert "Git 변경 감지 문구, 변경 횟수, 브랜치명, 파일 경로를 반복하지 말고" in prompt
+    assert "구현 의도와 작업 결과를 자연어로 요약하세요." in prompt
     assert prompt.index("PRIORITY_CURRENT_GIT_DIFF_CONTEXT:") < prompt.index(
         "PRIORITY_DEV_EVENTS:"
     )
@@ -747,6 +755,82 @@ def test_prompt_builder_adds_current_git_change_hints_before_diff_context(
     assert "[MASKED]" not in hint_section
     assert "구체 기능 단위로 작성하세요." in prompt
     assert "코드 리팩토링'처럼 근거 없는 일반 표현은 피하세요." in prompt
+
+
+def test_prompt_builder_adds_current_work_focus_before_priority_sections() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=2,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="uv run pytest tests/not_exists.py",
+                content="명령 실패: uv run pytest tests/not_exists.py exit_code=4",
+                details_json={"exit_code": 4},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 1, 5, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run pytest tests/test_ai_components.py",
+                content="명령 성공: uv run pytest tests/test_ai_components.py",
+                details_json={"exit_code": 0},
+            ),
+        ],
+    )
+    context = GitDiffContext(
+        repo_path="/repo",
+        branch="feature/report-quality",
+        content="\n".join(
+            [
+                "diff --git a/backend/app/ai/prompt_builder.py b/backend/app/ai/prompt_builder.py",
+                "+ PRIORITY_COMMAND_FLOWS",
+                "+ CURRENT_WORK_FOCUS",
+                "diff --git a/backend/tests/test_ai_components.py "
+                "b/backend/tests/test_ai_components.py",
+                "+ failed_to_success",
+                "+ inspection command",
+                "+ meeting transcript instruction",
+                "+ next action 후보 보정",
+            ]
+        ),
+        change_hints=[
+            "backend/app/ai/prompt_builder.py: PRIORITY_COMMAND_FLOWS, failed_to_success, "
+            "inspection command, meeting transcript instruction, next action 후보 보정",
+            "backend/tests/test_ai_components.py: CURRENT_WORK_FOCUS report quality test",
+        ],
+    )
+
+    prompt = PromptBuilder(
+        privacy_filter=PrivacyFilter(),
+        git_diff_context_builder=_StaticGitDiffContextBuilder(context),
+    ).build_daily_report_prompt(timeline)
+    focus_section = _prompt_section(
+        prompt,
+        "CURRENT_WORK_FOCUS:",
+        "PRIORITY_CURRENT_GIT_CHANGE_HINTS:",
+    )
+
+    assert prompt.index("CURRENT_WORK_FOCUS:") < prompt.index("PRIORITY_CURRENT_GIT_CHANGE_HINTS:")
+    assert prompt.index("CURRENT_WORK_FOCUS:") < prompt.index("PRIORITY_COMMAND_FLOWS:")
+    assert "current_focus=report quality 개선" in focus_section
+    assert "backend/app/ai/prompt_builder.py" in focus_section
+    assert "backend/tests/test_ai_components.py" in focus_section
+    assert "PRIORITY_COMMAND_FLOWS" in focus_section
+    assert "failed_to_success" in focus_section
+    assert "inspection command" in focus_section
+    assert "meeting transcript instruction" in focus_section
+    assert "next action 후보 보정" in focus_section
+    assert "오늘 한 일 요약의 첫 문장은 이 주제를 중심" in prompt
+    assert "과거 마일스톤은 배경으로만 짧게" in prompt
 
 
 def test_prompt_builder_adds_process_output_change_hint_for_swift_diff(
@@ -839,12 +923,11 @@ def test_prompt_builder_instructs_report_to_focus_on_feature_flow_not_branches()
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
-    assert "브랜치명은 꼭 필요한 경우에만 짧게 언급하세요." in prompt
-    assert "최종 리포트에는 기능 흐름 중심으로 합쳐서 작성하세요." in prompt
-    assert "'feat/...' 브랜치명을 반복하지 말고" in prompt
-    assert "해당 브랜치에서 수행한 기능 작업명으로 표현하세요." in prompt
-    assert "파일명도 근거로만 짧게 쓰고" in prompt
-    assert "문장의 중심은 persistent state, repo path 설정, report input 압축" in prompt
+    assert "Git 변경 감지 문구, 변경 횟수, 브랜치명, 파일 경로를 반복하지 말고" in prompt
+    assert "구현 의도와 작업 결과를 자연어로 요약하세요." in prompt
+    assert "시간대별 작업 흐름에서 branch명은 반복하지 마세요." in prompt
+    assert "파일명은 필요한 경우 1~2개만 근거로 짧게 언급" in prompt
+    assert "문장의 중심은 기능명과 검증 흐름" in prompt
 
 
 def test_prompt_builder_instructs_troubleshooting_keywords_and_format() -> None:
@@ -916,6 +999,8 @@ def test_prompt_builder_prioritizes_failed_terminal_commands() -> None:
     assert "실패한 terminal command는 성공한 명령보다 우선적으로" in prompt
     assert "터미널 출력 전문은 입력에 포함되지 않습니다." in prompt
     assert "tests/not_exists.py처럼 존재하지 않는 파일 실행은 failed command 기록 검증용" in prompt
+    assert "failed command 기록 검증을 위해 의도적 실패 명령을 실행했고" in prompt
+    assert "정상 테스트 명령으로 success 저장도 확인한 흐름으로 묶으세요." in prompt
     assert dev_event_section.index("status=failed") < dev_event_section.index("status=success")
     assert "duration_ms=1000" in dev_event_section
     assert "tracking_mode=command_hook" not in dev_event_section
@@ -1047,8 +1132,7 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     dev_event_section = prompt.split("PRIORITY_DEV_EVENTS:", 1)[1]
     command_flow_section = prompt.split("PRIORITY_COMMAND_FLOWS:", 1)[1]
 
-    assert "확인용 terminal command는 최종 리포트에 직접 나열하지 말고" in prompt
-    assert "최종 리포트에 직접 나열하지 말고" in prompt
+    assert "확인용 command는 낮은 우선순위의 보조" in prompt
     assert "mwoham_command_tracking_status" in prompt
     assert "mwoham_command_tracking_disable" in prompt
     assert "DB 조회와 report 생성으로 저장 결과를 확인했다" in prompt
@@ -1089,6 +1173,7 @@ def test_prompt_builder_instructs_destructive_commands_to_stay_concise() -> None
 
     assert "rm -rf 같은 destructive command" in prompt
     assert "불필요한 앱/빌드 산출물 정리" in prompt
+    assert "inspection/cleanup flow는 본문 직접 나열 대상이 아니라 보조 검증 근거" in prompt
     assert "flow_type=cleanup" in prompt
 
 
@@ -1118,7 +1203,6 @@ def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() 
     assert "debounce" in prompt
     assert "repo path 설정" in prompt
     assert "stdout/stderr 상태 표시" in prompt
-    assert "메뉴바/플로팅 Dev Tracking 상태 표시" in prompt
     assert "report input 20분 압축" in prompt
     assert "CURRENT_GIT_DIFF_CONTEXT" in prompt
     assert "CURRENT_GIT_CHANGE_HINTS" in prompt
@@ -1129,6 +1213,7 @@ def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() 
         in prompt
     )
     assert "timeline filtering 구현/검증이 이미 입력에 있으면 반복 제안하지" in prompt
+    assert "문서 정리 완료, 태그 완료, 검증 통과로 보이는 힌트" in prompt
     assert "다음 작업 후보는 3~5개로 제한" in prompt
 
 

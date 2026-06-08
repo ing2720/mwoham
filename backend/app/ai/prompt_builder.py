@@ -79,10 +79,8 @@ class PromptBuilder:
                 "- 비어 있는 섹션은 억지로 늘리지 말고 '확인된 내용 없음'처럼 짧게 처리하세요.",
                 "- 빈 타임라인이면 '기록된 작업이 없습니다.' 한 문장만 반환하세요.",
                 "- 앱 이름은 작업 도구나 환경 정보로만 참고하세요.",
-                "- 'Codex 앱에서', 'Chrome 앱에서', 'VSCode 앱에서'처럼 앱이 업무 주체인 듯한 "
-                "표현을 피하세요.",
-                "- 앱 이름보다 실제 작업 내용, 결정사항, 문제 해결 과정을 중심으로 요약하세요.",
-                "- 앱 이름을 작업 내용으로 착각하지 마세요. 앱 이름은 작업 환경 보조 정보입니다.",
+                "- 앱 이름은 업무 주체가 아니라 작업 환경 보조 정보로만 다루고, 실제 작업 내용, "
+                "결정사항, 문제 해결 과정을 중심으로 요약하세요.",
                 "- Swift, API, FastAPI 같은 기술명만 나열하지 말고, 관찰된 메모와 화면 단서에 "
                 "기반해 구체 작업 단위로 작성하세요.",
                 "- 시간대별 작업 흐름은 앱 사용 시간이 아니라 실제로 진행한 작업 후보 중심으로 "
@@ -90,6 +88,9 @@ class PromptBuilder:
                 "- Git 변경 감지, command 실행, 파일명, 브랜치명, 테스트 실행을 각각 나열하지 "
                 "말고, 같은 시간대의 git_snapshot, command_result, diff context를 묶어 "
                 "'무슨 기능을 구현/보완했고 어떻게 검증했는지' 작업 단위로 요약하세요.",
+                "- CURRENT_WORK_FOCUS가 있으면 오늘 한 일 요약의 첫 문장은 이 주제를 중심으로 "
+                "작성하세요. 하루 중 이전 작업이 많더라도 CURRENT_WORK_FOCUS와 직접 관련이 "
+                "약한 과거 마일스톤은 배경으로만 짧게 다루세요.",
                 "- CURRENT_GIT_CHANGE_HINTS, CURRENT_GIT_DIFF_CONTEXT, PRIORITY_DEV_EVENTS, "
                 "PRIORITY_COMMAND_FLOWS, command_result를 보고 현재 작업 주제를 먼저 "
                 "추론하세요.",
@@ -102,22 +103,13 @@ class PromptBuilder:
                 "근거로 우선 사용하세요.",
                 "- PRIORITY_CURRENT_GIT_CHANGE_HINTS가 있으면 오늘 한 일 요약과 시간대별 작업 "
                 "흐름에 힌트의 구체 기능명을 포함하세요.",
-                "- '자동 Dev Tracking 기능 개선'처럼 넓은 표현만 쓰지 말고, persistent state, "
-                "TTL dedupe, debounce, repo path 설정, stdout/stderr 상태 표시처럼 확인된 "
-                "구체 기능 단위로 작성하세요.",
+                "- '자동 Dev Tracking 기능 개선'처럼 넓은 표현만 쓰지 말고, 확인된 구체 기능 "
+                "단위로 작성하세요.",
                 "- '코드 리팩토링'처럼 근거 없는 일반 표현은 피하세요.",
-                "- 자동 Dev Tracking의 'Git 변경 감지' 문구, 브랜치명, 파일 경로를 그대로 "
-                "반복하지 마세요.",
-                "- 브랜치명은 꼭 필요한 경우에만 짧게 언급하세요. 여러 브랜치에서 작업했더라도 "
-                "최종 리포트에는 기능 흐름 중심으로 합쳐서 작성하세요.",
-                "- 'feat/...' 브랜치명을 반복하지 말고, 해당 브랜치에서 수행한 기능 작업명으로 "
-                "표현하세요.",
-                "- 파일명도 근거로만 짧게 쓰고, 문장의 중심은 persistent state, repo path 설정, "
-                "report input 압축 같은 기능명으로 작성하세요.",
-                "- Git 변경 횟수나 브랜치명이 아니라 diff 내용에서 드러나는 실제 구현 의도와 "
-                "작업 결과를 자연어로 요약하세요.",
-                "- 파일명은 필요한 경우에만 짧게 근거로 언급하고, 파일명 나열 위주로 쓰지 "
-                "마세요.",
+                "- Git 변경 감지 문구, 변경 횟수, 브랜치명, 파일 경로를 반복하지 말고, diff에서 "
+                "드러나는 구현 의도와 작업 결과를 자연어로 요약하세요.",
+                "- 시간대별 작업 흐름에서 branch명은 반복하지 마세요. 파일명은 필요한 경우 "
+                "1~2개만 근거로 짧게 언급하고, 문장의 중심은 기능명과 검증 흐름으로 쓰세요.",
                 "- 시간대별 작업 흐름에서 비슷한 자동 Dev Tracking, 테스트 코드 수정, diff "
                 "context 개선 작업이 연속되면 여러 줄로 반복하지 말고 하나의 흐름으로 "
                 "묶으세요.",
@@ -145,9 +137,12 @@ class PromptBuilder:
                 "- PRIORITY_COMMAND_FLOWS가 있으면 failed->success 흐름, 개발 검증 명령, "
                 "확인용 명령을 개별 command 나열보다 우선해서 하나의 검증/보완 흐름으로 "
                 "해석하세요.",
+                "- PRIORITY_COMMAND_FLOWS의 inspection/cleanup flow는 본문 직접 나열 대상이 "
+                "아니라 보조 검증 근거입니다. development_validation/failed_to_success flow는 "
+                "구현 검증 흐름으로 요약하세요.",
                 "- sqlite3, curl, echo, source ~/.zshrc, mwoham_command_tracking_status, "
-                "mwoham_command_tracking_disable 같은 확인용 terminal command는 최종 리포트에 "
-                "직접 나열하지 말고 작업 검증 보조 정보로만 낮은 우선순위로 참고하세요. "
+                "mwoham_command_tracking_disable 같은 확인용 command는 낮은 우선순위의 보조 "
+                "근거로만 참고하세요. "
                 "필요하면 'DB 조회와 report 생성으로 저장 결과를 확인했다'처럼 묶어서 "
                 "표현하세요.",
                 "- uv run pytest, uv run python scripts/run_dev_checks.py, uv run alembic check, "
@@ -160,10 +155,12 @@ class PromptBuilder:
                 "주변 DevEvent, diff context 근거가 있을 때만 보수적으로 판단하세요.",
                 "- failed command가 의도적 QA인지 실제 장애인지 주변 context로 구분하세요. "
                 "tests/not_exists.py처럼 존재하지 않는 파일 실행은 failed command 기록 검증용일 "
-                "수 있으므로 실제 장애처럼 과장하지 마세요.",
-                "- 트러블슈팅 후보 키워드: failed, failure, error, PermissionError, "
-                "Operation not permitted, code 126, code 127, ruff, import 정렬, "
-                "xcodebuild 실패, actor isolation, escaping closure, PATH, uv, /private/tmp, CI.",
+                "수 있으므로 실제 장애처럼 과장하지 마세요. command tracking QA 문맥이면 "
+                "failed command 기록 검증을 위해 의도적 실패 명령을 실행했고, 정상 테스트 "
+                "명령으로 success 저장도 확인한 흐름으로 묶으세요.",
+                "- 트러블슈팅 후보 키워드: failed, error, PermissionError, Operation not "
+                "permitted, code 126, code 127, ruff, xcodebuild 실패, actor isolation, PATH, "
+                "uv, /private/tmp, CI.",
                 "- 트러블슈팅은 근거가 있을 때만 '문제 / 원인 / 해결 방식' 형태로 짧게 "
                 "정리하세요.",
                 "- 버전명은 DevEvent, git tag, branch, memo, command context 등 입력에 명확한 "
@@ -171,9 +168,10 @@ class PromptBuilder:
                 "- 다음 작업 후보에는 이미 오늘 완료된 기능을 다시 구현 과제로 제안하지 마세요.",
                 "- 입력에 구현/검증 완료로 보이는 항목이 있으면 다음 작업 후보에서 반복 제안하지 "
                 "마세요. 예: persistent state, TTL dedupe, debounce, repo path 설정, "
-                "stdout/stderr 상태 표시, 메뉴바/플로팅 Dev Tracking 상태 표시, report input "
-                "20분 압축, CURRENT_GIT_DIFF_CONTEXT, CURRENT_GIT_CHANGE_HINTS, command_result, "
-                "timeline filtering.",
+                "stdout/stderr 상태 표시, report input 20분 압축, CURRENT_GIT_DIFF_CONTEXT, "
+                "CURRENT_GIT_CHANGE_HINTS, command_result, timeline filtering.",
+                "- 문서 정리 완료, 태그 완료, 검증 통과로 보이는 힌트가 있으면 그 작업을 다음 "
+                "작업 후보로 다시 제안하지 마세요.",
                 "- 다음 작업 후보에는 이미 구현한 기능의 추가 테스트만 반복하지 말고, "
                 "현재 작업의 후속 리팩토링 점검, 문서 정리, 최종 검증, 다음 태그 준비처럼 "
                 "근거 있는 다음 단계 후보를 제안하세요.",
@@ -227,13 +225,24 @@ class PromptBuilder:
         ]
         activity_segments = [item for item in timeline.items if item.type == "activity_segment"]
 
+        git_diff_context = self.git_diff_context_builder.build_for_timeline(timeline)
+        command_flow_lines = self._format_command_flow_hints(report_items)
+
         lines = [
             f"DATE: {timeline.date.isoformat()}",
             f"TOTAL_ITEMS: {len(report_items)}",
             "NOTE: ActivitySegment는 주요 작업 환경 보조 정보이며 "
             "작업 내용의 직접 근거가 아닙니다.",
         ]
-        git_diff_context = self.git_diff_context_builder.build_for_timeline(timeline)
+        current_focus_lines = self._format_current_work_focus(
+            report_items,
+            git_diff_context=git_diff_context,
+            command_flow_lines=command_flow_lines,
+        )
+        if current_focus_lines:
+            lines.append("CURRENT_WORK_FOCUS:")
+            lines.extend(current_focus_lines)
+
         if git_diff_context is not None:
             if git_diff_context.change_hints:
                 lines.append("PRIORITY_CURRENT_GIT_CHANGE_HINTS:")
@@ -265,7 +274,6 @@ class PromptBuilder:
             lines.append("PRIORITY_DEV_EVENTS:")
             lines.extend(dev_event_lines[:20])
 
-        command_flow_lines = self._format_command_flow_hints(report_items)
         if command_flow_lines:
             lines.append("PRIORITY_COMMAND_FLOWS:")
             lines.extend(command_flow_lines[:10])
@@ -455,6 +463,142 @@ class PromptBuilder:
         ]
         manual_events.sort(key=self._dev_event_priority_key)
         return grouped_lines + [self._format_timeline_item(item) for item in manual_events]
+
+    def _format_current_work_focus(
+        self,
+        items,
+        *,
+        git_diff_context,
+        command_flow_lines: list[str],
+    ) -> list[str]:
+        evidence_files = self._current_focus_evidence_files(items, git_diff_context)
+        focus_keywords = self._current_focus_keywords(
+            evidence_files=evidence_files,
+            git_diff_context=git_diff_context,
+            command_flow_lines=command_flow_lines,
+        )
+        current_focus = self._infer_current_focus(
+            evidence_files=evidence_files,
+            focus_keywords=focus_keywords,
+            git_diff_context=git_diff_context,
+        )
+        if not current_focus and not evidence_files and not focus_keywords:
+            return []
+
+        lines = [
+            f"- current_focus={current_focus or 'latest timeline evidence review'}",
+        ]
+        if evidence_files:
+            lines.append(f"- evidence={', '.join(evidence_files[:6])}")
+        if focus_keywords:
+            lines.append(f"- focus_keywords={', '.join(focus_keywords[:10])}")
+        lines.append(
+            "- usage=오늘 한 일 요약의 첫 문장과 시간대별 작업 흐름은 이 최신 작업 주제를 "
+            "우선 중심으로 작성"
+        )
+        return lines
+
+    def _current_focus_evidence_files(self, items, git_diff_context) -> list[str]:
+        evidence_files: list[str] = []
+        if git_diff_context is not None:
+            for hint in git_diff_context.change_hints:
+                file_path = hint.split(":", 1)[0].strip()
+                if "/" in file_path and file_path not in evidence_files:
+                    evidence_files.append(file_path)
+            for file_path in self._extract_diff_file_paths(git_diff_context.content):
+                if file_path not in evidence_files:
+                    evidence_files.append(file_path)
+
+        if evidence_files:
+            return evidence_files[:8]
+
+        dev_items = [
+            item
+            for item in items
+            if item.type == "dev_event" and item.details_json and item.timestamp is not None
+        ]
+        for item in sorted(dev_items, key=lambda item: item.timestamp, reverse=True)[:5]:
+            for file_path in self._details_list(item.details_json, "changed_files"):
+                if file_path not in evidence_files:
+                    evidence_files.append(file_path)
+        return evidence_files[:8]
+
+    def _extract_diff_file_paths(self, diff_content: str | None) -> list[str]:
+        if not diff_content:
+            return []
+        paths: list[str] = []
+        for match in re.finditer(r"^diff --git a/(.+?) b/", diff_content, flags=re.MULTILINE):
+            file_path = match.group(1).strip()
+            if file_path and file_path not in paths:
+                paths.append(file_path)
+        return paths
+
+    def _current_focus_keywords(
+        self,
+        *,
+        evidence_files: list[str],
+        git_diff_context,
+        command_flow_lines: list[str],
+    ) -> list[str]:
+        source_text = " ".join(evidence_files)
+        if git_diff_context is not None:
+            source_text = " ".join(
+                [
+                    source_text,
+                    " ".join(git_diff_context.change_hints),
+                    git_diff_context.content,
+                ]
+            )
+        source_text = " ".join([source_text, " ".join(command_flow_lines)])
+        lowered = source_text.lower()
+        keyword_rules = [
+            ("PRIORITY_COMMAND_FLOWS", "priority_command_flows"),
+            ("failed_to_success", "failed_to_success"),
+            ("inspection command", "inspection"),
+            ("cleanup command", "cleanup"),
+            ("meeting transcript instruction", "transcript"),
+            ("next action 후보 보정", "next task"),
+            ("next action 후보 보정", "next action"),
+            ("CURRENT_WORK_FOCUS", "current_work_focus"),
+            ("prompt_builder.py", "prompt_builder.py"),
+            ("test_ai_components.py", "test_ai_components.py"),
+            ("timeline filtering", "timeline"),
+            ("command_result", "command_result"),
+            ("git_snapshot", "git_snapshot"),
+        ]
+        keywords: list[str] = []
+        for label, marker in keyword_rules:
+            if marker.lower() in lowered and label not in keywords:
+                keywords.append(label)
+        return keywords
+
+    def _infer_current_focus(
+        self,
+        *,
+        evidence_files: list[str],
+        focus_keywords: list[str],
+        git_diff_context,
+    ) -> str:
+        focus_text = " ".join(evidence_files + focus_keywords)
+        if git_diff_context is not None:
+            focus_text = " ".join([focus_text, " ".join(git_diff_context.change_hints)])
+        lowered = focus_text.lower()
+        if (
+            "prompt_builder.py" in lowered
+            or "test_ai_components.py" in lowered
+            or "priority_command_flows" in lowered
+            or "current_work_focus" in lowered
+        ):
+            return "report quality 개선"
+        if "timeline" in lowered and "filter" in lowered:
+            return "timeline filtering 개선"
+        if "command" in lowered and "tracking" in lowered:
+            return "command tracking 개선"
+        if "meeting" in lowered or "transcript" in lowered:
+            return "meeting transcript 품질 개선"
+        if evidence_files:
+            return "current implementation refinement"
+        return ""
 
     def _format_command_flow_hints(self, items) -> list[str]:
         terminal_commands = [
