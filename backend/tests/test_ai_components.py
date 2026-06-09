@@ -283,6 +283,9 @@ def test_prompt_builder_includes_meeting_transcripts() -> None:
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
+    assert "MEETING_MEMO_CONTEXT:" in prompt
+    assert "MEETING_TRANSCRIPT | meeting_id=7" in prompt
+    assert "category=discussion" in prompt
     assert "PRIORITY_MEETING_TRANSCRIPTS:" in prompt
     assert "TRANSCRIPT_GROUP |" in prompt
     assert "speaker=mentor" in prompt
@@ -326,9 +329,148 @@ def test_prompt_builder_groups_meeting_transcripts_and_skips_short_fragments() -
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert prompt.count("TRANSCRIPT_GROUP | meeting_id=7") == 1
+    assert prompt.count("MEETING_TRANSCRIPT | meeting_id=7") == 2
     assert "Apple Speech 회의 전사 저장 품질을 점검했습니다." in prompt
     assert "다음 작업은 시스템 오디오 캡처 가능성 검토입니다." in prompt
     assert "text=테스트" not in prompt
+    assert "TRANSCRIPT_NOISE_SUMMARY" in prompt
+    assert "short=1" in prompt
+
+
+def test_prompt_builder_adds_meeting_memo_context_and_prioritizes_manual_memo() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=3,
+        items=[
+            TimelineItem(
+                type="memo",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                content="결정: 회의 전사 품질 개선은 detailed report 중심으로 진행",
+            ),
+            TimelineItem(
+                type="transcript",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 10, 2, tzinfo=UTC),
+                content="회의 전사 수집됨: 회의 전사 품질 개선 방향을 논의했습니다.",
+                meeting_id=3,
+                source="apple_speech_microphone",
+            ),
+            TimelineItem(
+                type="transcript",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 10, 3, tzinfo=UTC),
+                content="회의 전사 수집됨: 다음 작업은 memo context 검증입니다.",
+                meeting_id=3,
+                source="apple_speech_full_meeting",
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    context = _prompt_section(prompt, "MEETING_MEMO_CONTEXT:", "PRIORITY_MEMOS:")
+
+    assert "source_policy=manual_memo_is_user_direct_evidence" in context
+    assert "MANUAL_MEMO |" in context
+    assert "confidence=user_direct" in context
+    assert "category=decision" in context
+    assert "결정: 회의 전사 품질 개선은 detailed report 중심으로 진행" in context
+    assert "MEETING_TRANSCRIPT | meeting_id=3" in context
+    assert "category=discussion" in context
+    assert "category=follow_up_candidate" in context
+    assert "MEETING_MEMO_CONTEXT는 회의/메모 근거입니다." in prompt
+    assert "manual memo는 사용자 직접 입력으로 전사보다 우선하세요." in prompt
+    assert "WORK_EVIDENCE_BY_TIME:" not in prompt
+
+
+def test_prompt_builder_deduplicates_multi_source_transcripts_in_meeting_context() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=3,
+        items=[
+            TimelineItem(
+                type="transcript",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                content="회의 전사 수집됨: 리포트 입력에서 회의와 메모 근거를 분리하기로 했습니다.",
+                meeting_id=5,
+                source="apple_speech_microphone",
+            ),
+            TimelineItem(
+                type="transcript",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 10, 1, tzinfo=UTC),
+                content="회의 전사 수집됨: 리포트 입력에서 회의와 메모 근거를 분리하기로 했습니다.",
+                meeting_id=5,
+                source="apple_speech_system_audio",
+            ),
+            TimelineItem(
+                type="transcript",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 10, 2, tzinfo=UTC),
+                content="회의 전사 수집됨: 네 네 네 네",
+                meeting_id=5,
+                source="apple_speech_full_meeting",
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    context = _prompt_section(prompt, "MEETING_MEMO_CONTEXT:", "PRIORITY_MEETING_TRANSCRIPTS:")
+
+    assert context.count("리포트 입력에서 회의와 메모 근거를 분리하기로 했습니다.") == 1
+    assert "TRANSCRIPT_NOISE_SUMMARY" in context
+    assert "duplicate=1" in context
+    assert "noise=1" in context
+    assert "apple_speech_microphone" not in context
+    assert "apple_speech_system_audio" not in context
+    assert "apple_speech_full_meeting" not in context
+
+
+def test_prompt_builder_does_not_turn_discussion_transcript_into_decision() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="transcript",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                content=(
+                    "회의 전사 수집됨: meeting transcript report quality를 "
+                    "다음 마일스톤 후보로 검토했습니다."
+                ),
+                meeting_id=9,
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    context = _prompt_section(prompt, "MEETING_MEMO_CONTEXT:", "PRIORITY_MEETING_TRANSCRIPTS:")
+
+    assert "category=decision" not in context
+    assert "category=follow_up_candidate" in context
+    assert "discussion/follow_up_candidate는 논의사항이나 후속작업 후보로 다루세요." in prompt
+
+
+def test_prompt_builder_omits_meeting_memo_context_when_no_meeting_or_memo() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 9, 0, tzinfo=UTC),
+                source="terminal",
+                content="uv run pytest tests/test_ai_components.py",
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "MEETING_MEMO_CONTEXT:" not in prompt
 
 
 def test_prompt_builder_handles_empty_timeline_concisely() -> None:
@@ -1614,7 +1756,7 @@ def test_prompt_builder_limits_large_git_diff_context(tmp_path: Path) -> None:
 
     assert "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:" in prompt
     assert "... diff 일부 생략 ..." in prompt
-    assert len(prompt) < 7000
+    assert len(prompt) < 7500
 
 
 def test_prompt_builder_omits_current_git_diff_context_when_clean(tmp_path: Path) -> None:
