@@ -116,7 +116,8 @@ def test_prompt_builder_uses_only_compressed_masked_timeline() -> None:
         ],
     )
 
-    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    builder = PromptBuilder(privacy_filter=PrivacyFilter())
+    prompt = builder.build_daily_report_prompt(timeline)
 
     assert "원본 화면, 음성, 스크린샷, 오디오 파일은 포함하지 않았습니다." in prompt
     assert "## 오늘 한 일 요약" in prompt
@@ -148,7 +149,8 @@ def test_prompt_builder_prioritizes_screen_ocr_inference_and_keywords() -> None:
         ],
     )
 
-    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    builder = PromptBuilder(privacy_filter=PrivacyFilter())
+    prompt = builder.build_daily_report_prompt(timeline)
 
     assert "SCREEN_OCR |" in prompt
     assert "inference=사용자는 인증 설정 문제를 확인하고 있습니다." in prompt
@@ -180,7 +182,8 @@ def test_prompt_builder_summarizes_activity_segments_as_auxiliary_context() -> N
         ],
     )
 
-    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    builder = PromptBuilder(privacy_filter=PrivacyFilter())
+    prompt = builder.build_daily_report_prompt(timeline)
 
     assert "ACTIVITY_SEGMENT |" not in prompt
     assert "ACTIVITY_ENVIRONMENT_SUMMARY |" in prompt
@@ -416,7 +419,7 @@ def test_prompt_builder_prioritizes_dev_events_before_screen_observations() -> N
 def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
-        total=4,
+        total=8,
         items=[
             TimelineItem(
                 type="dev_event",
@@ -840,7 +843,7 @@ def test_prompt_builder_adds_current_work_focus_before_priority_sections() -> No
 def test_prompt_builder_adds_pruned_report_context_near_top() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
-        total=10,
+        total=12,
         items=[
             TimelineItem(
                 type="dev_event",
@@ -948,6 +951,34 @@ def test_prompt_builder_adds_pruned_report_context_near_top() -> None:
                 ocr_text="command_talled mianation v0.8.0-time line-filtering",
                 ai_inference="mianation 화면 단서",
             ),
+            TimelineItem(
+                type="dev_event",
+                id=11,
+                timestamp=datetime(2026, 5, 26, 1, 8, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/timeline-filtering",
+                content="자동 Dev Tracking: timeline filtering 변경 감지",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "timeline-sig",
+                    "changed_files": ["backend/app/web/templates/timeline.html"],
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=12,
+                timestamp=datetime(2026, 5, 26, 1, 9, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feature/report-quality",
+                content="자동 Dev Tracking: report input pruning 변경 감지",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "report-sig",
+                    "changed_files": ["backend/app/ai/prompt_builder.py"],
+                },
+            ),
         ],
     )
     context = GitDiffContext(
@@ -1020,6 +1051,9 @@ def test_prompt_builder_adds_pruned_report_context_near_top() -> None:
     assert "rm -rf /tmp/MwohamMacDerivedData" not in work_evidence_and_dump
     assert "timeline filtering 문서 정리 완료" not in prompt
     assert "feat/timeline-filtering" not in prompt
+    assert "backend/app/web/templates/timeline.html" not in prompt
+    assert "branch=feature/report-quality" in dev_event_section
+    assert "backend/app/ai/prompt_builder.py" in dev_event_section
     assert "command_talled" not in prompt
     assert "mianation" not in prompt
 
@@ -1348,10 +1382,44 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
                 content="명령 성공: mwoham_command_tracking_status",
                 details_json={"exit_code": 0},
             ),
+            TimelineItem(
+                type="dev_event",
+                id=6,
+                timestamp=datetime(2026, 5, 26, 1, 5, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git tag",
+                content="명령 성공: git tag",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=7,
+                timestamp=datetime(2026, 5, 26, 1, 6, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git tag --list",
+                content="명령 성공: git tag --list",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=8,
+                timestamp=datetime(2026, 5, 26, 1, 7, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git tag -a v1.0.0 -m release",
+                content="명령 성공: git tag -a v1.0.0 -m release",
+                details_json={"exit_code": 0},
+            ),
         ],
     )
 
-    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    builder = PromptBuilder(privacy_filter=PrivacyFilter())
+    prompt = builder.build_daily_report_prompt(timeline)
     dev_event_section = _prompt_section(
         prompt,
         "PRIORITY_DEV_EVENTS:",
@@ -1374,6 +1442,14 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     assert "sqlite3 data/mwoham.sqlite3" not in dev_event_section
     assert "echo ok" not in dev_event_section
     assert "curl http://127.0.0.1:8765/reports/daily" not in dev_event_section
+    assert "git tag --list" not in dev_event_section
+    assert "command=git tag |" not in dev_event_section
+    assert "git tag -a v1.0.0 -m release" in dev_event_section
+    assert builder._is_inspection_command("git tag")
+    assert builder._is_inspection_command("git tag | grep report")
+    assert builder._is_inspection_command("git tag --list")
+    assert not builder._is_inspection_command("git tag -a v1.0.0 -m release")
+    assert not builder._is_inspection_command("git tag -d v1.0.0")
 
 
 def test_prompt_builder_instructs_destructive_commands_to_stay_concise() -> None:
