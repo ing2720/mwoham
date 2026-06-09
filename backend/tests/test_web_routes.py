@@ -2,6 +2,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.core.timezone import parse_date_or_today_kst
+from app.models.report import Report
 
 
 def test_dashboard_renders_status_events_and_memos(client: TestClient) -> None:
@@ -37,6 +41,25 @@ def test_dashboard_renders_status_events_and_memos(client: TestClient) -> None:
     assert "개발용 이벤트 입력" in response.text
     assert "메모 입력" in response.text
     assert "오늘 리포트 생성" in response.text
+    assert "오늘 Daily Report" in response.text
+    assert "검증 결과" in response.text
+    assert "실패 후 성공 흐름" in response.text
+    assert "최근 개발 이벤트 요약" in response.text
+    assert "회의/메모 요약" in response.text
+    assert 'href="/review/today"' not in response.text
+
+
+def test_dashboard_review_sections_render_empty_states(client: TestClient) -> None:
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "오늘 생성된 리포트가 없습니다." in response.text
+    assert "확인된 validation command가 없습니다." in response.text
+    assert "확인된 실패 후 성공 흐름이 없습니다." in response.text
+    assert "확인된 개발 이벤트가 없습니다." in response.text
+    assert "확인된 회의/메모 없음" in response.text
+    assert "Daily Review" not in response.text
+    assert 'href="/daily-review"' not in response.text
 
 
 def test_dashboard_forms_drive_recording_event_and_memo_flow(client: TestClient) -> None:
@@ -391,6 +414,105 @@ def test_timeline_filters_items_by_query_parameter(client: TestClient) -> None:
     assert "명령 실패" not in memo_response.text
     assert "일일 작업 리포트" in report_response.text
     assert "수동 필터 메모" not in report_response.text
+
+
+def test_dashboard_renders_report_validation_flow_and_daily_evidence(
+    client: TestClient,
+    db: Session,
+) -> None:
+    today = parse_date_or_today_kst()
+    db.add(
+        Report(
+            date=today,
+            mode="detailed",
+            title="Report input pruning 검수",
+            content="오늘 한 일 요약: Daily Review 화면에서 하루 작업 검수 정보를 모았습니다.",
+            created_by="system",
+        )
+    )
+    db.commit()
+    now = datetime.now(UTC)
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "terminal",
+            "command": "uv run pytest tests/not_exists.py",
+            "status": "failed",
+            "summary": "명령 실패: uv run pytest tests/not_exists.py",
+            "details_json": {"exit_code": 4},
+            "occurred_at": (now - timedelta(minutes=30)).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "terminal",
+            "command": "uv run pytest tests/test_web_routes.py",
+            "status": "success",
+            "summary": "명령 성공: uv run pytest tests/test_web_routes.py",
+            "details_json": {"exit_code": 0},
+            "occurred_at": (now - timedelta(minutes=25)).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "terminal",
+            "command": "sqlite3 data/mwoham.sqlite3 'select 1'",
+            "status": "success",
+            "summary": "명령 성공: sqlite3 data/mwoham.sqlite3",
+            "details_json": {"exit_code": 0},
+            "occurred_at": (now - timedelta(minutes=20)).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "command_result",
+            "source": "terminal",
+            "command": "rm -rf /tmp/MwohamMacDerivedData",
+            "status": "success",
+            "summary": "명령 성공: rm -rf /tmp/MwohamMacDerivedData",
+            "details_json": {"exit_code": 0},
+            "occurred_at": (now - timedelta(minutes=19)).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "git_snapshot",
+            "source": "script",
+            "summary": "Git 변경 감지: daily review route",
+            "details_json": {
+                "tracking_mode": "watch",
+                "changed_files": ["backend/app/web/templates/daily_review.html"],
+            },
+            "occurred_at": (now - timedelta(minutes=15)).isoformat(),
+        },
+    )
+    client.post(
+        "/memos",
+        json={
+            "timestamp": (now - timedelta(minutes=10)).isoformat(),
+            "content": "Daily Review 수동 QA 확인",
+        },
+    )
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "Report input pruning 검수" in response.text
+    assert "오늘 한 일 요약: Daily Review 화면" in response.text
+    assert "/reports/" in response.text
+    assert "uv run pytest tests/test_web_routes.py" in response.text
+    assert "failed command 기록 검증" in response.text
+    assert "Git 변경 감지: daily review route" in response.text
+    assert "Daily Review 수동 QA 확인" in response.text
+    assert "sqlite3 data/mwoham.sqlite3" not in response.text
+    assert "rm -rf /tmp/MwohamMacDerivedData" not in response.text
 
 
 @pytest.mark.parametrize("path,title", [("/reports", "리포트"), ("/settings", "설정")])

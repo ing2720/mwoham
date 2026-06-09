@@ -49,6 +49,98 @@
 
   <section class="grid" style="margin-top: 16px;">
     <div class="panel">
+      <h2>오늘 Daily Report</h2>
+      {% if latest_report %}
+        <div class="list">
+          <article class="item">
+            <a class="item-title" href="/reports/{{ latest_report.id }}/view">
+              {{ latest_report.title if latest_report.title else "제목 없는 리포트" }}
+            </a>
+            <div class="item-meta">
+              생성: {{ latest_report.created_at | kst_time }} · {{ latest_report.mode | report_mode_label }}
+            </div>
+            <p style="margin: 4px 0 0;">{{ report_excerpt }}</p>
+          </article>
+        </div>
+      {% else %}
+        <div class="empty">오늘 생성된 리포트가 없습니다.</div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <h2>검증 결과</h2>
+      <div class="list">
+        {% for command in validation_commands %}
+          <article class="item">
+            <div class="item-title">{{ command.command }}</div>
+            <div class="item-meta">{{ command.timestamp | kst_time }} · {{ command.label }}</div>
+          </article>
+        {% else %}
+          <div class="empty">확인된 validation command가 없습니다.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="grid" style="margin-top: 16px;">
+    <div class="panel">
+      <h2>실패 후 성공 흐름</h2>
+      <div class="list">
+        {% for flow in command_flows %}
+          <article class="item">
+            <div class="item-title">
+              {% if flow.is_qa_failure %}failed command 기록 검증{% else %}실패 명령 확인{% endif %}
+            </div>
+            <div class="item-meta">{{ flow.timestamp | kst_time }}</div>
+            <div>{{ flow.failed_command }}</div>
+            {% if flow.success_command %}
+              <div class="item-meta">이후 성공: {{ flow.success_command }}</div>
+            {% endif %}
+          </article>
+        {% else %}
+          <div class="empty">확인된 실패 후 성공 흐름이 없습니다.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>최근 개발 이벤트 요약</h2>
+      <div class="list">
+        {% for item in recent_dev_events %}
+          <article class="item">
+            <div class="item-title">{{ item.display_label if item.display_label else item.event_type }}</div>
+            <div>{{ item.content }}</div>
+            <div class="item-meta">
+              {{ item.timestamp | kst_time }}
+              {% if item.status %} · {{ item.status }}{% endif %}
+            </div>
+          </article>
+        {% else %}
+          <div class="empty">확인된 개발 이벤트가 없습니다.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-top: 16px;">
+    <h2>회의/메모 요약</h2>
+    <div class="list">
+      {% for item in meeting_memo_items %}
+        <article class="item">
+          <div class="item-title">
+            {% if item.type == "memo" %}메모{% elif item.type == "transcript" %}회의 전사{% else %}회의{% endif %}
+          </div>
+          <div>{{ item.content }}</div>
+          <div class="item-meta">{{ item.timestamp | kst_time }}</div>
+        </article>
+      {% else %}
+        <div class="empty">확인된 회의/메모 없음</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="grid" style="margin-top: 16px;">
+    <div class="panel">
       <h2>개발용 이벤트 입력</h2>
       <form class="form-grid" method="post" action="/dashboard/events">
         <div class="form-row">
