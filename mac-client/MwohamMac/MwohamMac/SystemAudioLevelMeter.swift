@@ -4,6 +4,7 @@
 //
 
 import AudioToolbox
+import AVFoundation
 import CoreMedia
 import Foundation
 
@@ -13,6 +14,75 @@ struct SystemAudioLevel {
 }
 
 enum SystemAudioLevelMeter {
+    static func calculateAudioLevel(_ pcmBuffer: AVAudioPCMBuffer) -> SystemAudioLevel? {
+        var sumSquares = 0.0
+        var peak = 0.0
+        var totalSamples = 0
+
+        if let floatChannelData = pcmBuffer.floatChannelData {
+            let channelCount = Int(pcmBuffer.format.channelCount)
+            let frameLength = Int(pcmBuffer.frameLength)
+            guard channelCount > 0, frameLength > 0 else {
+                return nil
+            }
+
+            for channel in 0..<channelCount {
+                let samples = floatChannelData[channel]
+                for frame in 0..<frameLength {
+                    let value = Double(samples[frame])
+                    let absoluteValue = abs(value)
+                    sumSquares += value * value
+                    peak = max(peak, absoluteValue)
+                    totalSamples += 1
+                }
+            }
+        } else if let int16ChannelData = pcmBuffer.int16ChannelData {
+            let channelCount = Int(pcmBuffer.format.channelCount)
+            let frameLength = Int(pcmBuffer.frameLength)
+            guard channelCount > 0, frameLength > 0 else {
+                return nil
+            }
+
+            for channel in 0..<channelCount {
+                let samples = int16ChannelData[channel]
+                for frame in 0..<frameLength {
+                    let value = Double(samples[frame]) / Double(Int16.max)
+                    let absoluteValue = abs(value)
+                    sumSquares += value * value
+                    peak = max(peak, absoluteValue)
+                    totalSamples += 1
+                }
+            }
+        } else if let int32ChannelData = pcmBuffer.int32ChannelData {
+            let channelCount = Int(pcmBuffer.format.channelCount)
+            let frameLength = Int(pcmBuffer.frameLength)
+            guard channelCount > 0, frameLength > 0 else {
+                return nil
+            }
+
+            for channel in 0..<channelCount {
+                let samples = int32ChannelData[channel]
+                for frame in 0..<frameLength {
+                    let value = Double(samples[frame]) / Double(Int32.max)
+                    let absoluteValue = abs(value)
+                    sumSquares += value * value
+                    peak = max(peak, absoluteValue)
+                    totalSamples += 1
+                }
+            }
+        }
+
+        guard totalSamples > 0 else {
+            return nil
+        }
+
+        let rms = sqrt(sumSquares / Double(totalSamples))
+        return SystemAudioLevel(
+            rmsDB: decibels(fromLinearValue: rms),
+            peakDB: decibels(fromLinearValue: peak)
+        )
+    }
+
     static func calculateAudioLevel(_ sampleBuffer: CMSampleBuffer) -> SystemAudioLevel? {
         guard let format = CMSampleBufferGetFormatDescription(sampleBuffer),
               let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format),

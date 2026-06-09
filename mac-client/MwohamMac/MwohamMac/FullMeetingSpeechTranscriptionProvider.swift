@@ -24,8 +24,19 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
     private var microphoneBufferCount = 0
     private var systemAudioBufferCount = 0
     private var appendedBufferCount = 0
+    private var appendedMicrophoneBufferCount = 0
+    private var appendedSystemAudioBufferCount = 0
+    private var skippedSilentMicrophoneBufferCount = 0
+    private var skippedSilentSystemAudioBufferCount = 0
+    private var lowLevelMicrophoneBufferStreak = 0
+    private var lowLevelSystemAudioBufferStreak = 0
+    private var lastMicrophoneLevelDescription = "마이크 level 확인 전"
+    private var lastSystemAudioLevelDescription = "시스템 오디오 level 확인 전"
     private var microphoneActive = false
     private var systemAudioActive = false
+    private let minimumSpeechRMSDB = -75.0
+    private let minimumSpeechPeakDB = -65.0
+    private let consecutiveLowLevelBuffersBeforeSkipping = 8
     private let speechFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
         sampleRate: 48_000,
@@ -161,6 +172,16 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
             }
             return
         }
+        guard shouldAppendSpeechBuffer(
+            buffer,
+            sourceLabel: "시스템 오디오",
+            skippedCounter: &skippedSilentSystemAudioBufferCount,
+            lowLevelStreak: &lowLevelSystemAudioBufferStreak,
+            lastLevelDescription: &lastSystemAudioLevelDescription
+        ) else {
+            return
+        }
+        appendedSystemAudioBufferCount += 1
         appendToSpeechRequest(buffer)
 
         if systemAudioBufferCount == 1 || systemAudioBufferCount % 100 == 0 {
@@ -198,6 +219,16 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
                 return
             }
             self.microphoneBufferCount += 1
+            guard self.shouldAppendSpeechBuffer(
+                speechBuffer,
+                sourceLabel: "마이크",
+                skippedCounter: &self.skippedSilentMicrophoneBufferCount,
+                lowLevelStreak: &self.lowLevelMicrophoneBufferStreak,
+                lastLevelDescription: &self.lastMicrophoneLevelDescription
+            ) else {
+                return
+            }
+            self.appendedMicrophoneBufferCount += 1
             self.appendToSpeechRequest(speechBuffer)
         }
 
@@ -245,6 +276,29 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         }
     }
 
+    private func shouldAppendSpeechBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        sourceLabel: String,
+        skippedCounter: inout Int,
+        lowLevelStreak: inout Int,
+        lastLevelDescription: inout String
+    ) -> Bool {
+        guard let level = SystemAudioLevelMeter.calculateAudioLevel(buffer) else {
+            lastLevelDescription = "\(sourceLabel) level 확인 불가"
+            lowLevelStreak = 0
+            return true
+        }
+
+        let isVeryLowLevel = level.rmsDB <= minimumSpeechRMSDB && level.peakDB <= minimumSpeechPeakDB
+        lowLevelStreak = isVeryLowLevel ? lowLevelStreak + 1 : 0
+        lastLevelDescription = "\(sourceLabel) RMS \(String(format: "%.1f", level.rmsDB)) dB, peak \(String(format: "%.1f", level.peakDB)) dB, low streak \(lowLevelStreak)"
+        if isVeryLowLevel && lowLevelStreak >= consecutiveLowLevelBuffersBeforeSkipping {
+            skippedCounter += 1
+            return false
+        }
+        return true
+    }
+
     private func emitStatus(_ status: String) async {
         await MainActor.run {
             onStatusChange?(status)
@@ -255,10 +309,28 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         microphoneBufferCount = 0
         systemAudioBufferCount = 0
         appendedBufferCount = 0
+        appendedMicrophoneBufferCount = 0
+        appendedSystemAudioBufferCount = 0
+        skippedSilentMicrophoneBufferCount = 0
+        skippedSilentSystemAudioBufferCount = 0
+        lowLevelMicrophoneBufferStreak = 0
+        lowLevelSystemAudioBufferStreak = 0
+        lastMicrophoneLevelDescription = "마이크 level 확인 전"
+        lastSystemAudioLevelDescription = "시스템 오디오 level 확인 전"
     }
 
     private func diagnosticSummary() -> String {
-        "마이크 buffers \(microphoneBufferCount), 시스템 오디오 buffers \(systemAudioBufferCount), appended \(appendedBufferCount), format \(Int(speechFormat.sampleRate))Hz \(speechFormat.channelCount)ch float32 non-interleaved"
+        "마이크 buffers \(microphoneBufferCount), appended \(appendedMicrophoneBufferCount), skipped silent \(skippedSilentMicrophoneBufferCount), \(lastMicrophoneLevelDescription), \(inputLevelSummary(appended: appendedMicrophoneBufferCount, skipped: skippedSilentMicrophoneBufferCount)), 시스템 오디오 buffers \(systemAudioBufferCount), appended \(appendedSystemAudioBufferCount), skipped silent \(skippedSilentSystemAudioBufferCount), \(lastSystemAudioLevelDescription), \(inputLevelSummary(appended: appendedSystemAudioBufferCount, skipped: skippedSilentSystemAudioBufferCount)), total appended \(appendedBufferCount), gate RMS \(Int(minimumSpeechRMSDB))dB peak \(Int(minimumSpeechPeakDB))dB streak \(consecutiveLowLevelBuffersBeforeSkipping), format \(Int(speechFormat.sampleRate))Hz \(speechFormat.channelCount)ch float32 non-interleaved"
+    }
+
+    private func inputLevelSummary(appended: Int, skipped: Int) -> String {
+        let total = appended + skipped
+        let ratio = total > 0 ? Double(skipped) / Double(total) : 0
+        let ratioDescription = "skip ratio \(String(format: "%.1f", ratio * 100))%"
+        guard skipped >= 100, appended <= max(5, skipped / 20) else {
+            return "\(ratioDescription), input level normal"
+        }
+        return "\(ratioDescription), 입력 레벨 낮음"
     }
 }
 
