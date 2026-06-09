@@ -442,10 +442,12 @@ class PromptBuilder:
             return f"회의 전사: {self._truncate(transcript, 180)}"
         return ""
 
-    def _format_auto_git_snapshot_groups(self, items) -> list[str]:
+    def _format_auto_git_snapshot_groups(self, items, *, current_focus_lines=None) -> list[str]:
         grouped: dict[tuple[str, str], list] = defaultdict(list)
         for item in items:
             if not self._is_auto_git_snapshot(item):
+                continue
+            if self._is_background_event(item, current_focus_lines or []):
                 continue
             local_timestamp = self._as_kst(item.timestamp)
             bucket_start = local_timestamp.replace(
@@ -482,7 +484,10 @@ class PromptBuilder:
         return lines
 
     def _format_priority_dev_events(self, items, *, current_focus_lines=None) -> list[str]:
-        grouped_lines = self._format_auto_git_snapshot_groups(items)
+        grouped_lines = self._format_auto_git_snapshot_groups(
+            items,
+            current_focus_lines=current_focus_lines,
+        )
         manual_events = [
             item
             for item in items
@@ -984,6 +989,8 @@ class PromptBuilder:
             return "git switch"
         if normalized.startswith("git pull"):
             return "git pull"
+        if normalized.startswith("git tag"):
+            return "git tag"
         first_words = normalized.split(maxsplit=2)
         return " ".join(first_words[:2]) if first_words else "-"
 
@@ -1029,7 +1036,15 @@ class PromptBuilder:
                 "git switch",
                 "git pull",
             )
-        ) or normalized.startswith("curl")
+        ) or normalized.startswith("curl") or self._is_git_tag_inspection_command(normalized)
+
+    def _is_git_tag_inspection_command(self, normalized_command: str) -> bool:
+        return (
+            normalized_command == "git tag"
+            or normalized_command.startswith("git tag |")
+            or normalized_command.startswith("git tag --list")
+            or normalized_command.startswith("git tag -l")
+        )
 
     def _is_destructive_cleanup_command(self, command: str | None) -> bool:
         normalized = self._normalize_command(command)
