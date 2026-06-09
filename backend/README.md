@@ -2,7 +2,7 @@
 
 Mwoham Backend는 로컬 작업 기록 에이전트의 FastAPI 서버입니다. SQLite에 작업 기록을 저장하고, TimelineBuilder와 Gemini 요약을 통해 일일 업무 리포트를 생성합니다.
 
-macOS 앱은 backend API를 통해 기록 세션, 활성 앱/창 구간, OCR 텍스트, 수동 메모, 회의 전사, DevEvent를 저장합니다. backend는 웹 대시보드, 기본/상세 타임라인, Markdown/PDF export, 개발용 스크립트를 제공합니다.
+macOS 앱은 backend API를 통해 기록 세션, 활성 앱/창 구간, OCR 텍스트, 수동 메모, 회의 전사, DevEvent를 저장합니다. backend는 Daily Review Dashboard, 기본/상세 타임라인, Markdown/PDF export, 개발용 스크립트를 제공합니다.
 
 개발 중 macOS 권한을 안정적으로 유지하려면 repo root에서 고정 앱 번들을 실행합니다.
 
@@ -73,6 +73,9 @@ curl http://127.0.0.1:8765/health
 - http://127.0.0.1:8765/timeline/detail
 - http://127.0.0.1:8765/reports
 - http://127.0.0.1:8765/settings
+
+`/dashboard`는 오늘 작업 리뷰 화면입니다. 별도 `/review/today`, `/daily-review` route는
+공식 기능이 아니며, 오늘 작업 상태와 리뷰 섹션은 기존 dashboard에 통합되어 있습니다.
 
 ## 환경변수
 
@@ -228,6 +231,27 @@ uv run python scripts/uninstall_command_tracking_hook.py
 
 command, summary, details에는 `PrivacyFilter`가 적용되어 민감정보를 마스킹합니다.
 터미널 명령은 웹 타임라인에서 `명령 성공` 또는 `명령 실패` label로 표시됩니다.
+
+## Daily Review Dashboard
+
+`/dashboard`는 오늘 작업 상태를 한 화면에서 검수하는 Daily Review Dashboard 역할을 합니다.
+기존 dashboard의 현재 상태, 오늘 요약, 이벤트 입력, 메모 입력, 최근 타임라인은 유지하고,
+다음 리뷰 섹션을 함께 표시합니다.
+
+- 오늘 Daily Report 카드: 제목, 생성 시각, 짧은 preview, 상세 링크
+- 검증 결과: validation command 중심 표시
+- 실패 후 성공 흐름: failed command 이후 success command가 확인된 흐름
+- 최근 개발 이벤트 요약: DevEvent와 자동 Git tracking 요약
+- 회의/메모 요약
+
+validation command는 pytest, `run_dev_checks.py`, alembic check, `git diff --check`, ruff,
+xcodebuild, `bash -n`, `zsh -n` 같은 검증 명령을 우선 표시합니다. `sqlite3`, `curl`,
+`echo`, `source`, `git switch`, `git pull`, cleanup command 같은 inspection/setup/cleanup
+terminal command는 dashboard에 과하게 직접 노출하지 않습니다.
+
+기존 timeline과 reports 화면은 `/dashboard`에서 이어서 확인합니다. 이 작업은 웹 표시 확장이며
+DB schema, migration, JSON API, Swift/mac-client, report prompt/input pruning, command hook,
+Dev Tracking watcher를 변경하지 않습니다.
 
 ## Timeline Filtering
 
@@ -391,7 +415,7 @@ prompt에서 지시합니다.
 - event relevance scoring
 - QA/noise event tagging
 - meeting transcript report quality
-- daily review dashboard
+- daily review dashboard refinement
 
 ## Meeting Transcript
 

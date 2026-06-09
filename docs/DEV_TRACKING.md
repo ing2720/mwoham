@@ -13,6 +13,10 @@
 
 사용자가 직접 Dev Tracking 시작/종료 버튼을 누르는 방식은 아닙니다.
 
+웹에서는 `/dashboard`의 최근 개발 이벤트 요약과 `/timeline`/`/timeline/detail`에서 자동 Git
+tracking 이벤트를 확인할 수 있습니다. Dashboard는 inspection/setup/cleanup terminal command를
+과하게 직접 노출하지 않고, 오늘 작업 리뷰에 필요한 DevEvent 요약을 우선 보여줍니다.
+
 ## macOS 앱 자동 실행 정책
 
 개발 도구로 판단하는 앱:

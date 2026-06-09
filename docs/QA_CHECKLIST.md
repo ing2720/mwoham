@@ -38,6 +38,7 @@ curl http://127.0.0.1:8765/status
 - `/health`가 `200 OK`를 반환합니다.
 - `/status`가 현재 기록 상태를 반환합니다.
 - 브라우저에서 `http://127.0.0.1:8765/dashboard`가 열립니다.
+- `/dashboard`가 Daily Review Dashboard 역할을 하며 오늘 작업 리뷰 섹션을 표시합니다.
 
 실패 시 의심 원인:
 
@@ -46,7 +47,52 @@ curl http://127.0.0.1:8765/status
 - migration이 적용되지 않았습니다.
 - `LOCAL_API_TOKEN` 설정 후 헤더 없이 호출했습니다.
 
-## 2. Mac 앱 실행
+## 2. Daily Review Dashboard 확인
+
+확인:
+
+```bash
+open "http://127.0.0.1:8765/dashboard"
+```
+
+정상 기대 결과:
+
+- `/dashboard` 한 화면에서 오늘 작업 상태를 검수할 수 있습니다.
+- 현재 상태 카드와 오늘 요약이 표시됩니다.
+- 오늘 Daily Report가 있으면 제목, 생성 시각, 짧은 preview, 상세 링크가 표시됩니다.
+- 오늘 Daily Report가 없으면 빈 상태가 표시됩니다.
+- validation command 중심 검증 결과가 표시됩니다.
+  - pytest
+  - `run_dev_checks.py`
+  - alembic check
+  - `git diff --check`
+  - ruff
+  - xcodebuild
+  - `bash -n`
+  - `zsh -n`
+- failed command 이후 success command가 있으면 실패 후 성공 흐름에 표시됩니다.
+- `tests/not_exists.py` 같은 QA성 실패는 실제 장애처럼 과장하지 않고 짧게 표시됩니다.
+- 최근 개발 이벤트와 자동 Git tracking 요약이 표시됩니다.
+- 회의 전사나 수동 메모가 있으면 회의/메모 요약에 표시됩니다.
+- 회의/메모가 없으면 `확인된 회의/메모 없음` 빈 상태가 표시됩니다.
+- 기존 이벤트 입력 폼, 메모 입력 폼, 최근 타임라인이 유지됩니다.
+- timeline과 reports 화면은 기존 링크 또는 내비게이션으로 이어서 확인할 수 있습니다.
+
+정책:
+
+- 별도 `/review/today`, `/daily-review` 화면은 공식 기능이 아닙니다.
+- `sqlite3`, `curl`, `echo`, `source`, `git switch`, `git pull` 같은 inspection/setup command는 dashboard에 과하게 직접 노출하지 않습니다.
+- cleanup terminal command도 긴 원문 중심으로 노출하지 않습니다.
+- 이 화면은 기존 데이터를 보여주는 웹 표시 확장이며 DB, API, Swift/mac-client, report prompt/input pruning, command hook, Dev Tracking watcher를 변경하지 않습니다.
+
+실패 시 의심 원인:
+
+- 오늘 날짜 기준 report나 DevEvent가 아직 생성되지 않았습니다.
+- command tracking hook이 설치되지 않았거나 새 터미널에 적용되지 않았습니다.
+- validation command가 inspection/setup command로 분류될 수 있는 형태로 실행되었습니다.
+- dashboard가 아닌 `/timeline` 또는 `/reports` 화면과 혼동했습니다.
+
+## 3. Mac 앱 실행
 
 명령:
 
@@ -72,7 +118,7 @@ xcodebuild \
 - 앱 sandbox/권한 설정 때문에 로컬 API 호출이 막혔습니다.
 - `LOCAL_API_TOKEN`이 백엔드에만 설정되어 있고 앱 환경에는 전달되지 않았습니다.
 
-## 3. 기록 시작, 일시정지, 재개, 종료
+## 4. 기록 시작, 일시정지, 재개, 종료
 
 명령:
 
@@ -101,7 +147,7 @@ UI 확인:
 - active 세션 없이 pause/resume/stop을 호출했습니다.
 - 앱 화면이 갱신되지 않았다면 새로고침을 누릅니다.
 
-## 4. ActivitySegment 저장 확인
+## 5. ActivitySegment 저장 확인
 
 절차:
 
@@ -128,7 +174,7 @@ curl "http://127.0.0.1:8765/timeline/today/detail?date=$(date +%F)"
 - Mac 앱이 실행 중이 아니거나 ActiveWindowCollector가 시작되지 않았습니다.
 - 앱/창 제목 접근 권한이 부족해 `window_title`이 비어 있을 수 있습니다.
 
-## 5. PrivateApp 제외 확인
+## 6. PrivateApp 제외 확인
 
 설정 명령:
 
@@ -164,7 +210,7 @@ curl "http://127.0.0.1:8765/timeline/today?date=$(date +%F)"
 - PrivateApp 규칙이 `is_enabled=false`입니다.
 - 이미 저장된 과거 데이터는 자동 삭제되지 않습니다.
 
-## 6. OCR 수집 확인
+## 7. OCR 수집 확인
 
 사전 확인:
 
@@ -192,7 +238,7 @@ curl "http://127.0.0.1:8765/screen-observations?date=$(date +%F)&limit=20"
 - 같은 화면이 반복되어 중복 저장이 생략되었습니다.
 - PrivateApp 또는 MwohamMac 자기 자신이 활성 상태입니다.
 
-## 7. 기본 타임라인 확인
+## 8. 기본 타임라인 확인
 
 확인:
 
@@ -232,7 +278,7 @@ open "http://127.0.0.1:8765/timeline?date=$(date +%F)&filter=git"
 - OCR이 저장되지 않았거나 기본 타임라인 필터에 의해 숨겨졌습니다.
 - 자기 서비스 화면만 수집되어 기본 타임라인에 표시할 항목이 없습니다.
 
-## 8. 상세 타임라인 확인
+## 9. 상세 타임라인 확인
 
 확인:
 
@@ -257,7 +303,7 @@ open "http://127.0.0.1:8765/timeline/detail?filter=memo"
 - 웹 상세 화면은 `/timeline/detail`, API 상세 타임라인은 `/timeline/today/detail`입니다.
 - ActivitySegment가 없다면 기록 상태가 active가 아니었거나 Mac 앱 collector가 동작하지 않았습니다.
 
-## 9. 회의 전사 확인
+## 10. 회의 전사 확인
 
 사전 확인:
 
@@ -304,7 +350,7 @@ curl "http://127.0.0.1:8765/status"
 - 너무 짧은 전사 조각이 저장 품질 정책에 의해 제외되었습니다.
 - backend가 실행 중이 아니거나 Local API Token 설정이 앱과 맞지 않습니다.
 
-## 10. 자동 Dev Tracking 확인
+## 11. 자동 Dev Tracking 확인
 
 사전 확인:
 
@@ -346,7 +392,7 @@ curl "http://127.0.0.1:8765/timeline/today/detail?date=$(date +%F)"
 - backend 경로 fallback이 현재 실행 위치와 맞지 않습니다.
 - watcher stdout/stderr에 오류가 표시됐는지 확인합니다.
 
-## 11. 리포트 생성 확인
+## 12. 리포트 생성 확인
 
 확인 명령:
 
@@ -385,7 +431,7 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 - event relevance scoring
 - QA/noise event tagging
 - meeting transcript report quality
-- daily review dashboard
+- daily review dashboard refinement
 
 실패 시 의심 원인:
 
@@ -394,7 +440,7 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 - Gemini 모델명이 잘못되었습니다.
 - 타임라인에 리포트에 넣을 데이터가 거의 없습니다.
 
-## 12. PDF 다운로드 확인
+## 13. PDF 다운로드 확인
 
 1. 리포트를 생성합니다.
 2. 리포트 ID를 확인합니다.
@@ -421,7 +467,7 @@ curl -OJ "http://127.0.0.1:8765/reports/${REPORT_ID}/download?format=pdf"
 - PDF 생성 의존성 또는 시스템 폰트 문제가 있습니다.
 - export 디렉터리 쓰기 권한이 없습니다.
 
-## 13. 원본 이미지/오디오/raw diff 미저장 확인
+## 14. 원본 이미지/오디오/raw diff 미저장 확인
 
 확인 명령:
 
@@ -447,7 +493,7 @@ git status --short
 - 외부 캡처 도구가 파일을 저장했습니다.
 - 앱 코드가 아닌 별도 디버깅 스크립트가 이미지를 저장했습니다.
 
-## 14. Gemini quota 초과 fallback 확인
+## 15. Gemini quota 초과 fallback 확인
 
 확인 명령:
 
