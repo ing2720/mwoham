@@ -2,7 +2,7 @@
 
 Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 작업 흐름을 수집하고, 로컬 FastAPI backend가 SQLite에 저장한 뒤 Gemini를 이용해 일일 리포트를 생성합니다.
 
-현재 구현은 macOS SwiftUI 클라이언트와 FastAPI 로컬 서버 기반입니다. 일반 창, 메뉴바, 플로팅 위젯, 웹 대시보드, 기본/상세 타임라인, Markdown/PDF 리포트 export를 제공합니다.
+현재 구현은 macOS SwiftUI 클라이언트와 FastAPI 로컬 서버 기반입니다. 일반 창, 메뉴바, 플로팅 위젯, Daily Review Dashboard, 기본/상세 타임라인, Markdown/PDF 리포트 export를 제공합니다.
 
 ## 현재 기능
 
@@ -22,6 +22,12 @@ Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 �
   - 자동 Dev Tracking watcher
   - zsh hook 기반 터미널 명령 metadata
 - Gemini 기반 일일 리포트 생성
+- Daily Review Dashboard
+  - 오늘 Daily Report 카드
+  - validation command 중심 검증 결과
+  - failed→success command 흐름
+  - 최근 개발 이벤트 요약
+  - 회의/메모 요약
 - Markdown/PDF export와 브라우저 다운로드
 - 개발/테스트 데이터 초기화
 - Local API Bearer 토큰 인증
@@ -48,7 +54,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 브라우저에서 확인:
 
-- 대시보드: http://127.0.0.1:8765/dashboard
+- Daily Review Dashboard: http://127.0.0.1:8765/dashboard
 - 기본 타임라인: http://127.0.0.1:8765/timeline
 - 상세 타임라인: http://127.0.0.1:8765/timeline/detail
 - 리포트: http://127.0.0.1:8765/reports
@@ -160,6 +166,25 @@ timeline은 기존 시간순 흐름을 유지합니다.
 
 알 수 없는 filter 값은 `all`로 처리합니다. `date`와 `filter` query는 함께 사용할 수 있습니다.
 
+## Daily Review Dashboard
+
+v1.0 기준 `/dashboard`는 오늘 작업을 한 화면에서 검수하는 Daily Review Dashboard 역할을 합니다.
+별도 `/review/today`, `/daily-review` 화면은 공식 기능이 아니며, 기존 대시보드에 리뷰 섹션을
+통합했습니다.
+
+확인 가능한 내용:
+
+- 오늘 생성된 Daily Report 카드: 제목, 생성 시각, 짧은 preview, 상세 링크
+- validation command 중심 검증 결과: pytest, run_dev_checks, alembic check, git diff check, ruff, xcodebuild 등
+- failed→success command 흐름
+- 최근 개발 이벤트와 자동 Git tracking 요약
+- 회의/메모 요약
+- 기존 현재 상태, 오늘 요약, 이벤트 입력, 메모 입력, 최근 타임라인
+
+inspection/setup/cleanup terminal command는 dashboard에서 과하게 직접 노출하지 않고, 필요한 경우
+검증 흐름이나 최근 타임라인의 보조 맥락으로만 다룹니다. 기존 timeline과 reports 화면은
+dashboard에서 이어서 확인할 수 있습니다.
+
 ## Command Tracking
 
 v0.7 기준으로 zsh hook 기반 터미널 명령 자동 기록을 지원합니다. 설치하면 `preexec`와
@@ -218,7 +243,7 @@ report 작성 정책:
 - stdout/stderr 전체, shell history, 키 입력 내용은 저장하지 않음
 
 남은 후속 후보는 report input pruning, event relevance scoring, QA/noise event tagging,
-meeting transcript report quality, daily review dashboard입니다.
+meeting transcript report quality, daily review dashboard refinement입니다.
 
 ## Privacy / Safety
 
