@@ -187,7 +187,11 @@ class PromptBuilder:
                 "마세요.",
                 "- 회의 전사는 결정사항, 논의사항, 후속작업 후보로 나눠 반영하되, 근거 없이 "
                 "결정사항을 만들지 마세요. source 값은 근거로만 참고하고 최종 리포트에 과하게 "
-                "나열하지 마세요.",
+                "나열하지 마세요. MEETING_MEMO_CONTEXT는 회의/메모 근거입니다. 개발 로그와 "
+                "섞지 말고, manual memo는 사용자 직접 입력으로 전사보다 우선하세요.",
+                "- category=decision만 결정사항으로 쓰고 discussion/follow_up_candidate는 "
+                "논의사항이나 후속작업 후보로 다루세요. TRANSCRIPT_NOISE_SUMMARY는 제외/약화 "
+                "통계이며 짧은 발화, 반복어, source 중복 전사는 본문 사실로 쓰지 마세요.",
                 "- OCR/전사/화면 단서에서 나온 불확실한 단어, 깨진 버전명, 공백이 이상한 태그명은 "
                 "확정 사실처럼 쓰지 마세요. "
                 "명확한 파일명/명령/DevEvent 근거가 없으면 생략하세요.",
@@ -245,6 +249,11 @@ class PromptBuilder:
         if pruned_context_lines:
             lines.append("PRUNED_REPORT_CONTEXT:")
             lines.extend(pruned_context_lines)
+
+        meeting_memo_context_lines = self._format_meeting_memo_context(report_items)
+        if meeting_memo_context_lines:
+            lines.append("MEETING_MEMO_CONTEXT:")
+            lines.extend(meeting_memo_context_lines)
 
         if git_diff_context is not None:
             if git_diff_context.change_hints:
@@ -391,7 +400,7 @@ class PromptBuilder:
 
     def _extract_item_evidence(self, item) -> str:
         if item.type == "memo":
-            return f"메모: {self._truncate(item.content, 140)}"
+            return ""
         if item.type == "screen_ocr":
             if self._contains_uncertain_noise(item.content, item.ocr_text, item.ai_inference):
                 return ""
@@ -434,12 +443,7 @@ class PromptBuilder:
             if keywords or self._looks_like_work_evidence(item.content):
                 return f"이벤트: {self._truncate(item.content, 140)}"
         if item.type == "transcript":
-            transcript = self._normalize_transcript_content(item.content)
-            if self._contains_uncertain_noise(transcript):
-                return ""
-            if not self.transcript_quality_policy.is_meaningful_for_report(transcript):
-                return ""
-            return f"회의 전사: {self._truncate(transcript, 180)}"
+            return ""
         return ""
 
     def _format_auto_git_snapshot_groups(self, items, *, current_focus_lines=None) -> list[str]:
@@ -1208,6 +1212,170 @@ class PromptBuilder:
             if normalized.startswith(prefix):
                 return normalized.removeprefix(prefix).strip()
         return normalized
+
+    def _format_meeting_memo_context(self, items) -> list[str]:
+        memo_lines = self._format_manual_memo_context(items)
+        transcript_lines, noise_summary = self._format_meeting_transcript_context(items)
+        lines: list[str] = []
+        if memo_lines:
+            lines.append("source_policy=manual_memo_is_user_direct_evidence")
+            lines.extend(memo_lines[:8])
+        if transcript_lines:
+            lines.append("transcript_policy=deduplicated_grouped_by_meeting_context")
+            lines.extend(transcript_lines[:8])
+        if noise_summary:
+            lines.append(noise_summary)
+        return lines
+
+    def _format_manual_memo_context(self, items) -> list[str]:
+        lines: list[str] = []
+        for item in items:
+            if item.type != "memo":
+                continue
+            content = " ".join(item.content.split())
+            if not content or self._contains_uncertain_noise(content):
+                continue
+            category = self._meeting_context_category(content, is_memo=True)
+            lines.append(
+                f"- MANUAL_MEMO | time={self._format_kst_time(item.timestamp)} | "
+                f"category={category} | confidence=user_direct | "
+                f"content={self._truncate(content, 220)}"
+            )
+        return lines
+
+    def _format_meeting_transcript_context(self, items) -> tuple[list[str], str]:
+        grouped: dict[int | str, list] = defaultdict(list)
+        skipped_short = 0
+        skipped_noise = 0
+        skipped_duplicate = 0
+        for item in items:
+            if item.type != "transcript":
+                continue
+            text = self._normalize_transcript_content(item.content)
+            if self._contains_uncertain_noise(text) or self._is_transcript_filler_noise(text):
+                skipped_noise += 1
+                continue
+            if not self.transcript_quality_policy.is_meaningful_for_report(text):
+                skipped_short += 1
+                continue
+            key = item.meeting_id or f"transcript-{item.id}"
+            if self._has_similar_transcript(grouped[key], text):
+                skipped_duplicate += 1
+                continue
+            grouped[key].append(item)
+
+        lines: list[str] = []
+        for key, group_items in grouped.items():
+            sorted_items = sorted(group_items, key=lambda item: item.timestamp)
+            categorized: dict[str, list[str]] = defaultdict(list)
+            for item in sorted_items:
+                text = self._normalize_transcript_content(item.content)
+                category = self._meeting_context_category(text, is_memo=False)
+                if text not in categorized[category]:
+                    categorized[category].append(text)
+            start_time = self._format_kst_time(sorted_items[0].timestamp)
+            end_time = self._format_kst_time(sorted_items[-1].timestamp)
+            for category in ("decision", "discussion", "follow_up_candidate", "utterance"):
+                texts = categorized.get(category)
+                if not texts:
+                    continue
+                label = self._meeting_context_label(category)
+                merged = self._truncate(" / ".join(texts[:4]), 420)
+                lines.append(
+                    f"- MEETING_TRANSCRIPT | meeting_id={key} | "
+                    f"time_range={start_time}~{end_time} | category={category} | "
+                    f"label={label} | content={merged}"
+                )
+
+        total_skipped = skipped_short + skipped_noise + skipped_duplicate
+        if not total_skipped:
+            return lines, ""
+        return (
+            lines,
+            "- TRANSCRIPT_NOISE_SUMMARY | "
+            f"short={skipped_short} | noise={skipped_noise} | duplicate={skipped_duplicate} | "
+            "policy=excluded_or_weakened_not_report_facts",
+        )
+
+    def _has_similar_transcript(self, existing_items: list, text: str) -> bool:
+        return any(
+            self.transcript_quality_policy.is_near_duplicate(
+                self._normalize_transcript_content(item.content),
+                text,
+            )
+            for item in existing_items
+        )
+
+    def _meeting_context_category(self, text: str, *, is_memo: bool) -> str:
+        normalized = text.lower()
+        decision_markers = (
+            "결정",
+            "확정",
+            "승인",
+            "합의",
+            "진행하기로",
+            "적용하기로",
+            "유지하기로",
+            "보류하기로",
+            "하기로 했다",
+            "하기로 했습니다",
+        )
+        follow_up_markers = (
+            "다음 작업",
+            "후속",
+            "해야",
+            "해야 함",
+            "할 것",
+            "todo",
+            "검토 필요",
+            "정리 필요",
+            "후보",
+        )
+        discussion_markers = (
+            "논의",
+            "검토",
+            "확인",
+            "점검",
+            "이야기",
+            "가능성",
+            "이슈",
+            "공유",
+        )
+        if any(marker in normalized for marker in decision_markers):
+            return "decision"
+        if any(marker in normalized for marker in follow_up_markers):
+            return "follow_up_candidate"
+        if any(marker in normalized for marker in discussion_markers):
+            return "discussion"
+        return "discussion" if is_memo else "utterance"
+
+    def _meeting_context_label(self, category: str) -> str:
+        return {
+            "decision": "결정사항",
+            "discussion": "논의사항",
+            "follow_up_candidate": "후속작업 후보",
+            "utterance": "단순 발화",
+        }.get(category, "회의 전사")
+
+    def _is_transcript_filler_noise(self, text: str) -> bool:
+        compacted = re.sub(r"[\s.?!,]+", "", text)
+        if not compacted:
+            return True
+        filler_words = {
+            "네",
+            "예",
+            "응",
+            "음",
+            "어",
+            "아",
+            "오",
+            "맞아요",
+            "그렇죠",
+            "잠시만요",
+        }
+        if compacted in filler_words:
+            return True
+        return len(set(compacted)) <= 2 and len(compacted) >= 4
 
     def _format_transcript_groups(self, items) -> list[str]:
         grouped: dict[int | str, list] = defaultdict(list)
