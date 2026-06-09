@@ -49,6 +49,26 @@ def install_hook(
     if line in existing:
         return False
 
+    lines = existing.splitlines(keepends=True)
+    updated_lines: list[str] = []
+    changed = False
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == HOOK_MARKER:
+            updated_lines.append(f"{HOOK_MARKER}\n")
+            updated_lines.append(f"{line}\n")
+            index += 1
+            while index < len(lines) and lines[index].lstrip().startswith("source "):
+                index += 1
+            changed = True
+            continue
+        updated_lines.append(lines[index])
+        index += 1
+
+    if changed:
+        zshrc_path.write_text("".join(updated_lines), encoding="utf-8")
+        return True
+
     zshrc_path.parent.mkdir(parents=True, exist_ok=True)
     with zshrc_path.open("a", encoding="utf-8") as file:
         file.write(block)

@@ -302,6 +302,53 @@ def test_install_command_tracking_hook_is_idempotent(tmp_path: Path) -> None:
     assert str(hook_path) in content
 
 
+def test_install_command_tracking_hook_replaces_existing_mwoham_source(tmp_path: Path) -> None:
+    zshrc = tmp_path / ".zshrc"
+    old_hook_path = (
+        Path("/Users/a")
+        / "Desktop"
+        / "soloPJ"
+        / "mwoham"
+        / "backend"
+        / "scripts"
+        / "mwoham_zsh_tracking.zsh"
+    )
+    new_hook_path = (
+        tmp_path
+        / "Projects"
+        / "mwoham"
+        / "backend"
+        / "scripts"
+        / "mwoham_zsh_tracking.zsh"
+    )
+    new_hook_path.parent.mkdir(parents=True)
+    new_hook_path.write_text("# hook\n", encoding="utf-8")
+    zshrc.write_text(
+        "\n".join(
+            [
+                "export EXAMPLE=1",
+                install_command_tracking_hook.HOOK_MARKER,
+                install_command_tracking_hook.source_line(old_hook_path),
+                "alias ll='ls -la'",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    changed = install_command_tracking_hook.install_hook(
+        zshrc_path=zshrc,
+        hook_path=new_hook_path,
+    )
+
+    content = zshrc.read_text(encoding="utf-8")
+    assert changed is True
+    assert str(old_hook_path) not in content
+    assert str(new_hook_path.resolve()) in content
+    assert content.count("mwoham_zsh_tracking.zsh") == 1
+    assert "alias ll='ls -la'" in content
+
+
 def test_uninstall_command_tracking_hook_removes_source_line(tmp_path: Path) -> None:
     zshrc = tmp_path / ".zshrc"
     hook_path = tmp_path / "mwoham_zsh_tracking.zsh"
