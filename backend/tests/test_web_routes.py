@@ -569,6 +569,7 @@ def test_settings_dev_data_reset_form_uses_confirmation_dialog(client: TestClien
     assert "confirm(" in response.text
     assert "선택한 개발/테스트 데이터를 삭제합니다." in response.text
     assert 'name="confirm_delete" value="on"' in response.text
+    assert 'value="except_today"' in response.text
     assert 'value="dev_events"' in response.text
     assert 'value="voice_transcripts"' in response.text
     assert 'value="meeting_sessions"' in response.text

@@ -73,6 +73,62 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
     } == {"outside event", "next day boundary event"}
 
 
+def test_reset_dev_data_except_today_keeps_only_kst_day_range(db: Session) -> None:
+    session = _create_session(db)
+    inside = datetime(2026, 5, 31, 16, 0, tzinfo=UTC)
+    outside = datetime(2026, 5, 31, 14, 30, tzinfo=UTC)
+    next_day_boundary = datetime(2026, 6, 1, 15, 0, tzinfo=UTC)
+
+    _create_report(db, report_date=date(2026, 6, 1), title="today report")
+    _create_report(db, report_date=date(2026, 5, 31), title="previous report")
+    _create_event(db, session_id=session.id, timestamp=inside, content="inside event")
+    _create_event(db, session_id=session.id, timestamp=outside, content="outside event")
+    _create_event(
+        db,
+        session_id=session.id,
+        timestamp=next_day_boundary,
+        content="next day boundary event",
+    )
+    _create_memo(db, session_id=session.id, timestamp=inside, content="inside memo")
+    _create_memo(db, session_id=session.id, timestamp=outside, content="outside memo")
+    _create_observation(db, session_id=session.id, timestamp=inside, text="inside screen")
+    _create_observation(db, session_id=session.id, timestamp=outside, text="outside screen")
+    _create_segment(db, session_id=session.id, started_at=inside)
+    _create_segment(db, session_id=session.id, started_at=outside)
+    _create_dev_event(db, session_id=session.id, occurred_at=inside, summary="inside dev")
+    _create_dev_event(db, session_id=session.id, occurred_at=outside, summary="outside dev")
+    meeting = _create_meeting(db, session_id=session.id, started_at=inside, title="inside meeting")
+    _create_meeting(db, session_id=session.id, started_at=outside, title="outside meeting")
+    _create_transcript(db, meeting_id=meeting.id, timestamp=inside, text="inside transcript")
+    _create_transcript(db, meeting_id=None, timestamp=outside, text="outside transcript")
+
+    result = get_dev_data_reset_service().reset(
+        db,
+        ResetDevDataOptions(except_today=True, yes=True, target_date=date(2026, 6, 1)),
+    )
+
+    assert result.deleted is True
+    assert result.counts == {
+        "reports": 1,
+        "dev_events": 1,
+        "voice_transcripts": 1,
+        "meeting_sessions": 1,
+        "screen_observations": 1,
+        "activity_segments": 1,
+        "work_events": 2,
+        "manual_memos": 1,
+    }
+    assert _count(db, Report) == 1
+    assert _count(db, WorkEvent) == 1
+    assert _count(db, ManualMemo) == 1
+    assert _count(db, ScreenObservation) == 1
+    assert _count(db, ActivitySegment) == 1
+    assert _count(db, DevEvent) == 1
+    assert _count(db, MeetingSession) == 1
+    assert _count(db, VoiceTranscript) == 1
+    assert db.scalar(select(WorkEvent).where(WorkEvent.content == "inside event"))
+
+
 def test_reset_dev_data_reports_only_deletes_reports_only(db: Session) -> None:
     session = _create_session(db)
     _create_report(db, report_date=date(2026, 6, 1), title="report")
