@@ -32,6 +32,9 @@ def _build_options(args: argparse.Namespace) -> ResetDevDataOptions:
         today=args.today,
         all_data=args.all,
         reports_only=args.reports_only,
+        dev_events_only=args.dev_events_only,
+        transcripts_only=args.transcripts_only,
+        meetings_only=args.meetings_only,
         observations_only=args.observations_only,
         activity_only=args.activity_only,
         memos_only=args.memos_only,
@@ -47,6 +50,17 @@ def main() -> None:
     parser.add_argument("--today", action="store_true", help="delete KST today's data")
     parser.add_argument("--all", action="store_true", help="delete all target data")
     parser.add_argument("--reports-only", action="store_true", help="delete reports only")
+    parser.add_argument("--dev-events-only", action="store_true", help="delete dev_events only")
+    parser.add_argument(
+        "--transcripts-only",
+        action="store_true",
+        help="delete voice_transcripts only",
+    )
+    parser.add_argument(
+        "--meetings-only",
+        action="store_true",
+        help="delete meeting_sessions only",
+    )
     parser.add_argument(
         "--observations-only",
         action="store_true",

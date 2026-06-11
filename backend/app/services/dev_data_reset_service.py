@@ -6,13 +6,19 @@ from sqlalchemy.orm import Session
 
 from app.core.timezone import get_kst_day_range_as_utc, parse_date_or_today_kst
 from app.models.activity_segment import ActivitySegment
+from app.models.dev_event import DevEvent
 from app.models.manual_memo import ManualMemo
+from app.models.meeting_session import MeetingSession
 from app.models.report import Report
 from app.models.screen_observation import ScreenObservation
+from app.models.voice_transcript import VoiceTranscript
 from app.models.work_event import WorkEvent
 
 TARGET_LABELS = {
     "reports": "reports",
+    "dev_events": "dev_events",
+    "voice_transcripts": "voice_transcripts",
+    "meeting_sessions": "meeting_sessions",
     "screen_observations": "screen_observations",
     "activity_segments": "activity_segments",
     "work_events": "work_events",
@@ -26,6 +32,9 @@ class ResetDevDataOptions:
     today: bool = False
     all_data: bool = False
     reports_only: bool = False
+    dev_events_only: bool = False
+    transcripts_only: bool = False
+    meetings_only: bool = False
     observations_only: bool = False
     activity_only: bool = False
     memos_only: bool = False
@@ -66,6 +75,12 @@ class DevDataResetService:
         selected: list[str] = []
         if options.reports_only:
             selected.append("reports")
+        if options.dev_events_only:
+            selected.append("dev_events")
+        if options.transcripts_only:
+            selected.append("voice_transcripts")
+        if options.meetings_only:
+            selected.append("meeting_sessions")
         if options.observations_only:
             selected.append("screen_observations")
         if options.activity_only:
@@ -97,6 +112,10 @@ class DevDataResetService:
         return db.scalar(select(func.count()).select_from(statement.subquery())) or 0
 
     def _delete_target(self, db: Session, *, target: str, scope: "_DeleteScope") -> None:
+        if target == "meeting_sessions":
+            self._delete_meeting_sessions(db, scope=scope)
+            return
+
         model, conditions = self._target_model_and_conditions(target, scope=scope)
         statement = delete(model)
         for condition in conditions:
@@ -116,6 +135,18 @@ class DevDataResetService:
             if scope.report_date is not None:
                 conditions.append(Report.date == scope.report_date)
             return Report, conditions
+        if target == "dev_events":
+            return DevEvent, self._timestamp_conditions(DevEvent.occurred_at, scope=scope)
+        if target == "voice_transcripts":
+            return VoiceTranscript, self._timestamp_conditions(
+                VoiceTranscript.timestamp,
+                scope=scope,
+            )
+        if target == "meeting_sessions":
+            return MeetingSession, self._timestamp_conditions(
+                MeetingSession.started_at,
+                scope=scope,
+            )
         if target == "screen_observations":
             return ScreenObservation, self._timestamp_conditions(
                 ScreenObservation.timestamp,
@@ -138,6 +169,19 @@ class DevDataResetService:
         if scope.start is None or scope.end is None:
             return []
         return [column >= scope.start, column < scope.end]
+
+    def _delete_meeting_sessions(self, db: Session, *, scope: "_DeleteScope") -> None:
+        _, conditions = self._target_model_and_conditions("meeting_sessions", scope=scope)
+        meeting_ids = select(MeetingSession.id)
+        for condition in conditions:
+            meeting_ids = meeting_ids.where(condition)
+
+        db.execute(delete(VoiceTranscript).where(VoiceTranscript.meeting_id.in_(meeting_ids)))
+
+        statement = delete(MeetingSession)
+        for condition in conditions:
+            statement = statement.where(condition)
+        db.execute(statement)
 
 
 @dataclass(frozen=True)
