@@ -69,10 +69,25 @@ struct MeetingTranscriptionSectionView: View {
                 }
                 if viewModel.selectedAudioSource == .fullMeeting {
                     GridRow {
+                        Text("Whisper inputs")
+                            .foregroundStyle(.secondary)
+                        Text(viewModel.whisperInputSources)
+                            .fontWeight(.medium)
+                            .textSelection(.enabled)
+                    }
+                    GridRow {
                         Text("회의 전체")
                             .foregroundStyle(.secondary)
                         Text(viewModel.fullMeetingProviderStatus)
                             .fontWeight(.medium)
+                            .textSelection(.enabled)
+                    }
+                    GridRow {
+                        Text("Whisper metadata")
+                            .foregroundStyle(.secondary)
+                        Text(viewModel.whisperDiagnostics)
+                            .fontWeight(.medium)
+                            .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
                 }
@@ -98,7 +113,17 @@ struct MeetingTranscriptionSectionView: View {
                     .textFieldStyle(.roundedBorder)
                     .disabled(!viewModel.canChangeAudioSource)
 
-                    Text("경로는 다음 회의 시작부터 적용됩니다. 모델과 임시 오디오는 앱이나 backend에 저장되지 않습니다.")
+                    Toggle(
+                        "QA/debug용 source별 WAV 보관",
+                        isOn: $viewModel.whisperDebugAudioExportEnabled
+                    )
+                    .disabled(!viewModel.canChangeAudioSource)
+
+                    Text("기본값은 비활성화입니다. 활성화 시 다음 회의의 microphone/system audio WAV를 각각 ~/Library/Application Support/Mwoham/debug_audio/에 복사합니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Text("경로와 debug 옵션은 다음 회의 시작부터 적용됩니다. 모델과 기본 임시 오디오는 앱이나 backend에 저장되지 않습니다.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

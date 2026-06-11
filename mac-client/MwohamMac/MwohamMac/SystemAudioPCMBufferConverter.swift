@@ -8,6 +8,10 @@ import CoreMedia
 import Foundation
 
 enum SystemAudioPCMBufferConverter {
+    static func makePCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        makeSourcePCMBuffer(from: sampleBuffer)
+    }
+
     static func makePCMBuffer(from sampleBuffer: CMSampleBuffer, targetFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
         guard let sourceBuffer = makeSourcePCMBuffer(from: sampleBuffer) else {
             return nil
@@ -49,6 +53,40 @@ enum SystemAudioPCMBufferConverter {
             return nil
         }
         return targetBuffer
+    }
+
+    static func copy(_ sourceBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let copiedBuffer = AVAudioPCMBuffer(
+            pcmFormat: sourceBuffer.format,
+            frameCapacity: max(sourceBuffer.frameLength, 1)
+        ) else {
+            return nil
+        }
+        copiedBuffer.frameLength = sourceBuffer.frameLength
+
+        let sourceBuffers = UnsafeMutableAudioBufferListPointer(
+            sourceBuffer.mutableAudioBufferList
+        )
+        let copiedBuffers = UnsafeMutableAudioBufferListPointer(
+            copiedBuffer.mutableAudioBufferList
+        )
+        guard sourceBuffers.count == copiedBuffers.count else {
+            return nil
+        }
+
+        for index in sourceBuffers.indices {
+            guard let sourceData = sourceBuffers[index].mData,
+                  let copiedData = copiedBuffers[index].mData else {
+                continue
+            }
+            let byteCount = min(
+                Int(sourceBuffers[index].mDataByteSize),
+                Int(copiedBuffers[index].mDataByteSize)
+            )
+            memcpy(copiedData, sourceData, byteCount)
+            copiedBuffers[index].mDataByteSize = UInt32(byteCount)
+        }
+        return copiedBuffer
     }
 
     static func makeMonoFloatPCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
