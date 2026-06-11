@@ -210,7 +210,7 @@ final class ActiveWindowCollector {
         }
 
         let appName = trimmed(application.localizedName) ?? trimmed(application.bundleIdentifier) ?? "알 수 없는 앱"
-        let windowTitle = accessibilityWindowTitle(for: application.processIdentifier)
+        let windowTitle = passiveAccessibilityWindowTitle(for: application.processIdentifier)
             ?? visibleWindowTitle(for: application.processIdentifier)
 
         return ActiveWindowSnapshot(appName: appName, windowTitle: windowTitle)
@@ -248,7 +248,11 @@ final class ActiveWindowCollector {
         }
     }
 
-    private func accessibilityWindowTitle(for processID: pid_t) -> String? {
+    private func passiveAccessibilityWindowTitle(for processID: pid_t) -> String? {
+        guard AXIsProcessTrusted() else {
+            return nil
+        }
+
         let appElement = AXUIElementCreateApplication(processID)
         var focusedWindow: CFTypeRef?
 

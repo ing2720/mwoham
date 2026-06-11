@@ -110,6 +110,7 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             if let currentMeeting {
                 meeting = currentMeeting
             } else {
+                try await ensureActiveRecordingSession()
                 meeting = try await localApiClient.startMeeting(title: "음성 전사 회의")
             }
             currentMeeting = meeting
@@ -380,6 +381,23 @@ final class MeetingTranscriptionViewModel: ObservableObject {
                 self.handleProviderStatus(status, transcriptSource: transcriptSource)
             }
         )
+    }
+
+    private func ensureActiveRecordingSession() async throws {
+        let snapshot = try await localApiClient.fetchSnapshot()
+        onSnapshotReceived(snapshot)
+
+        switch snapshot.status.status {
+        case "active":
+            return
+        case "paused":
+            try await localApiClient.resumeRecording()
+        default:
+            try await localApiClient.startRecording()
+        }
+
+        let refreshedSnapshot = try await localApiClient.fetchSnapshot()
+        onSnapshotReceived(refreshedSnapshot)
     }
 
     private func handleProviderStatus(_ status: String, transcriptSource: String) {

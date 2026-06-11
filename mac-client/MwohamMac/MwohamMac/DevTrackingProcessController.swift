@@ -389,24 +389,17 @@ final class DevTrackingProcessController {
             || normalized.contains("iterm")
     }
 
+    nonisolated static func defaultRepoPathForDisplay(filePath: String = #filePath) -> String {
+        defaultBackendPath(filePath: filePath).deletingLastPathComponent().path
+    }
+
     nonisolated private static func defaultBackendPath(filePath: String = #filePath) -> URL {
         let sourceFile = URL(fileURLWithPath: filePath)
-        let repoRoot = sourceFile
+        return sourceFile
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let backendPath = repoRoot.appendingPathComponent("backend")
-        if FileManager.default.fileExists(atPath: backendPath.path) {
-            return backendPath
-        }
-
-        let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let currentBackend = currentDirectory.appendingPathComponent("backend")
-        if FileManager.default.fileExists(atPath: currentBackend.path) {
-            return currentBackend
-        }
-
-        return URL(fileURLWithPath: "/Users/a/Desktop/soloPJ/mwoham/backend")
+            .appendingPathComponent("backend")
     }
 }
