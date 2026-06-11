@@ -79,7 +79,7 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, FullMeetingSpeechT
     var preferredEngineDescription: String {
         switch whisperConfigurationProvider() {
         case .available:
-            return "Local Whisper microphone + system audio transcript 병합, Apple Speech fallback"
+            return "Local Whisper microphone + system audio 시간순 병합, Apple Speech fallback"
         case .unavailable(let reason):
             return "Apple Speech (\(reason))"
         }
@@ -250,7 +250,8 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, FullMeetingSpeechT
         return .whisper(
             LocalWhisperFullMeetingTranscript(
                 text: combinedText,
-                sourceResults: sourceResults
+                sourceResults: sourceResults,
+                temporalMergeApplied: true
             )
         )
     }

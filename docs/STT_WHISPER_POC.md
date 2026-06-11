@@ -24,23 +24,21 @@
    CAF로 기록합니다. 두 source 모두 Apple Speech silence filtering 전에 기록하며
    raw audio를 서로 섞지 않습니다.
 6. `회의 전사 종료`를 누르면 source별 임시 CAF를 각각 16 kHz mono signed
-   16-bit PCM WAV로 변환합니다. 각 WAV는 25초 단위 chunk로 나누고 source와
+   16-bit PCM WAV로 변환합니다. 각 WAV는 15초 단위 chunk로 나누고 source와
    chunk별로 local Whisper를 독립 실행합니다.
-7. hallucination guard를 통과한 chunk transcript만 source별 시간순으로 합칩니다.
-   유효한 microphone/system audio transcript가 모두 있으면 다음 형식으로
-   병합합니다.
-   형식으로 병합합니다.
+7. 각 chunk에는 source, start time, end time metadata를 붙입니다. hallucination
+   guard를 통과한 chunk transcript만 segment로 유지하고, microphone/system audio
+   segment를 start time 기준으로 정렬해 병합합니다.
 
    ```text
-   [microphone]
-   ...
-
-   [system_audio]
-   ...
+   [00:01 system_audio] 상대방 말
+   [00:03 microphone] 내 말
+   [00:06 system_audio] 상대방 말
+   [00:08 microphone] 내 말
    ```
 
-   microphone만 성공하면 기존 microphone-only transcript text를 그대로
-   사용합니다. system audio만 성공하면 `[system_audio]` label을 붙입니다.
+   microphone 또는 system audio 한쪽만 성공해도 같은 timestamp/source label
+   형식으로 최종 transcript를 만듭니다.
 8. 부분 성공 또는 전체 성공 결과는 `local_whisper_full_meeting` source로 기존
    `/meeting-transcripts` API에 저장합니다.
 9. source 하나가 실패하거나 모든 chunk가 reject되어도 다른 source의 유효한
@@ -50,7 +48,7 @@
 
 ### Hallucination guard
 
-각 25초 chunk 결과는 다음 조건으로 판정합니다. 해당하는 chunk는 최종 transcript에서
+각 15초 chunk 결과는 다음 조건으로 판정합니다. 해당하는 chunk는 최종 transcript에서
 제외합니다. 다만 자막/광고/크레딧성 hallucination 문장이 chunk 앞/뒤에 독립적으로
 붙은 경우에는 해당 문장만 제거하고 남은 회의 문장을 유지합니다.
 
@@ -90,7 +88,8 @@ Apple Speech fallback을 사용합니다.
 UI의 `STT engine` 행에는 `Local Whisper`, `Apple Speech (fallback)` 또는 현재
 설정 상태가 표시됩니다. `Whisper metadata`에는 다음 값이 표시됩니다.
 
-- `combined full meeting`: 최종 포함 source와 Apple Speech fallback 여부
+- `combined full meeting`: 최종 포함 source, temporal merge 적용 여부, source별
+  accepted count, Apple Speech fallback 여부
 - `microphone Whisper`: 포함/제외 상태, WAV duration/size, 처리 시간, 문자 수,
   chunk 총수, accepted/rejected 수, reject reason 요약
 - `system_audio Whisper`: 포함/제외 상태, WAV duration/size, 처리 시간, 문자 수,
@@ -116,7 +115,7 @@ UI의 `STT engine` 행에는 `Local Whisper`, `Apple Speech (fallback)` 또는 �
 - 앱은 audio data를 backend로 보내지 않고 최종 transcript text만 저장합니다.
 - 모델은 다운로드하거나 복사하지 않으며 사용자가 설정한 외부 경로에서 읽습니다.
 - `QA/debug용 source별 WAV 보관`은 기본 비활성화입니다. 사용자가 명시적으로
-  활성화한 회의에 한해 microphone/system audio 최종 WAV와 25초 chunk WAV를
+  활성화한 회의에 한해 microphone/system audio 최종 WAV와 15초 chunk WAV를
   저장소 밖
   `~/Library/Application Support/Mwoham/debug_audio/`에 복사합니다. 이 파일은
   자동 삭제 대상이 아니므로 QA가 끝나면 사용자가 삭제해야 합니다.
@@ -248,11 +247,12 @@ normal stop, Whisper 실패, provider stop 모두에서 삭제합니다. 앱이 
    system audio를 재생합니다. 이어폰 없이 재생해 ScreenCaptureKit 입력과 실제
    microphone 입력을 동시에 확인합니다.
 4. 회의를 종료하고 UI의 `Whisper metadata`에서 source별 `chunks`, `accepted`,
-   `rejected`, `reject_reasons`, `transcript`, `fallback`을 확인합니다.
+   `rejected`, `reject_reasons`, `temporal_merge`, `source_accepted`,
+   `processing`, `fallback`을 확인합니다.
 5. microphone과 system audio 각각의 `wav`와 `capture` duration 차이가 과도하지
    않은지 확인합니다.
-6. 최종 transcript에 `[microphone]`, `[system_audio]` 구간과 각 source 발화가
-   포함되는지 확인합니다.
+6. 최종 transcript가 source별 전체 묶음이 아니라 `[00:12 microphone]`,
+   `[00:15 system_audio]` 같은 시간순 segment 목록으로 저장되는지 확인합니다.
 7. `/meeting-transcripts/today`에서 성공 또는 부분 성공 결과가
    `source=local_whisper_full_meeting`으로 저장됐는지 확인합니다.
 8. system audio를 재생하지 않은 회의에서도 microphone transcript가 저장되는지,

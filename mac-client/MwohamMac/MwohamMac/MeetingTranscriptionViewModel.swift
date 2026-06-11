@@ -20,7 +20,7 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     @Published var currentSTTEngine = "Apple Speech"
     @Published var whisperDiagnostics = "아직 처리된 Whisper 오디오가 없습니다."
     @Published var whisperInputSources =
-        "microphone Whisper + system audio Whisper -> combined full meeting"
+        "microphone/system audio Whisper chunks -> time-ordered full meeting"
     @Published var whisperBinaryPath: String {
         didSet {
             UserDefaults.standard.set(
@@ -175,7 +175,7 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             whisperDiagnostics =
                 "microphone Whisper와 system audio Whisper를 별도 수집 중"
             whisperInputSources =
-                "microphone Whisper + system audio Whisper -> combined full meeting"
+                "microphone/system audio Whisper chunks -> time-ordered full meeting"
             resetProviderStatuses()
             activeAudioSource = selectedAudioSource
             isMeetingTranscribing = true
@@ -325,7 +325,8 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             )
             whisperDiagnostics = whisperDiagnosticsSummary(
                 sourceResults: result.sourceResults,
-                usedFallback: false
+                usedFallback: false,
+                temporalMergeApplied: result.temporalMergeApplied
             )
             guard let transcriptSource = MeetingAudioSource.fullMeeting.whisperTranscriptSource else {
                 return false
@@ -358,7 +359,8 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             fullMeetingProviderStatus = "Apple Speech fallback: \(reason)"
             whisperDiagnostics = whisperDiagnosticsSummary(
                 sourceResults: sourceResults,
-                usedFallback: true
+                usedFallback: true,
+                temporalMergeApplied: false
             )
             let appleSource = MeetingAudioSource.fullMeeting.primaryTranscriptSource
             guard let appleTranscript = latestTranscriptTextBySource[appleSource] else {
@@ -649,14 +651,24 @@ final class MeetingTranscriptionViewModel: ObservableObject {
 
     private func whisperDiagnosticsSummary(
         sourceResults: [LocalWhisperSourceResult],
-        usedFallback: Bool
+        usedFallback: Bool,
+        temporalMergeApplied: Bool
     ) -> String {
         let includedSources = sourceResults
             .filter(\.isIncluded)
             .map(\.source.rawValue)
             .joined(separator: "+")
+        let acceptedBySource = TemporaryMeetingAudioSource.allCases.map { source in
+            let count = sourceResults
+                .first(where: { $0.source == source })?
+                .chunkDiagnostics?
+                .acceptedChunkCount ?? 0
+            return "\(source.rawValue)=\(count)"
+        }.joined(separator: ",")
         let combinedSummary = "combined full meeting: included="
             + "\(includedSources.isEmpty ? "none" : includedSources), "
+            + "temporal_merge=\(temporalMergeApplied ? "yes" : "no"), "
+            + "source_accepted={\(acceptedBySource)}, "
             + "fallback=\(usedFallback ? "yes" : "no")"
         let sourceSummaries = TemporaryMeetingAudioSource.allCases.map { source in
             guard let result = sourceResults.first(where: { $0.source == source }) else {
@@ -723,12 +735,12 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     ) -> String {
         let sources = Set(includedSources)
         if sources == Set(TemporaryMeetingAudioSource.allCases) {
-            return "microphone Whisper + system audio Whisper -> combined full meeting"
+            return "microphone + system audio Whisper chunks -> time-ordered full meeting"
         }
         if sources.contains(.systemAudio) {
-            return "system audio Whisper -> partial full meeting"
+            return "system audio Whisper chunks -> time-ordered partial full meeting"
         }
-        return "microphone Whisper -> partial full meeting"
+        return "microphone Whisper chunks -> time-ordered partial full meeting"
     }
 
     private func updateWhisperInputSources(for status: String) {

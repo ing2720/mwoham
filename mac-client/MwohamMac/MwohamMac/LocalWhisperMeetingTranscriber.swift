@@ -63,6 +63,29 @@ struct LocalWhisperTranscript: Sendable {
     let processingSeconds: TimeInterval
     let audioMetadata: TemporaryMeetingAudioMetadata
     let chunkDiagnostics: LocalWhisperChunkDiagnostics
+    let segments: [LocalWhisperTranscriptSegment]
+}
+
+struct LocalWhisperTranscriptSegment: Sendable {
+    let source: TemporaryMeetingAudioSource
+    let startTime: TimeInterval
+    let endTime: TimeInterval
+    let text: String
+
+    var displayLine: String {
+        "[\(Self.formatTimestamp(startTime)) \(source.rawValue)] \(text)"
+    }
+
+    private static func formatTimestamp(_ seconds: TimeInterval) -> String {
+        let totalSeconds = max(0, Int(seconds.rounded(.down)))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
 }
 
 struct LocalWhisperChunkDiagnostics: Sendable {
@@ -104,6 +127,7 @@ struct LocalWhisperSourceResult: Sendable {
 struct LocalWhisperFullMeetingTranscript: Sendable {
     let text: String
     let sourceResults: [LocalWhisperSourceResult]
+    let temporalMergeApplied: Bool
 
     var processingSeconds: TimeInterval {
         sourceResults.compactMap(\.processingSeconds).reduce(0, +)
@@ -676,6 +700,8 @@ enum LocalWhisperTranscriptQualityPolicy {
 struct LocalWhisperAudioChunk: Sendable {
     let index: Int
     let audioURL: URL
+    let startTime: TimeInterval
+    let endTime: TimeInterval
 }
 
 enum LocalWhisperAudioChunker {
@@ -694,6 +720,7 @@ enum LocalWhisperAudioChunker {
             var index = 0
 
             while inputFile.framePosition < inputFile.length {
+                let chunkStartFrame = inputFile.framePosition
                 let remainingFrames = inputFile.length - inputFile.framePosition
                 let frameCount = AVAudioFrameCount(
                     min(AVAudioFramePosition(framesPerChunk), remainingFrames)
@@ -724,7 +751,10 @@ enum LocalWhisperAudioChunker {
                 chunks.append(
                     LocalWhisperAudioChunk(
                         index: index,
-                        audioURL: chunkURL
+                        audioURL: chunkURL,
+                        startTime: Double(chunkStartFrame) / format.sampleRate,
+                        endTime: Double(chunkStartFrame + AVAudioFramePosition(frameCount))
+                            / format.sampleRate
                     )
                 )
                 index += 1
@@ -792,21 +822,19 @@ struct LocalWhisperCLIOptions: Sendable {
 
 enum LocalWhisperTranscriptMerger {
     static func mergeText(_ transcripts: [LocalWhisperTranscript]) -> String? {
-        let orderedTranscripts = TemporaryMeetingAudioSource.allCases.compactMap {
-            source in transcripts.first { $0.audioMetadata.source == source }
+        let orderedSegments = transcripts.flatMap(\.segments).sorted {
+            if $0.startTime != $1.startTime {
+                return $0.startTime < $1.startTime
+            }
+            if $0.endTime != $1.endTime {
+                return $0.endTime < $1.endTime
+            }
+            return $0.source.rawValue < $1.source.rawValue
         }
-        guard !orderedTranscripts.isEmpty else {
+        guard !orderedSegments.isEmpty else {
             return nil
         }
-
-        if orderedTranscripts.count == 1,
-           orderedTranscripts[0].audioMetadata.source == .microphone {
-            return orderedTranscripts[0].text
-        }
-
-        return orderedTranscripts.map {
-            "\($0.audioMetadata.source.transcriptLabel)\n\($0.text)"
-        }.joined(separator: "\n\n")
+        return orderedSegments.map(\.displayLine).joined(separator: "\n")
     }
 }
 
@@ -849,7 +877,7 @@ struct LocalWhisperMeetingTranscriber {
 
     init(
         timeout: TimeInterval = 600,
-        chunkDurationSeconds: TimeInterval = 25
+        chunkDurationSeconds: TimeInterval = 15
     ) {
         self.timeout = timeout
         self.chunkDurationSeconds = chunkDurationSeconds
@@ -875,7 +903,7 @@ struct LocalWhisperMeetingTranscriber {
             LocalWhisperCLIOptions.detect(binaryURL: configuration.binaryURL)
         }.value
 
-        var acceptedTexts: [String] = []
+        var acceptedSegments: [LocalWhisperTranscriptSegment] = []
         var rejectReasons: [String: Int] = [:]
         for chunk in chunks {
             if debugAudioExportEnabled {
@@ -897,7 +925,14 @@ struct LocalWhisperMeetingTranscriber {
                 if let reason = evaluation.rejectionReason {
                     rejectReasons[reason, default: 0] += 1
                 } else if let acceptedText = evaluation.acceptedText {
-                    acceptedTexts.append(acceptedText)
+                    acceptedSegments.append(
+                        LocalWhisperTranscriptSegment(
+                            source: audioMetadata.source,
+                            startTime: chunk.startTime,
+                            endTime: chunk.endTime,
+                            text: acceptedText
+                        )
+                    )
                 }
             } catch let error as LocalWhisperTranscriptionError {
                 rejectReasons[rejectReason(for: error), default: 0] += 1
@@ -907,11 +942,14 @@ struct LocalWhisperMeetingTranscriber {
         }
 
         let repeatedChunkCounts = Dictionary(
-            grouping: acceptedTexts,
-            by: normalizedChunkKey
+            grouping: acceptedSegments,
+            by: { normalizedChunkKey($0.text) }
         ).mapValues(\.count)
-        acceptedTexts = acceptedTexts.filter { text in
-            let isRepeated = repeatedChunkCounts[normalizedChunkKey(text), default: 0] >= 3
+        acceptedSegments = acceptedSegments.filter { segment in
+            let isRepeated = repeatedChunkCounts[
+                normalizedChunkKey(segment.text),
+                default: 0
+            ] >= 3
             if isRepeated {
                 rejectReasons["repeated_across_chunks", default: 0] += 1
             }
@@ -921,11 +959,11 @@ struct LocalWhisperMeetingTranscriber {
         let processingSeconds = ProcessInfo.processInfo.systemUptime - startedAt
         let diagnostics = LocalWhisperChunkDiagnostics(
             chunkCount: chunks.count,
-            acceptedChunkCount: acceptedTexts.count,
-            rejectedChunkCount: chunks.count - acceptedTexts.count,
+            acceptedChunkCount: acceptedSegments.count,
+            rejectedChunkCount: chunks.count - acceptedSegments.count,
             rejectReasons: rejectReasons
         )
-        let combinedText = acceptedTexts.joined(separator: "\n")
+        let combinedText = acceptedSegments.map(\.text).joined(separator: "\n")
         guard !combinedText.isEmpty else {
             return LocalWhisperTranscriptionAttempt(
                 transcript: nil,
@@ -938,7 +976,8 @@ struct LocalWhisperMeetingTranscriber {
                 text: combinedText,
                 processingSeconds: processingSeconds,
                 audioMetadata: audioMetadata,
-                chunkDiagnostics: diagnostics
+                chunkDiagnostics: diagnostics,
+                segments: acceptedSegments
             ),
             processingSeconds: processingSeconds,
             chunkDiagnostics: diagnostics

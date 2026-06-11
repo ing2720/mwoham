@@ -548,11 +548,13 @@ uv run python -c "from app.ai.gemini_client import GeminiClient; from app.core.c
 
 - Whisper 성공 시 `source=local_whisper_full_meeting`으로 저장됩니다.
 - microphone/system audio가 각각 독립 WAV와 Whisper 입력으로 표시됩니다.
-- 두 source가 성공하면 최종 transcript에 `[microphone]`과 `[system_audio]`
-  구간이 모두 포함됩니다.
+- 두 source가 성공하면 최종 transcript가 source별 전체 묶음이 아니라
+  `[00:12 microphone]`, `[00:15 system_audio]` 같은 시간순 segment 목록으로
+  저장됩니다.
 - source별 WAV duration이 capture duration과 크게 어긋나지 않습니다.
-- source별 25초 chunk 수, accepted/rejected 수, reject reason 요약, 처리 시간,
-  transcript 길이가 UI에 표시됩니다.
+- source별 15초 chunk 수, accepted/rejected 수, source별 accepted count,
+  temporal merge 적용 여부, reject reason 요약, 처리 시간, transcript 길이가
+  UI에 표시됩니다.
 - `"아쩡하쩡하쩡..."`, 같은 문장의 과도한 반복, 점/공백 위주 chunk는 rejected되고
   정상 발화 chunk만 최종 transcript에 남습니다.
 - 한 source가 없거나 실패해도 다른 source transcript는
