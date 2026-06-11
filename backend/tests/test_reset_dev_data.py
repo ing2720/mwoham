@@ -4,9 +4,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.activity_segment import ActivitySegment
+from app.models.dev_event import DevEvent
 from app.models.manual_memo import ManualMemo
+from app.models.meeting_session import MeetingSession
 from app.models.report import Report
 from app.models.screen_observation import ScreenObservation
+from app.models.voice_transcript import VoiceTranscript
 from app.models.work_event import WorkEvent
 from app.models.work_session import WorkSession
 from app.services.dev_data_reset_service import ResetDevDataOptions, get_dev_data_reset_service
@@ -34,6 +37,12 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
     _create_observation(db, session_id=session.id, timestamp=outside, text="outside screen")
     _create_segment(db, session_id=session.id, started_at=inside)
     _create_segment(db, session_id=session.id, started_at=outside)
+    _create_dev_event(db, session_id=session.id, occurred_at=inside, summary="inside dev")
+    _create_dev_event(db, session_id=session.id, occurred_at=outside, summary="outside dev")
+    meeting = _create_meeting(db, session_id=session.id, started_at=inside, title="inside meeting")
+    _create_meeting(db, session_id=session.id, started_at=outside, title="outside meeting")
+    _create_transcript(db, meeting_id=meeting.id, timestamp=inside, text="inside transcript")
+    _create_transcript(db, meeting_id=None, timestamp=outside, text="outside transcript")
 
     result = get_dev_data_reset_service().reset(
         db,
@@ -43,6 +52,9 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
     assert result.deleted is True
     assert result.counts == {
         "reports": 1,
+        "dev_events": 1,
+        "voice_transcripts": 1,
+        "meeting_sessions": 1,
         "screen_observations": 1,
         "activity_segments": 1,
         "work_events": 1,
@@ -53,9 +65,68 @@ def test_reset_dev_data_today_deletes_only_kst_day_range(db: Session) -> None:
     assert _count(db, ManualMemo) == 1
     assert _count(db, ScreenObservation) == 1
     assert _count(db, ActivitySegment) == 1
+    assert _count(db, DevEvent) == 1
+    assert _count(db, MeetingSession) == 1
+    assert _count(db, VoiceTranscript) == 1
     assert {
         event.content for event in db.scalars(select(WorkEvent).order_by(WorkEvent.timestamp))
     } == {"outside event", "next day boundary event"}
+
+
+def test_reset_dev_data_except_today_keeps_only_kst_day_range(db: Session) -> None:
+    session = _create_session(db)
+    inside = datetime(2026, 5, 31, 16, 0, tzinfo=UTC)
+    outside = datetime(2026, 5, 31, 14, 30, tzinfo=UTC)
+    next_day_boundary = datetime(2026, 6, 1, 15, 0, tzinfo=UTC)
+
+    _create_report(db, report_date=date(2026, 6, 1), title="today report")
+    _create_report(db, report_date=date(2026, 5, 31), title="previous report")
+    _create_event(db, session_id=session.id, timestamp=inside, content="inside event")
+    _create_event(db, session_id=session.id, timestamp=outside, content="outside event")
+    _create_event(
+        db,
+        session_id=session.id,
+        timestamp=next_day_boundary,
+        content="next day boundary event",
+    )
+    _create_memo(db, session_id=session.id, timestamp=inside, content="inside memo")
+    _create_memo(db, session_id=session.id, timestamp=outside, content="outside memo")
+    _create_observation(db, session_id=session.id, timestamp=inside, text="inside screen")
+    _create_observation(db, session_id=session.id, timestamp=outside, text="outside screen")
+    _create_segment(db, session_id=session.id, started_at=inside)
+    _create_segment(db, session_id=session.id, started_at=outside)
+    _create_dev_event(db, session_id=session.id, occurred_at=inside, summary="inside dev")
+    _create_dev_event(db, session_id=session.id, occurred_at=outside, summary="outside dev")
+    meeting = _create_meeting(db, session_id=session.id, started_at=inside, title="inside meeting")
+    _create_meeting(db, session_id=session.id, started_at=outside, title="outside meeting")
+    _create_transcript(db, meeting_id=meeting.id, timestamp=inside, text="inside transcript")
+    _create_transcript(db, meeting_id=None, timestamp=outside, text="outside transcript")
+
+    result = get_dev_data_reset_service().reset(
+        db,
+        ResetDevDataOptions(except_today=True, yes=True, target_date=date(2026, 6, 1)),
+    )
+
+    assert result.deleted is True
+    assert result.counts == {
+        "reports": 1,
+        "dev_events": 1,
+        "voice_transcripts": 1,
+        "meeting_sessions": 1,
+        "screen_observations": 1,
+        "activity_segments": 1,
+        "work_events": 2,
+        "manual_memos": 1,
+    }
+    assert _count(db, Report) == 1
+    assert _count(db, WorkEvent) == 1
+    assert _count(db, ManualMemo) == 1
+    assert _count(db, ScreenObservation) == 1
+    assert _count(db, ActivitySegment) == 1
+    assert _count(db, DevEvent) == 1
+    assert _count(db, MeetingSession) == 1
+    assert _count(db, VoiceTranscript) == 1
+    assert db.scalar(select(WorkEvent).where(WorkEvent.content == "inside event"))
 
 
 def test_reset_dev_data_reports_only_deletes_reports_only(db: Session) -> None:
@@ -95,6 +166,9 @@ def test_reset_dev_data_all_yes_deletes_target_data(db: Session) -> None:
     _create_memo(db, session_id=session.id, timestamp=timestamp)
     _create_observation(db, session_id=session.id, timestamp=timestamp)
     _create_segment(db, session_id=session.id, started_at=timestamp)
+    _create_dev_event(db, session_id=session.id, occurred_at=timestamp)
+    meeting = _create_meeting(db, session_id=session.id, started_at=timestamp)
+    _create_transcript(db, meeting_id=meeting.id, timestamp=timestamp)
 
     result = get_dev_data_reset_service().reset(
         db,
@@ -108,7 +182,28 @@ def test_reset_dev_data_all_yes_deletes_target_data(db: Session) -> None:
     assert _count(db, ManualMemo) == 0
     assert _count(db, ScreenObservation) == 0
     assert _count(db, ActivitySegment) == 0
+    assert _count(db, DevEvent) == 0
+    assert _count(db, VoiceTranscript) == 0
+    assert _count(db, MeetingSession) == 0
     assert _count(db, WorkSession) == 1
+
+
+def test_reset_dev_data_meetings_only_deletes_linked_transcripts(db: Session) -> None:
+    session = _create_session(db)
+    timestamp = datetime(2026, 6, 1, tzinfo=UTC)
+    meeting = _create_meeting(db, session_id=session.id, started_at=timestamp)
+    _create_transcript(db, meeting_id=meeting.id, timestamp=timestamp, text="linked")
+    _create_transcript(db, meeting_id=None, timestamp=timestamp, text="standalone")
+
+    result = get_dev_data_reset_service().reset(
+        db,
+        ResetDevDataOptions(meetings_only=True, yes=True),
+    )
+
+    assert result.counts == {"meeting_sessions": 1}
+    assert _count(db, MeetingSession) == 0
+    assert _count(db, VoiceTranscript) == 1
+    assert db.scalar(select(VoiceTranscript).where(VoiceTranscript.text == "standalone"))
 
 
 def _create_session(db: Session) -> WorkSession:
@@ -195,6 +290,55 @@ def _create_segment(db: Session, *, session_id: int, started_at: datetime) -> No
             sample_count=1,
         )
     )
+    db.commit()
+
+
+def _create_dev_event(
+    db: Session,
+    *,
+    session_id: int,
+    occurred_at: datetime,
+    summary: str = "dev event",
+) -> None:
+    db.add(
+        DevEvent(
+            session_id=session_id,
+            event_type="command_result",
+            source="terminal",
+            status="success",
+            summary=summary,
+            occurred_at=occurred_at,
+        )
+    )
+    db.commit()
+
+
+def _create_meeting(
+    db: Session,
+    *,
+    session_id: int,
+    started_at: datetime,
+    title: str = "meeting",
+) -> MeetingSession:
+    meeting = MeetingSession(
+        session_id=session_id,
+        started_at=started_at,
+        title=title,
+    )
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+    return meeting
+
+
+def _create_transcript(
+    db: Session,
+    *,
+    meeting_id: int | None,
+    timestamp: datetime,
+    text: str = "transcript",
+) -> None:
+    db.add(VoiceTranscript(meeting_id=meeting_id, timestamp=timestamp, text=text))
     db.commit()
 
 

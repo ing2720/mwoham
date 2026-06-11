@@ -69,7 +69,11 @@ def _build_reset_options_from_form(form) -> ResetDevDataOptions:
     return ResetDevDataOptions(
         today=scope == "today",
         all_data=scope == "all",
+        except_today=scope == "except_today",
         reports_only=target == "reports",
+        dev_events_only=target == "dev_events",
+        transcripts_only=target == "voice_transcripts",
+        meetings_only=target == "meeting_sessions",
         observations_only=target == "screen_observations",
         activity_only=target == "activity_segments",
         memos_only=target == "manual_memos",

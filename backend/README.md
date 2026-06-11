@@ -451,7 +451,11 @@ uv run python scripts/seed_sample_data.py --reset
 cd backend
 uv run python scripts/reset_dev_data.py --today
 uv run python scripts/reset_dev_data.py --today --yes
+uv run python scripts/reset_dev_data.py --except-today --yes
 uv run python scripts/reset_dev_data.py --reports-only --yes
+uv run python scripts/reset_dev_data.py --dev-events-only --yes
+uv run python scripts/reset_dev_data.py --transcripts-only --yes
+uv run python scripts/reset_dev_data.py --meetings-only --yes
 uv run python scripts/reset_dev_data.py --observations-only --yes
 uv run python scripts/reset_dev_data.py --activity-only --yes
 uv run python scripts/reset_dev_data.py --memos-only --yes
@@ -460,8 +464,9 @@ uv run python scripts/reset_dev_data.py --all --yes
 ```
 
 - `--today`: 오늘 KST 기준 기록 데이터만 대상으로 합니다.
+- `--except-today`: 오늘 KST 기준 기록은 남기고 나머지 기록 데이터를 대상으로 합니다.
 - `--all`: 전체 기록 데이터를 대상으로 합니다.
-- `--reports-only`, `--observations-only`, `--activity-only`, `--memos-only`, `--events-only`: 특정 테이블만 대상으로 합니다.
+- `--reports-only`, `--dev-events-only`, `--transcripts-only`, `--meetings-only`, `--observations-only`, `--activity-only`, `--memos-only`, `--events-only`: 특정 테이블만 대상으로 합니다.
 - `--yes`가 없으면 삭제 대상과 개수만 출력하고 실제 삭제하지 않습니다.
 
 ## 리포트 생성과 다운로드 확인
