@@ -17,11 +17,28 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     @Published var microphoneProviderStatus = "마이크 대기 중"
     @Published var systemAudioProviderStatus = "시스템 오디오 대기 중"
     @Published var fullMeetingProviderStatus = "회의 전체 대기 중"
+    @Published var currentSTTEngine = "Apple Speech"
+    @Published var whisperBinaryPath: String {
+        didSet {
+            UserDefaults.standard.set(
+                whisperBinaryPath,
+                forKey: LocalWhisperSettings.binaryPathKey
+            )
+        }
+    }
+    @Published var whisperModelPath: String {
+        didSet {
+            UserDefaults.standard.set(
+                whisperModelPath,
+                forKey: LocalWhisperSettings.modelPathKey
+            )
+        }
+    }
 
     private let localApiClient: LocalApiClient
     private let microphoneTranscriptionProvider: SpeechTranscriptionProvider
     private let systemAudioTranscriptionProvider: SpeechTranscriptionProvider
-    private let fullMeetingTranscriptionProvider: SpeechTranscriptionProvider
+    private let fullMeetingTranscriptionProvider: FullMeetingSpeechTranscriptionProviding
     private let speechPermissionService: SpeechPermissionServicing
     private let transcriptSubmissionPolicy: MeetingTranscriptSubmissionPolicy
     private let isConnected: () -> Bool
@@ -40,7 +57,7 @@ final class MeetingTranscriptionViewModel: ObservableObject {
         localApiClient: LocalApiClient,
         microphoneTranscriptionProvider: SpeechTranscriptionProvider,
         systemAudioTranscriptionProvider: SpeechTranscriptionProvider,
-        fullMeetingTranscriptionProvider: SpeechTranscriptionProvider,
+        fullMeetingTranscriptionProvider: FullMeetingSpeechTranscriptionProviding,
         speechPermissionService: SpeechPermissionServicing,
         transcriptSubmissionPolicy: MeetingTranscriptSubmissionPolicy,
         isConnected: @escaping () -> Bool,
@@ -54,6 +71,12 @@ final class MeetingTranscriptionViewModel: ObservableObject {
         self.fullMeetingTranscriptionProvider = fullMeetingTranscriptionProvider
         self.speechPermissionService = speechPermissionService
         self.transcriptSubmissionPolicy = transcriptSubmissionPolicy
+        self.whisperBinaryPath = UserDefaults.standard.string(
+            forKey: LocalWhisperSettings.binaryPathKey
+        ) ?? ""
+        self.whisperModelPath = UserDefaults.standard.string(
+            forKey: LocalWhisperSettings.modelPathKey
+        ) ?? ""
         self.isConnected = isConnected
         self.onMeetingStateChange = onMeetingStateChange
         self.onRefreshAfterFailedAction = onRefreshAfterFailedAction
@@ -61,7 +84,10 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     }
 
     var canStart: Bool {
-        isConnected() && !isAnyProviderRunning
+        isConnected()
+            && !isAnyProviderRunning
+            && !isMeetingTranscribing
+            && !isStoppingMeetingTranscription
     }
 
     var canStop: Bool {
@@ -69,7 +95,9 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     }
 
     var canChangeAudioSource: Bool {
-        !isAnyProviderRunning && !isMeetingTranscribing
+        !isAnyProviderRunning
+            && !isMeetingTranscribing
+            && !isStoppingMeetingTranscription
     }
 
     var selectedAudioSourceDescription: String {
@@ -82,6 +110,15 @@ final class MeetingTranscriptionViewModel: ObservableObject {
 
     var selectedAudioSourceGuidanceText: String? {
         selectedAudioSource.guidanceText
+    }
+
+    var displayedSTTEngine: String {
+        if isMeetingTranscribing || isStoppingMeetingTranscription {
+            return currentSTTEngine
+        }
+        return selectedAudioSource == .fullMeeting
+            ? fullMeetingTranscriptionProvider.preferredEngineDescription
+            : "Apple Speech"
     }
 
     func applyStatus(_ status: StatusResponse) {
@@ -125,6 +162,9 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             activeAudioSource = selectedAudioSource
             isMeetingTranscribing = true
             isStoppingMeetingTranscription = false
+            currentSTTEngine = activeAudioSource == .fullMeeting
+                ? fullMeetingTranscriptionProvider.preferredEngineDescription
+                : "Apple Speech"
             transcriptionStatus = activeAudioSource.startStatusText
 
             let providerErrors = await startProviders(for: activeAudioSource)
@@ -157,13 +197,20 @@ final class MeetingTranscriptionViewModel: ObservableObject {
         isMeetingTranscribing = false
         isStoppingMeetingTranscription = true
         transcriptionStatus = "회의 전사 종료 중"
-        let didSaveFinalTranscript = await submitFinalTranscriptsIfNeeded(
-            allowsRunningStatusUpdate: false,
-            force: true
-        )
-        await microphoneTranscriptionProvider.stop()
-        await systemAudioTranscriptionProvider.stop()
-        await fullMeetingTranscriptionProvider.stop()
+        let didSaveFinalTranscript: Bool
+        if activeAudioSource == .fullMeeting {
+            didSaveFinalTranscript = await finalizeFullMeetingTranscript()
+            await microphoneTranscriptionProvider.stop()
+            await systemAudioTranscriptionProvider.stop()
+        } else {
+            didSaveFinalTranscript = await submitFinalTranscriptsIfNeeded(
+                allowsRunningStatusUpdate: false,
+                force: true
+            )
+            await microphoneTranscriptionProvider.stop()
+            await systemAudioTranscriptionProvider.stop()
+            await fullMeetingTranscriptionProvider.stop()
+        }
 
         do {
             let meeting: MeetingResponse?
@@ -223,8 +270,10 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             status: update.isFinal ? "\(providerLabel(for: transcriptSource)) 최종 전사 수신됨" : "\(providerLabel(for: transcriptSource)) 전사 중"
         )
         let canUpdateRunningStatus = isMeetingTranscribing && !isStoppingMeetingTranscription
+        let shouldDeferFullMeetingSubmission = activeAudioSource == .fullMeeting
+            && isFullMeetingTranscriptSource(transcriptSource)
         if canUpdateRunningStatus {
-            if update.isFinal {
+            if update.isFinal && !shouldDeferFullMeetingSubmission {
                 transcriptionStatus = "전사 저장 중"
             } else if activeAudioSource == .fullMeeting {
                 transcriptionStatus = fullMeetingStatusSummary()
@@ -233,12 +282,61 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             }
         }
 
-        if update.isFinal {
+        if update.isFinal && !shouldDeferFullMeetingSubmission {
             _ = await submitTranscriptIfNeeded(
                 trimmedText,
                 transcriptSource: transcriptSource,
                 allowsRunningStatusUpdate: canUpdateRunningStatus
             )
+        }
+    }
+
+    private func finalizeFullMeetingTranscript() async -> Bool {
+        transcriptionStatus = "Local Whisper 처리 중"
+        fullMeetingProviderStatus = "회의 전체: Local Whisper 처리 중"
+        let finalization = await fullMeetingTranscriptionProvider
+            .finalizeMeetingTranscription()
+
+        switch finalization {
+        case .whisper(let result):
+            currentSTTEngine = "Local Whisper"
+            guard let transcriptSource = MeetingAudioSource.fullMeeting.whisperTranscriptSource else {
+                return false
+            }
+            let normalizedText = transcriptSubmissionPolicy.normalize(result.text)
+            latestTranscriptText = normalizedText
+            latestTranscriptTextBySource = [transcriptSource: normalizedText]
+            let didSave = await submitTranscriptIfNeeded(
+                normalizedText,
+                transcriptSource: transcriptSource,
+                allowsRunningStatusUpdate: false,
+                force: true
+            )
+            if didSave {
+                fullMeetingProviderStatus = String(
+                    format: "Local Whisper 전사 저장됨 (%.2f초)",
+                    result.processingSeconds
+                )
+            }
+            return didSave
+        case .appleSpeechFallback(let reason):
+            currentSTTEngine = "Apple Speech (fallback)"
+            fullMeetingProviderStatus = "Apple Speech fallback: \(reason)"
+            let appleSource = MeetingAudioSource.fullMeeting.primaryTranscriptSource
+            guard let appleTranscript = latestTranscriptTextBySource[appleSource] else {
+                transcriptionStatus = "전사 결과 없음: \(reason)"
+                return false
+            }
+            let didSave = await submitTranscriptIfNeeded(
+                appleTranscript,
+                transcriptSource: appleSource,
+                allowsRunningStatusUpdate: false,
+                force: true
+            )
+            if didSave {
+                fullMeetingProviderStatus = "Apple Speech fallback 저장됨: \(reason)"
+            }
+            return didSave
         }
     }
 
@@ -406,6 +504,15 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             return
         }
 
+        if status.contains("Local Whisper 오디오 수집 계속") {
+            updateProviderStatus(
+                transcriptSource,
+                status: statusForDisplay(status, transcriptSource: transcriptSource)
+            )
+            transcriptionStatus = fullMeetingStatusSummary()
+            return
+        }
+
         if status.contains("오류") || status.contains("실패") {
             recordProviderFailure(transcriptSource: transcriptSource, reason: status)
             transcriptionStatus = activeAudioSource == .fullMeeting ? fullMeetingStatusSummary() : status
@@ -428,7 +535,7 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     }
 
     private func updateProviderStatus(_ transcriptSource: String, status: String) {
-        if transcriptSource == MeetingAudioSource.fullMeeting.primaryTranscriptSource {
+        if isFullMeetingTranscriptSource(transcriptSource) {
             fullMeetingProviderStatus = status
         } else if transcriptSource == MeetingAudioSource.systemAudio.primaryTranscriptSource {
             systemAudioProviderStatus = status
@@ -462,14 +569,14 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     }
 
     private func providerLabel(for transcriptSource: String) -> String {
-        if transcriptSource == MeetingAudioSource.fullMeeting.primaryTranscriptSource {
+        if isFullMeetingTranscriptSource(transcriptSource) {
             return "회의 전체"
         }
         return transcriptSource == MeetingAudioSource.systemAudio.primaryTranscriptSource ? "시스템 오디오" : "마이크"
     }
 
     private func provider(for transcriptSource: String) -> SpeechTranscriptionProvider {
-        if transcriptSource == MeetingAudioSource.fullMeeting.primaryTranscriptSource {
+        if isFullMeetingTranscriptSource(transcriptSource) {
             return fullMeetingTranscriptionProvider
         }
         return transcriptSource == MeetingAudioSource.systemAudio.primaryTranscriptSource
@@ -481,6 +588,11 @@ final class MeetingTranscriptionViewModel: ObservableObject {
         microphoneTranscriptionProvider.isRunning
             || systemAudioTranscriptionProvider.isRunning
             || fullMeetingTranscriptionProvider.isRunning
+    }
+
+    private func isFullMeetingTranscriptSource(_ transcriptSource: String) -> Bool {
+        transcriptSource == MeetingAudioSource.fullMeeting.primaryTranscriptSource
+            || transcriptSource == MeetingAudioSource.fullMeeting.whisperTranscriptSource
     }
 
     private func requestAuthorization(for audioSource: MeetingAudioSource) async throws {

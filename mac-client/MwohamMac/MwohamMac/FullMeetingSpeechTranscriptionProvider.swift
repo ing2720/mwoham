@@ -10,14 +10,19 @@ import Foundation
 import ScreenCaptureKit
 import Speech
 
-final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptionProvider, SCStreamOutput, SCStreamDelegate {
+final class FullMeetingSpeechTranscriptionProvider: NSObject, FullMeetingSpeechTranscriptionProviding, SCStreamOutput, SCStreamDelegate {
     private let systemAudioQueue = DispatchQueue(label: "com.mwoham.full-meeting-system-audio")
     private let appendQueue = DispatchQueue(label: "com.mwoham.full-meeting-speech-append")
     private let audioEngine = AVAudioEngine()
+    private let whisperConfigurationProvider: () -> LocalWhisperConfigurationResolution
+    private let whisperTranscriber: LocalWhisperMeetingTranscriber
     private var stream: SCStream?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var speechRecognizer: SFSpeechRecognizer?
+    private var whisperConfiguration: LocalWhisperConfiguration?
+    private var temporaryAudioRecorder: TemporaryMeetingAudioRecorder?
+    private var temporaryAudioRecordingError: String?
     private var onStatusChange: (@MainActor (String) -> Void)?
     private var onTranscript: (@MainActor (SpeechTranscriptUpdate) async -> Void)?
     private var isStopping = false
@@ -44,8 +49,28 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         interleaved: false
     )!
 
+    init(
+        whisperConfigurationProvider: @escaping () -> LocalWhisperConfigurationResolution = {
+            LocalWhisperSettings.resolve()
+        },
+        whisperTranscriber: LocalWhisperMeetingTranscriber = LocalWhisperMeetingTranscriber()
+    ) {
+        self.whisperConfigurationProvider = whisperConfigurationProvider
+        self.whisperTranscriber = whisperTranscriber
+        super.init()
+    }
+
     var isRunning: Bool {
         recognitionTask != nil || audioEngine.isRunning || stream != nil
+    }
+
+    var preferredEngineDescription: String {
+        switch whisperConfigurationProvider() {
+        case .available:
+            return "Local Whisper 우선, Apple Speech fallback"
+        case .unavailable(let reason):
+            return "Apple Speech (\(reason))"
+        }
     }
 
     func start(
@@ -58,45 +83,20 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         isStopping = false
         self.onTranscript = onTranscript
         self.onStatusChange = onStatusChange
+        prepareTemporaryWhisperRecording()
 
         let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier))
-        guard let recognizer, recognizer.isAvailable else {
+        if let recognizer, recognizer.isAvailable {
+            startAppleSpeechRecognition(
+                recognizer: recognizer,
+                onTranscript: onTranscript
+            )
+            await emitStatus("회의 전체 전사 준비 중, Apple Speech fallback started")
+        } else if whisperConfiguration == nil {
             throw SpeechTranscriptionError.recognizerUnavailable
+        } else {
+            await emitStatus("Apple Speech fallback 사용 불가, Local Whisper용 오디오 수집 계속")
         }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        if #available(macOS 13.0, *) {
-            request.addsPunctuation = true
-        }
-
-        speechRecognizer = recognizer
-        recognitionRequest = request
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            Task { @MainActor in
-                guard let self else {
-                    return
-                }
-
-                if let result {
-                    await self.onTranscript?(
-                        SpeechTranscriptUpdate(
-                            text: result.bestTranscription.formattedString,
-                            isFinal: result.isFinal
-                        )
-                    )
-                    self.onStatusChange?(
-                        result.isFinal ? "회의 전체 최종 전사 수신됨" : "Apple Speech 전사 결과 수신 중"
-                    )
-                }
-
-                if let error, !self.isStopping {
-                    self.onStatusChange?("회의 전체 전사 실패: \(SpeechRecognitionErrorFormatter.describe(error)), \(self.diagnosticSummary())")
-                    await self.stop()
-                }
-            }
-        }
-        await emitStatus("회의 전체 전사 준비 중, Apple Speech task started")
 
         var inputErrors: [String] = []
         do {
@@ -127,8 +127,105 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
         }
     }
 
+    private func startAppleSpeechRecognition(
+        recognizer: SFSpeechRecognizer,
+        onTranscript: @escaping @MainActor (SpeechTranscriptUpdate) async -> Void
+    ) {
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        if #available(macOS 13.0, *) {
+            request.addsPunctuation = true
+        }
+
+        speechRecognizer = recognizer
+        recognitionRequest = request
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            Task { @MainActor in
+                guard let self else {
+                    return
+                }
+
+                if let result {
+                    await self.onTranscript?(
+                        SpeechTranscriptUpdate(
+                            text: result.bestTranscription.formattedString,
+                            isFinal: result.isFinal
+                        )
+                    )
+                    self.onStatusChange?(
+                        result.isFinal ? "회의 전체 최종 전사 수신됨" : "Apple Speech 전사 결과 수신 중"
+                    )
+                }
+
+                if let error, !self.isStopping {
+                    let reason = SpeechRecognitionErrorFormatter.describe(error)
+                    if self.temporaryAudioRecorder != nil,
+                       self.temporaryAudioRecordingError == nil {
+                        self.stopSpeechRecognition()
+                        self.onStatusChange?(
+                            "Apple Speech fallback 실패, Local Whisper 오디오 수집 계속: \(reason)"
+                        )
+                    } else {
+                        self.onStatusChange?(
+                            "회의 전체 전사 실패: \(reason), \(self.diagnosticSummary())"
+                        )
+                        await self.stop()
+                    }
+                }
+            }
+        }
+    }
+
     func stop() async {
         isStopping = true
+        await stopCaptureInputs()
+        drainAudioQueues()
+        stopSpeechRecognition()
+        cleanupTemporaryWhisperRecording()
+        resetRuntimeState()
+    }
+
+    func finalizeMeetingTranscription() async -> FullMeetingTranscriptionFinalization {
+        isStopping = true
+        await stopCaptureInputs()
+        drainAudioQueues()
+
+        let audioURL = temporaryAudioRecorder?.finish()
+        let workingDirectoryURL = temporaryAudioRecorder?.directoryURL
+        let configuration = whisperConfiguration
+        let recordingError = temporaryAudioRecordingError
+        stopSpeechRecognition()
+
+        defer {
+            cleanupTemporaryWhisperRecording()
+            resetRuntimeState()
+        }
+
+        if let recordingError {
+            return .appleSpeechFallback(reason: recordingError)
+        }
+        guard let configuration else {
+            return .appleSpeechFallback(reason: "Whisper 설정을 사용할 수 없음")
+        }
+        guard let audioURL, let workingDirectoryURL else {
+            return .appleSpeechFallback(reason: "Whisper용 회의 오디오가 비어 있음")
+        }
+
+        do {
+            let transcript = try await whisperTranscriber.transcribe(
+                audioURL: audioURL,
+                workingDirectoryURL: workingDirectoryURL,
+                configuration: configuration
+            )
+            return .whisper(transcript)
+        } catch {
+            return .appleSpeechFallback(
+                reason: SpeechRecognitionErrorFormatter.describe(error)
+            )
+        }
+    }
+
+    private func stopCaptureInputs() async {
         if audioEngine.isRunning {
             audioEngine.stop()
         }
@@ -141,15 +238,27 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
                 await emitStatus("회의 전체 시스템 오디오 종료 오류: \(error.localizedDescription)")
             }
         }
+        stream = nil
+    }
 
+    private func drainAudioQueues() {
+        systemAudioQueue.sync {}
+        appendQueue.sync {}
+    }
+
+    private func stopSpeechRecognition() {
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
-        stream = nil
         recognitionRequest = nil
         recognitionTask = nil
         speechRecognizer = nil
+    }
+
+    private func resetRuntimeState() {
         microphoneActive = false
         systemAudioActive = false
+        onTranscript = nil
+        onStatusChange = nil
         resetDiagnostics()
     }
 
@@ -272,8 +381,42 @@ final class FullMeetingSpeechTranscriptionProvider: NSObject, SpeechTranscriptio
     private func appendToSpeechRequest(_ buffer: AVAudioPCMBuffer) {
         appendedBufferCount += 1
         appendQueue.async { [weak self, buffer] in
-            self?.recognitionRequest?.append(buffer)
+            guard let self else {
+                return
+            }
+            self.recognitionRequest?.append(buffer)
+            guard self.temporaryAudioRecordingError == nil else {
+                return
+            }
+            do {
+                try self.temporaryAudioRecorder?.append(buffer)
+            } catch {
+                self.temporaryAudioRecordingError = "임시 회의 오디오 기록 실패: \(error.localizedDescription)"
+            }
         }
+    }
+
+    private func prepareTemporaryWhisperRecording() {
+        cleanupTemporaryWhisperRecording()
+
+        switch whisperConfigurationProvider() {
+        case .available(let configuration):
+            do {
+                temporaryAudioRecorder = try TemporaryMeetingAudioRecorder()
+                whisperConfiguration = configuration
+            } catch {
+                temporaryAudioRecordingError = "임시 회의 오디오 준비 실패: \(error.localizedDescription)"
+            }
+        case .unavailable(let reason):
+            temporaryAudioRecordingError = reason
+        }
+    }
+
+    private func cleanupTemporaryWhisperRecording() {
+        temporaryAudioRecorder?.cleanup()
+        temporaryAudioRecorder = nil
+        whisperConfiguration = nil
+        temporaryAudioRecordingError = nil
     }
 
     private func shouldAppendSpeechBuffer(

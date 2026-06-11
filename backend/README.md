@@ -427,9 +427,11 @@ prompt에서 지시합니다.
 - `apple_speech_microphone`: 마이크 단독 전사
 - `apple_speech_system_audio`: 시스템 오디오 단독 전사
 - `apple_speech_full_meeting`: 마이크와 시스템 오디오를 하나의 Apple Speech recognitionTask로 처리한 회의 전체 전사
+- `local_whisper_full_meeting`: 회의 전체 임시 WAV를 local Whisper로 처리한 최종 전사
 - `manual`: 수동 입력 transcript
 
-시스템 오디오 전사 연결 과정에서 DB schema, migration, API endpoint는 변경하지 않았습니다.
+Local Whisper 연결에서도 DB schema, migration, API endpoint는 변경하지 않았습니다.
+Mac 앱은 임시 WAV를 로컬에서 처리 후 삭제하며 backend에는 transcript text만 전송합니다.
 
 ## 샘플 데이터
 

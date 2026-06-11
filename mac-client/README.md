@@ -85,15 +85,15 @@ Dev Tracking 상태는 메인 상태 영역, 메뉴바, 플로팅 위젯에 표�
 
 ## 회의 전사 구조
 
-macOS 앱은 Apple Speech 기반 회의 전사를 지원합니다. 전사 입력 source는 세 가지입니다.
+macOS 앱은 Apple Speech와 local Whisper 기반 회의 전사를 지원합니다. 전사 입력 source는 세 가지입니다.
 
 - `마이크`: `AppleSpeechTranscriptionProvider`가 마이크 입력을 전사하고, transcript source는 `apple_speech_microphone`으로 저장합니다.
 - `시스템 오디오`: ScreenCaptureKit display-wide capture로 시스템 오디오를 받고, `SystemAudioDisplayCaptureTarget`, `SystemAudioPCMBufferConverter`, `SystemAudioLevelMeter`, `SystemAudioSpeechTranscriptionProvider`를 통해 전사합니다. transcript source는 `apple_speech_system_audio`로 저장합니다.
-- `회의 전체`: `FullMeetingSpeechTranscriptionProvider`가 마이크와 시스템 오디오 입력을 하나의 Apple Speech recognitionTask에 넣어 전사합니다. transcript source는 `apple_speech_full_meeting`으로 저장합니다.
+- `회의 전체`: `FullMeetingSpeechTranscriptionProvider`가 마이크와 시스템 오디오 입력을 하나의 Apple Speech recognitionTask와 임시 16 kHz WAV에 전달합니다. 종료 시 설정된 `whisper-cli`가 성공하면 `local_whisper_full_meeting`, 미설정 또는 실패하면 `apple_speech_full_meeting` source로 저장합니다.
 
-회의 전체 모드는 Apple Speech recognitionTask 두 개를 동시에 실행하지 않습니다. 단독 마이크 전사와 단독 시스템 오디오 전사는 각각 정상 동작했지만, 두 recognitionTask를 동시에 실행하면 한쪽이 실패하는 문제가 있어 single recognitionTask 방식으로 정리했습니다.
+회의 전체 모드는 Apple Speech recognitionTask 두 개를 동시에 실행하지 않습니다. Apple Speech는 실시간 fallback이며, local Whisper는 회의 종료 시 일괄 처리합니다. UI의 `STT engine`에서 현재 우선 engine과 fallback 결과를 확인할 수 있습니다.
 
-화자 분리, 마이크와 시스템 오디오 믹싱 고도화, Whisper/OpenAI STT는 현재 범위에 포함하지 않습니다.
+Whisper binary/model 경로는 회의 전체 UI에서 설정하고 `UserDefaults`에 저장합니다. 모델 파일은 앱이나 repo에 포함하지 않습니다. 화자 분리와 마이크/시스템 오디오 믹싱 고도화는 현재 범위에 포함하지 않습니다.
 
 ## 회의 전사 권한 안내
 
@@ -111,11 +111,11 @@ MwohamMac 앱에 시스템 설정 > 개인정보 보호 및 보안에서 필요�
 
 ## 회의 전사 저장 정책
 
-회의 전사는 원본 오디오 파일을 저장하지 않고, raw audio buffer를 DB에 저장하지 않으며, backend로 audio data를 전송하지 않습니다.
+회의 전사는 원본 오디오 파일을 영구 저장하지 않고, raw audio buffer를 DB에 저장하지 않으며, backend로 audio data를 전송하지 않습니다.
 
-backend에는 Apple Speech가 반환한 transcript text만 기존 `/meeting-transcripts` API로 저장합니다. 입력 경로는 transcript `source` 값으로 구분합니다.
+회의 전체 Local Whisper 처리를 위한 WAV는 운영체제 임시 디렉터리에만 만들고 처리 후 삭제합니다. backend에는 Apple Speech 또는 Local Whisper가 반환한 transcript text만 기존 `/meeting-transcripts` API로 저장합니다.
 
-DB schema, migration, API endpoint는 시스템 오디오 전사 연결 과정에서 변경하지 않았습니다.
+DB schema, migration, API endpoint는 변경하지 않았고, 기존 source validation에 `local_whisper_full_meeting`만 추가했습니다.
 
 ## 시스템 오디오 캡처/전사
 
@@ -129,7 +129,8 @@ DB schema, migration, API endpoint는 시스템 오디오 전사 연결 과정�
 
 - 원본 화면 이미지 저장 없음
 - OCR 캡처 이미지를 backend로 전송하지 않음
-- 원본 오디오 파일 저장 없음
+- 원본 오디오 영구 저장 없음
+- Local Whisper용 임시 WAV는 처리 후 삭제
 - raw audio buffer 저장 없음
 - backend로 audio data 전송 없음
 - transcript text만 `/meeting-transcripts` API로 저장

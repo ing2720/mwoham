@@ -36,6 +36,10 @@ enum MeetingAudioSource: String, CaseIterable, Identifiable {
         }
     }
 
+    var whisperTranscriptSource: String? {
+        self == .fullMeeting ? "local_whisper_full_meeting" : nil
+    }
+
     var startStatusText: String {
         switch self {
         case .microphone:
@@ -65,7 +69,7 @@ enum MeetingAudioSource: String, CaseIterable, Identifiable {
         case .systemAudio:
             return "시스템 오디오 전사에는 화면 기록 권한이 필요할 수 있습니다."
         case .fullMeeting:
-            return "마이크와 시스템 오디오를 하나의 Apple Speech 전사 흐름으로 처리합니다. 원본 오디오는 저장하지 않습니다."
+            return "마이크와 시스템 오디오를 실시간 Apple Speech fallback과 종료 시 Local Whisper로 처리합니다. 임시 오디오는 처리 후 삭제합니다."
         }
     }
 

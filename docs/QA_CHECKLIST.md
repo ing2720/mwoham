@@ -317,13 +317,15 @@ open "http://127.0.0.1:8765/timeline/detail?filter=memo"
    - 마이크
    - 시스템 오디오
    - 회의 전체
-2. Mac 앱에서 `회의 전사 시작`을 누릅니다.
-3. 권한 요청이 표시되면 필요한 권한을 허용합니다.
-4. 마이크 source에서는 한국어로 짧은 문장과 의미 있는 문장을 말합니다.
-5. 시스템 오디오 source에서는 브라우저, ZEP, Meet, Zoom 등에서 한국어 음성을 재생합니다.
-6. 회의 전체 source에서는 마이크 발화와 시스템 오디오 재생을 함께 확인합니다.
-7. Mac 앱에서 최근 전사 텍스트가 표시되는지 확인합니다.
-8. `회의 전사 종료`를 누릅니다.
+2. 회의 전체 Local Whisper를 확인하려면 `whisper-cli`와 GGML model의 저장소 밖
+   절대 경로를 입력합니다.
+3. Mac 앱에서 `회의 전사 시작`을 누릅니다.
+4. 권한 요청이 표시되면 필요한 권한을 허용합니다.
+5. 마이크 source에서는 한국어로 짧은 문장과 의미 있는 문장을 말합니다.
+6. 시스템 오디오 source에서는 브라우저, ZEP, Meet, Zoom 등에서 한국어 음성을 재생합니다.
+7. 회의 전체 source에서는 마이크 발화와 시스템 오디오 재생을 함께 확인합니다.
+8. Mac 앱에서 최근 전사 텍스트와 `STT engine` 표시를 확인합니다.
+9. `회의 전사 종료`를 누르고 Local Whisper 처리가 완료될 때까지 기다립니다.
 
 확인 명령:
 
@@ -339,7 +341,10 @@ curl "http://127.0.0.1:8765/status"
   - `apple_speech_microphone`
   - `apple_speech_system_audio`
   - `apple_speech_full_meeting`
-- 원본 오디오 파일은 저장되지 않습니다.
+  - `local_whisper_full_meeting`
+- Whisper 성공 시 `local_whisper_full_meeting`만 최종 저장됩니다.
+- Whisper binary/model 미설정 또는 실행 실패 시 `apple_speech_full_meeting`으로 fallback합니다.
+- 원본 오디오는 영구 저장되지 않고, 임시 WAV는 처리 후 삭제됩니다.
 - backend로 audio data가 전송되지 않고 transcript text만 저장됩니다.
 - 회의 전사 종료 후 앱 상태가 `회의 전사 종료됨` 또는 `전사 저장 후 종료됨` 계열로 표시됩니다.
 
@@ -349,6 +354,8 @@ curl "http://127.0.0.1:8765/status"
 - 권한을 허용한 뒤 앱을 재실행하지 않았습니다.
 - 너무 짧은 전사 조각이 저장 품질 정책에 의해 제외되었습니다.
 - backend가 실행 중이 아니거나 Local API Token 설정이 앱과 맞지 않습니다.
+- Whisper binary에 실행 권한이 없거나 model 경로가 잘못되었습니다.
+- `/private/tmp/mwoham-meeting-whisper-*`가 남아 있다면 앱이 처리 중 강제 종료됐는지 확인합니다.
 
 ## 11. 자동 Dev Tracking 확인
 
