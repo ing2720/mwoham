@@ -53,6 +53,13 @@ struct MeetingTranscriptionSectionView: View {
                         .textSelection(.enabled)
                 }
                 GridRow {
+                    Text("STT engine")
+                        .foregroundStyle(.secondary)
+                    Text(viewModel.displayedSTTEngine)
+                        .fontWeight(.medium)
+                        .textSelection(.enabled)
+                }
+                GridRow {
                     Text("최근 전사")
                         .foregroundStyle(.secondary)
                     Text(latestTranscriptText)
@@ -69,6 +76,35 @@ struct MeetingTranscriptionSectionView: View {
                             .textSelection(.enabled)
                     }
                 }
+            }
+
+            if viewModel.selectedAudioSource == .fullMeeting {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Local Whisper 설정")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+
+                    TextField(
+                        "whisper-cli 절대 경로",
+                        text: $viewModel.whisperBinaryPath
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(!viewModel.canChangeAudioSource)
+
+                    TextField(
+                        "GGML model 절대 경로",
+                        text: $viewModel.whisperModelPath
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(!viewModel.canChangeAudioSource)
+
+                    Text("경로는 다음 회의 시작부터 적용됩니다. 모델과 임시 오디오는 앱이나 backend에 저장되지 않습니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .background(Color.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
             if let guidanceText = viewModel.selectedAudioSourceGuidanceText {

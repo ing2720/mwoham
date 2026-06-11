@@ -10,6 +10,7 @@ TranscriptSource = Literal[
     "apple_speech_microphone",
     "apple_speech_system_audio",
     "apple_speech_full_meeting",
+    "local_whisper_full_meeting",
     "manual",
 ]
 

@@ -213,7 +213,7 @@ final class BackendStatusViewModel: ObservableObject {
         localApiClient: LocalApiClient,
         microphoneTranscriptionProvider: SpeechTranscriptionProvider,
         systemAudioTranscriptionProvider: SpeechTranscriptionProvider,
-        fullMeetingTranscriptionProvider: SpeechTranscriptionProvider
+        fullMeetingTranscriptionProvider: FullMeetingSpeechTranscriptionProviding
     ) {
         meetingTranscription = MeetingTranscriptionViewModel(
             localApiClient: localApiClient,

@@ -1095,6 +1095,24 @@ def test_create_meeting_transcript_accepts_full_meeting_source(client: TestClien
     assert response.json()["source"] == "apple_speech_full_meeting"
 
 
+def test_create_meeting_transcript_accepts_local_whisper_source(client: TestClient) -> None:
+    client.post("/recording/start", json={})
+    meeting = client.post("/meetings/start", json={"title": "Local Whisper 회의"}).json()
+
+    response = client.post(
+        "/meeting-transcripts",
+        json={
+            "meeting_session_id": meeting["id"],
+            "text": "회의 종료 후 Local Whisper로 처리한 전사 결과입니다.",
+            "source": "local_whisper_full_meeting",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["meeting_session_id"] == meeting["id"]
+    assert response.json()["source"] == "local_whisper_full_meeting"
+
+
 def test_create_meeting_transcript_allows_nullable_meeting_when_no_active_meeting(
     client: TestClient,
 ) -> None:
