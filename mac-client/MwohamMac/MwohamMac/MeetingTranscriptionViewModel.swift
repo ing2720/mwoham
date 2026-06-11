@@ -18,6 +18,9 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     @Published var systemAudioProviderStatus = "시스템 오디오 대기 중"
     @Published var fullMeetingProviderStatus = "회의 전체 대기 중"
     @Published var currentSTTEngine = "Apple Speech"
+    @Published var whisperDiagnostics = "아직 처리된 Whisper 오디오가 없습니다."
+    @Published var whisperInputSources =
+        "microphone/system audio Whisper chunks -> time-ordered full meeting"
     @Published var whisperBinaryPath: String {
         didSet {
             UserDefaults.standard.set(
@@ -31,6 +34,14 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             UserDefaults.standard.set(
                 whisperModelPath,
                 forKey: LocalWhisperSettings.modelPathKey
+            )
+        }
+    }
+    @Published var whisperDebugAudioExportEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                whisperDebugAudioExportEnabled,
+                forKey: LocalWhisperSettings.debugAudioExportEnabledKey
             )
         }
     }
@@ -77,6 +88,9 @@ final class MeetingTranscriptionViewModel: ObservableObject {
         self.whisperModelPath = UserDefaults.standard.string(
             forKey: LocalWhisperSettings.modelPathKey
         ) ?? ""
+        self.whisperDebugAudioExportEnabled = UserDefaults.standard.bool(
+            forKey: LocalWhisperSettings.debugAudioExportEnabledKey
+        )
         self.isConnected = isConnected
         self.onMeetingStateChange = onMeetingStateChange
         self.onRefreshAfterFailedAction = onRefreshAfterFailedAction
@@ -158,6 +172,10 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             lastSubmittedTranscriptTextBySource = [:]
             lastTranscriptSubmissionAtBySource = [:]
             providerFailureMessages = []
+            whisperDiagnostics =
+                "microphone Whisper와 system audio Whisper를 별도 수집 중"
+            whisperInputSources =
+                "microphone/system audio Whisper chunks -> time-ordered full meeting"
             resetProviderStatuses()
             activeAudioSource = selectedAudioSource
             isMeetingTranscribing = true
@@ -299,11 +317,23 @@ final class MeetingTranscriptionViewModel: ObservableObject {
 
         switch finalization {
         case .whisper(let result):
-            currentSTTEngine = "Local Whisper"
+            currentSTTEngine = whisperEngineDescription(
+                includedSources: result.includedSources
+            )
+            whisperInputSources = whisperInputDescription(
+                includedSources: result.includedSources
+            )
+            whisperDiagnostics = whisperDiagnosticsSummary(
+                sourceResults: result.sourceResults,
+                usedFallback: false,
+                temporalMergeApplied: result.temporalMergeApplied
+            )
             guard let transcriptSource = MeetingAudioSource.fullMeeting.whisperTranscriptSource else {
                 return false
             }
-            let normalizedText = transcriptSubmissionPolicy.normalize(result.text)
+            let normalizedText = transcriptSubmissionPolicy.normalize(
+                result.text
+            )
             latestTranscriptText = normalizedText
             latestTranscriptTextBySource = [transcriptSource: normalizedText]
             let didSave = await submitTranscriptIfNeeded(
@@ -319,9 +349,19 @@ final class MeetingTranscriptionViewModel: ObservableObject {
                 )
             }
             return didSave
-        case .appleSpeechFallback(let reason):
+        case .appleSpeechFallback(
+            let reason,
+            let sourceResults
+        ):
             currentSTTEngine = "Apple Speech (fallback)"
+            whisperInputSources =
+                "유효한 Local Whisper source 없음 -> Apple Speech fallback"
             fullMeetingProviderStatus = "Apple Speech fallback: \(reason)"
+            whisperDiagnostics = whisperDiagnosticsSummary(
+                sourceResults: sourceResults,
+                usedFallback: true,
+                temporalMergeApplied: false
+            )
             let appleSource = MeetingAudioSource.fullMeeting.primaryTranscriptSource
             guard let appleTranscript = latestTranscriptTextBySource[appleSource] else {
                 transcriptionStatus = "전사 결과 없음: \(reason)"
@@ -514,6 +554,9 @@ final class MeetingTranscriptionViewModel: ObservableObject {
         }
 
         if status.contains("오류") || status.contains("실패") {
+            if activeAudioSource == .fullMeeting {
+                updateWhisperInputSources(for: status)
+            }
             recordProviderFailure(transcriptSource: transcriptSource, reason: status)
             transcriptionStatus = activeAudioSource == .fullMeeting ? fullMeetingStatusSummary() : status
             return
@@ -603,6 +646,110 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             try await speechPermissionService.requestSpeechRecognitionAuthorization()
         case .fullMeeting:
             try await speechPermissionService.requestAuthorization()
+        }
+    }
+
+    private func whisperDiagnosticsSummary(
+        sourceResults: [LocalWhisperSourceResult],
+        usedFallback: Bool,
+        temporalMergeApplied: Bool
+    ) -> String {
+        let includedSources = sourceResults
+            .filter(\.isIncluded)
+            .map(\.source.rawValue)
+            .joined(separator: "+")
+        let acceptedBySource = TemporaryMeetingAudioSource.allCases.map { source in
+            let count = sourceResults
+                .first(where: { $0.source == source })?
+                .chunkDiagnostics?
+                .acceptedChunkCount ?? 0
+            return "\(source.rawValue)=\(count)"
+        }.joined(separator: ",")
+        let combinedSummary = "combined full meeting: included="
+            + "\(includedSources.isEmpty ? "none" : includedSources), "
+            + "temporal_merge=\(temporalMergeApplied ? "yes" : "no"), "
+            + "source_accepted={\(acceptedBySource)}, "
+            + "fallback=\(usedFallback ? "yes" : "no")"
+        let sourceSummaries = TemporaryMeetingAudioSource.allCases.map { source in
+            guard let result = sourceResults.first(where: { $0.source == source }) else {
+                return "\(source.rawValue) Whisper: not attempted"
+            }
+            let metadata = result.audioMetadata
+            let wavDuration = metadata.map {
+                String(format: "%.2fs", $0.durationSeconds)
+            } ?? "-"
+            let captureDuration = metadata.map {
+                String(format: "%.2fs", $0.captureDurationSeconds)
+            } ?? "-"
+            let fileSize = metadata.map {
+                ByteCountFormatter.string(
+                    fromByteCount: $0.fileSizeBytes,
+                    countStyle: .file
+                )
+            } ?? "-"
+            let processing = result.processingSeconds.map {
+                String(format: "%.2fs", $0)
+            } ?? "-"
+            let textLength = result.transcriptLength.map(String.init) ?? "-"
+            let chunks = result.chunkDiagnostics.map {
+                "\($0.chunkCount)"
+            } ?? "-"
+            let acceptedChunks = result.chunkDiagnostics.map {
+                "\($0.acceptedChunkCount)"
+            } ?? "-"
+            let rejectedChunks = result.chunkDiagnostics.map {
+                "\($0.rejectedChunkCount)"
+            } ?? "-"
+            let rejectReasons = result.chunkDiagnostics?
+                .rejectReasonSummary ?? "-"
+            let debugExport = metadata?.debugExportURL?.path ?? "off"
+            let status = result.isIncluded
+                ? "included"
+                : "skipped (\(result.failureReason ?? "unknown"))"
+            return "\(source.rawValue) Whisper: \(status), wav=\(wavDuration), "
+                + "capture=\(captureDuration), size=\(fileSize), "
+                + "processing=\(processing), transcript=\(textLength) chars, "
+                + "chunks=\(chunks), accepted=\(acceptedChunks), "
+                + "rejected=\(rejectedChunks), "
+                + "reject_reasons=\(rejectReasons), "
+                + "debug_export=\(debugExport)"
+        }
+        return ([combinedSummary] + sourceSummaries).joined(separator: "\n")
+    }
+
+    private func whisperEngineDescription(
+        includedSources: [TemporaryMeetingAudioSource]
+    ) -> String {
+        let sources = Set(includedSources)
+        if sources == Set(TemporaryMeetingAudioSource.allCases) {
+            return "Local Whisper (combined full meeting)"
+        }
+        if sources.contains(.systemAudio) {
+            return "Local Whisper (system audio)"
+        }
+        return "Local Whisper (microphone)"
+    }
+
+    private func whisperInputDescription(
+        includedSources: [TemporaryMeetingAudioSource]
+    ) -> String {
+        let sources = Set(includedSources)
+        if sources == Set(TemporaryMeetingAudioSource.allCases) {
+            return "microphone + system audio Whisper chunks -> time-ordered full meeting"
+        }
+        if sources.contains(.systemAudio) {
+            return "system audio Whisper chunks -> time-ordered partial full meeting"
+        }
+        return "microphone Whisper chunks -> time-ordered partial full meeting"
+    }
+
+    private func updateWhisperInputSources(for status: String) {
+        if status.contains("시스템 오디오 입력 실패") {
+            whisperInputSources =
+                "microphone Whisper (system audio unavailable) -> partial full meeting"
+        } else if status.contains("마이크 입력 실패") {
+            whisperInputSources =
+                "system audio Whisper (microphone unavailable) -> partial full meeting"
         }
     }
 }

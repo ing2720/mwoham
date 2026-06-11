@@ -523,6 +523,56 @@ uv run python -c "from app.ai.gemini_client import GeminiClient; from app.core.c
 - `GEMINI_MODEL`이 계정에서 사용할 수 없는 모델입니다.
 - 네트워크 연결 또는 Google API 접근이 실패했습니다.
 
+## 16. Local Whisper 회의 전체 오디오 품질 확인
+
+사전 준비:
+
+- 앱의 `전사 입력`을 `회의 전체`로 선택합니다.
+- 저장소 밖 `whisper-cli`와 GGML model 절대 경로를 입력합니다.
+- 기본 검증에서는 `QA/debug용 source별 WAV 보관`을 끕니다.
+
+절차:
+
+1. 회의를 시작하고 microphone으로 한국어 문장을 말합니다.
+2. 이어폰 없이 ZEP/Chrome에서 다른 한국어 음성을 재생합니다.
+3. 회의를 종료하고 `STT engine`과 `Whisper metadata`를 확인합니다.
+4. `/meeting-transcripts/today`에서 transcript source를 확인합니다.
+5. system audio 없음, microphone 없음, source 하나의 저정보 결과를 각각
+   확인합니다.
+6. 무음/잡음 구간과 같은 문장 또는 음절이 3회 이상 반복되는 테스트 음성을
+   포함해 chunk reject 동작을 확인합니다.
+7. 모든 chunk가 reject되는 경우와 binary/model 오류를 유도해 Apple Speech
+   fallback을 확인합니다.
+
+정상 기대 결과:
+
+- Whisper 성공 시 `source=local_whisper_full_meeting`으로 저장됩니다.
+- microphone/system audio가 각각 독립 WAV와 Whisper 입력으로 표시됩니다.
+- 두 source가 성공하면 최종 transcript가 source별 전체 묶음이 아니라
+  `[00:12 microphone]`, `[00:15 system_audio]` 같은 시간순 segment 목록으로
+  저장됩니다.
+- source별 WAV duration이 capture duration과 크게 어긋나지 않습니다.
+- source별 15초 chunk 수, accepted/rejected 수, source별 accepted count,
+  temporal merge 적용 여부, reject reason 요약, 처리 시간, transcript 길이가
+  UI에 표시됩니다.
+- `"아쩡하쩡하쩡..."`, 같은 문장의 과도한 반복, 점/공백 위주 chunk는 rejected되고
+  정상 발화 chunk만 최종 transcript에 남습니다.
+- 한 source가 없거나 실패해도 다른 source transcript는
+  `local_whisper_full_meeting`으로 저장됩니다.
+- 한 source의 모든 chunk가 reject되면 해당 source만 최종 transcript에서
+  제외됩니다.
+- 두 source의 모든 chunk가 reject되거나 모두 실패하면 Apple Speech 결과와
+  `fallback=yes`가 표시됩니다.
+- 기본 실행 후 `/private/tmp/mwoham-meeting-whisper-*`가 남지 않습니다.
+
+debug 오디오 확인:
+
+- toggle을 명시적으로 켠 회의만
+  `~/Library/Application Support/Mwoham/debug_audio/`에 source별 최종 WAV와
+  chunk WAV가 남습니다.
+- toggle을 끈 다음 회의부터 새 debug WAV가 생성되지 않아야 합니다.
+- repo 내부와 `git status`에는 model/WAV/임시 output이 나타나지 않아야 합니다.
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:

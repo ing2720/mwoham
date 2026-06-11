@@ -20,14 +20,83 @@
 3. 회의 전사를 시작합니다.
 4. 회의 중에는 Apple Speech가 실시간 transcript를 생성하지만 backend에는 아직
    최종 저장하지 않습니다.
-5. `회의 전사 종료`를 누르면 임시 WAV를 닫고 local Whisper를 실행합니다.
-6. Whisper 성공 시 `local_whisper_full_meeting` source로 기존
+5. Local Whisper용 녹음은 microphone과 system audio를 별도 queue와 별도 임시
+   CAF로 기록합니다. 두 source 모두 Apple Speech silence filtering 전에 기록하며
+   raw audio를 서로 섞지 않습니다.
+6. `회의 전사 종료`를 누르면 source별 임시 CAF를 각각 16 kHz mono signed
+   16-bit PCM WAV로 변환합니다. 각 WAV는 15초 단위 chunk로 나누고 source와
+   chunk별로 local Whisper를 독립 실행합니다.
+7. 각 chunk에는 source, start time, end time metadata를 붙입니다. hallucination
+   guard를 통과한 chunk transcript만 segment로 유지하고, microphone/system audio
+   segment를 start time 기준으로 정렬해 병합합니다.
+
+   ```text
+   [00:01 system_audio] 상대방 말
+   [00:03 microphone] 내 말
+   [00:06 system_audio] 상대방 말
+   [00:08 microphone] 내 말
+   ```
+
+   microphone 또는 system audio 한쪽만 성공해도 같은 timestamp/source label
+   형식으로 최종 transcript를 만듭니다.
+8. 부분 성공 또는 전체 성공 결과는 `local_whisper_full_meeting` source로 기존
    `/meeting-transcripts` API에 저장합니다.
-7. Whisper 미설정, binary/model 오류, 처리 실패, timeout, 빈 결과이면 세션 중
-   확보한 Apple Speech 결과를 `apple_speech_full_meeting` source로 저장합니다.
+9. source 하나가 실패하거나 모든 chunk가 reject되어도 다른 source의 유효한
+   Whisper transcript는 저장합니다. 두 source 모두 유효하지 않거나 Whisper
+   설정/실행 자체를 사용할 수 없을 때만 세션 중 확보한 Apple Speech 결과를
+   `apple_speech_full_meeting` source로 저장합니다.
+
+### Hallucination guard
+
+각 15초 chunk 결과는 다음 조건으로 판정합니다. 해당하는 chunk는 최종 transcript에서
+제외합니다. 다만 자막/광고/크레딧성 hallucination 문장이 chunk 앞/뒤에 독립적으로
+붙은 경우에는 해당 문장만 제거하고 남은 회의 문장을 유지합니다.
+
+- 빈 문자열, 점과 공백 위주, 구두점 비율이 과도한 결과
+- `자막 제공`, `광고를 포함하고 있습니다`, `한글자막 by`, `자막 by`,
+  `번역 by`, `구독 좋아요`, `시청해주셔서 감사합니다`, `subtitles by`,
+  `translated by` 같은 자막/광고/크레딧성 hallucination이 chunk 전체를
+  지배하는 결과. reject reason은 `subtitle_ad_hallucination`입니다.
+- 같은 문장 또는 token sequence가 3회 이상 반복되고 chunk 결과의 절반 이상을
+  차지하는 결과
+- 같은 token이 과도하게 반복되거나 unique token 비율이 지나치게 낮은 결과
+- 같은 한국어 음절/문자열이 3회 이상 반복되거나 unique character 비율이
+  지나치게 낮은 결과
+- 같은 정규화 transcript가 3개 이상 chunk에서 반복되는 결과
+- Whisper process timeout, 빈 output, output 누락 또는 process 실패
+
+한 source에서 일부 chunk만 reject되면 accepted chunk만 시간순으로 유지합니다.
+두 source의 모든 chunk가 reject되면 Local Whisper transcript를 만들지 않고
+Apple Speech fallback을 사용합니다.
+
+앱은 `whisper-cli --help`를 실행해 현재 binary가 지원하는 옵션만 추가합니다.
+`-l ko`는 항상 전달하며, 현재 Homebrew `whisper-cli`에서 확인된 경우 다음 옵션을
+사용합니다.
+
+```text
+--no-fallback
+--temperature 0
+--temperature-inc 0
+--no-speech-thold 0.50
+--beam-size 5
+--suppress-nst
+```
+
+지원하지 않는 옵션은 전달하지 않습니다. 별도 VAD model이 필요한 옵션은 이
+단계에서 자동 활성화하지 않습니다.
 
 UI의 `STT engine` 행에는 `Local Whisper`, `Apple Speech (fallback)` 또는 현재
-설정 상태가 표시됩니다. 경로 변경은 다음 회의 시작부터 적용됩니다.
+설정 상태가 표시됩니다. `Whisper metadata`에는 다음 값이 표시됩니다.
+
+- `combined full meeting`: 최종 포함 source, temporal merge 적용 여부, source별
+  accepted count, Apple Speech fallback 여부
+- `microphone Whisper`: 포함/제외 상태, WAV duration/size, 처리 시간, 문자 수,
+  chunk 총수, accepted/rejected 수, reject reason 요약
+- `system_audio Whisper`: 포함/제외 상태, WAV duration/size, 처리 시간, 문자 수,
+  chunk 총수, accepted/rejected 수, reject reason 요약
+- `debug_export`: source별로 명시적으로 보관한 debug WAV 경로 또는 `off`
+
+경로와 debug 옵션 변경은 다음 회의 시작부터 적용됩니다.
 
 ## 범위와 데이터 정책
 
@@ -37,10 +106,19 @@ UI의 `STT engine` 행에는 `Local Whisper`, `Apple Speech (fallback)` 또는 �
   만들고 정상 종료와 오류 종료 모두에서 삭제합니다.
 - transcript와 처리 시간은 터미널에만 출력하며 backend나 DB에 저장하지 않습니다.
 - 원본 오디오는 수정하거나 복사해 저장소에 남기지 않습니다.
-- 앱의 회의 전체 전사는 accepted audio buffer를 16 kHz mono PCM 임시 WAV로
-  기록하며 Whisper 성공, 실패, 취소 후 모두 해당 임시 디렉터리를 삭제합니다.
+- 앱의 회의 전체 전사는 silence filtering 전 microphone native buffer와
+  ScreenCaptureKit system audio native buffer를 별도 임시 CAF에 연속 기록합니다.
+- 종료 시 두 임시 CAF를 각각 16 kHz mono signed 16-bit PCM WAV로 변환합니다.
+  audio mixing은 수행하지 않습니다.
+- source별 chunk WAV, Whisper output, error log도 서로 다른 임시 디렉터리에
+  생성하며 성공, 부분 실패, 전체 실패, 취소 후 모두 삭제합니다.
 - 앱은 audio data를 backend로 보내지 않고 최종 transcript text만 저장합니다.
 - 모델은 다운로드하거나 복사하지 않으며 사용자가 설정한 외부 경로에서 읽습니다.
+- `QA/debug용 source별 WAV 보관`은 기본 비활성화입니다. 사용자가 명시적으로
+  활성화한 회의에 한해 microphone/system audio 최종 WAV와 15초 chunk WAV를
+  저장소 밖
+  `~/Library/Application Support/Mwoham/debug_audio/`에 복사합니다. 이 파일은
+  자동 삭제 대상이 아니므로 QA가 끝나면 사용자가 삭제해야 합니다.
 
 Apple Speech 쪽은 기존 앱과 같은 `ko-KR` recognizer를 사용하지만, 실시간 audio
 buffer 대신 파일 입력용 `SFSpeechURLRecognitionRequest`를 사용합니다. 따라서 이
@@ -159,3 +237,48 @@ Whisper output을 정리합니다. 이 POC 실패는 MwohamMac 실행이나 기�
 normal stop, Whisper 실패, provider stop 모두에서 삭제합니다. 앱이 비정상 종료된
 경우 운영체제 임시 디렉터리 정책의 영향을 받을 수 있으므로 다음 실행 전
 `/private/tmp/mwoham-meeting-whisper-*` 잔존 여부를 확인할 수 있습니다.
+
+## 실제 앱 연동 QA
+
+1. 앱에서 `회의 전체`를 선택하고 유효한 `whisper-cli`와 model 절대 경로를
+   입력합니다.
+2. `QA/debug용 source별 WAV 보관`은 우선 끈 상태로 회의를 시작합니다.
+3. microphone으로 짧은 한국어 문장을 말하면서 ZEP 또는 Chrome에서 한국어
+   system audio를 재생합니다. 이어폰 없이 재생해 ScreenCaptureKit 입력과 실제
+   microphone 입력을 동시에 확인합니다.
+4. 회의를 종료하고 UI의 `Whisper metadata`에서 source별 `chunks`, `accepted`,
+   `rejected`, `reject_reasons`, `temporal_merge`, `source_accepted`,
+   `processing`, `fallback`을 확인합니다.
+5. microphone과 system audio 각각의 `wav`와 `capture` duration 차이가 과도하지
+   않은지 확인합니다.
+6. 최종 transcript가 source별 전체 묶음이 아니라 `[00:12 microphone]`,
+   `[00:15 system_audio]` 같은 시간순 segment 목록으로 저장되는지 확인합니다.
+7. `/meeting-transcripts/today`에서 성공 또는 부분 성공 결과가
+   `source=local_whisper_full_meeting`으로 저장됐는지 확인합니다.
+8. system audio를 재생하지 않은 회의에서도 microphone transcript가 저장되는지,
+   microphone 입력이 없는 환경에서도 system audio transcript가 저장되는지
+   확인합니다.
+9. 무음/잡음 구간과 `"아쩡하쩡하쩡..."` 또는 같은 문장이 반복되는 구간이 있는
+   샘플에서 해당 chunk만 rejected되고 정상 발화 chunk는 유지되는지 확인합니다.
+10. `"자막 제공 및 자막 제공 및 광고를 포함하고 있습니다."`,
+    `"한글자막 by 한글자막 by 한효정"` 같은 자막/광고성 hallucination은
+    `subtitle_ad_hallucination`으로 rejected되는지 확인합니다. 정상 회의 문장
+    앞/뒤에 독립적으로 붙은 `subtitles by ...` 또는 `자막 제공` 문장은 제거되고
+    남은 회의 문장이 유지되는지 확인합니다.
+11. 한 source의 모든 chunk를 빈 오디오 또는 반복 결과로 만들어 해당 source만
+    최종 결과에서 제외되는지 확인합니다.
+12. 두 source의 모든 chunk를 reject시키거나 binary 경로를 잘못 지정해
+   `Apple Speech (fallback)`과 `source=apple_speech_full_meeting` 저장을
+   확인합니다.
+
+debug WAV가 필요한 경우에만 toggle을 켜고 한 번 더 실행합니다.
+
+```bash
+find "$HOME/Library/Application Support/Mwoham/debug_audio" \
+  -maxdepth 1 -type f -name '*.wav' -print
+```
+
+파일명에 `microphone` 또는 `system_audio`, `full` 또는 `chunk-0000` 같은 label이
+포함됩니다. source별 최종 WAV와 chunk WAV를 직접 들어 무음/잡음 구간, 발화 누락,
+reject 결과를 비교합니다. 저장소 내부에는 WAV를 복사하지 않습니다. toggle을
+다시 끄면 이후 회의는 debug WAV를 남기지 않습니다.
