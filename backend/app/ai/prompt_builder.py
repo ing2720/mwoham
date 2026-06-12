@@ -224,6 +224,46 @@ class PromptBuilder:
             ]
         )
 
+    def build_simple_daily_report_prompt(self, timeline: TimelineResponse) -> str:
+        compressed_timeline = self._compress_timeline(timeline)
+        safe_timeline = self.privacy_filter.mask(compressed_timeline)
+        return "\n".join(
+            [
+                "다음은 개인 로컬 작업 기록 에이전트가 만든 일일 압축 타임라인입니다.",
+                "원본 화면, 음성, 스크린샷, 오디오 파일은 포함하지 않았습니다.",
+                "API key, token, password, secret 패턴은 마스킹되었습니다.",
+                "",
+                "요청:",
+                "- 한국어 Markdown 간단 리포트를 작성하고, 타임라인의 사실만 쓰세요.",
+                "- 전체 내용을 짧고 실행 가능한 요약으로 압축하세요.",
+                "- 오늘 한 일 요약은 3~5개 bullet로 작성하세요.",
+                "- 완료한 작업은 입력에서 완료/구현/검증 근거가 있는 항목만 쓰세요.",
+                "- 다음 작업은 이미 완료된 항목을 반복하지 말고 1~3개만 제안하세요.",
+                "- 테스트/검증 결과는 pytest, run_dev_checks.py, git diff --check, ruff, "
+                "alembic, xcodebuild 같은 검증 근거가 있을 때만 쓰세요.",
+                "- 회의 전사는 결정사항, 논의사항, 후속작업 후보로 짧게 반영하되, 잡담이나 "
+                "휴식 대화를 작업 완료/결정사항으로 과장하지 마세요.",
+                "- source=local_whisper_full_meeting의 timestamp와 microphone/system_audio "
+                "label은 내부 근거로만 보고 리포트에 그대로 노출하지 마세요.",
+                "- CURRENT_WORK_FOCUS, MEETING_MEMO_CONTEXT, PRIORITY_MEETING_TRANSCRIPTS, "
+                "WORK_EVIDENCE_BY_TIME 등 prompt/input 내부 라벨명은 리포트에 "
+                "쓰지 말고 자연어 요약에만 반영하세요.",
+                "- raw diff나 코드 라인을 그대로 인용하지 마세요.",
+                "- secret/token/password로 보이는 값은 언급하지 마세요.",
+                "- 근거가 부족한 섹션은 '확인된 내용 없음.'으로 작성하세요.",
+                "- 섹션 순서를 지키세요.",
+                "",
+                "리포트 구조:",
+                "## 오늘 한 일 요약",
+                "## 완료한 작업",
+                "## 다음 작업",
+                "## 테스트/검증 결과",
+                "",
+                "압축 타임라인:",
+                safe_timeline,
+            ]
+        )
+
     def _compress_timeline(self, timeline: TimelineResponse) -> str:
         if not timeline.items:
             return f"DATE: {timeline.date.isoformat()}\nEMPTY: 기록된 작업이 없습니다."

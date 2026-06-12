@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
@@ -31,20 +31,25 @@ templates.env.filters["report_mode_label"] = format_report_mode
 @router.post("/daily", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 def create_daily_report(
     request: DailyReportCreate | None = None,
+    mode: Literal["detailed", "simple"] | None = None,
     _: None = Depends(require_local_api_token),
     db: Session = Depends(get_db),
     service: ReportService = Depends(get_report_service),
 ) -> ReportResponse:
-    return service.create_daily_report(db, request or DailyReportCreate())
+    report_request = request or DailyReportCreate()
+    if mode is not None:
+        report_request = report_request.model_copy(update={"mode": mode})
+    return service.create_daily_report(db, report_request)
 
 
 @router.get("/today", response_model=ReportListResponse)
 def list_today_reports(
     target_date: Annotated[date | None, Query(alias="date")] = None,
+    mode: str | None = None,
     db: Session = Depends(get_db),
     service: ReportService = Depends(get_report_service),
 ) -> ReportListResponse:
-    return service.list_today_reports(db, target_date=target_date)
+    return service.list_today_reports(db, target_date=target_date, mode=mode)
 
 
 @router.get("", response_model=None)

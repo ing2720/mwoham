@@ -40,9 +40,11 @@ class ReportService:
     def create_daily_report(self, db: Session, request: DailyReportCreate) -> ReportResponse:
         target_date = parse_date_or_today_kst(request.date)
         timeline = self.timeline_builder.build_detail_for_kst_date(db, target_date=target_date)
-        generated_content = self.summarizer.summarize_daily_report(timeline)
+        generated_content = self.summarizer.summarize_daily_report(timeline, mode=request.mode)
         cleaned_content = (
-            self.content_cleaner.clean(generated_content) if generated_content else None
+            self.content_cleaner.clean(generated_content, mode=request.mode)
+            if generated_content
+            else None
         )
         if cleaned_content is None:
             logger.warning(
@@ -54,9 +56,9 @@ class ReportService:
                 getattr(self.summarizer, "last_was_truncated", False),
             )
         source_range_start, source_range_end = self._source_range_for_kst_date(target_date)
-        content = cleaned_content or self.fallback_builder.build(timeline)
+        content = cleaned_content or self.fallback_builder.build(timeline, mode=request.mode)
         created_by = "ai" if cleaned_content else "system"
-        title = f"{target_date.isoformat()} 일일 작업 리포트"
+        title = self._daily_report_title(target_date, mode=request.mode)
         existing_report = self.repository.get_latest_by_identity(
             db,
             target_date=target_date,
@@ -97,10 +99,10 @@ class ReportService:
         return ReportListResponse(items=items, total=total)
 
     def list_today_reports(
-        self, db: Session, target_date: date | None = None
+        self, db: Session, target_date: date | None = None, mode: str | None = None
     ) -> ReportListResponse:
         report_date = parse_date_or_today_kst(target_date)
-        reports = self.repository.list(db, target_date=report_date, mode=None, limit=1)
+        reports = self.repository.list(db, target_date=report_date, mode=mode, limit=1)
         return ReportListResponse(items=reports, total=len(reports))
 
     def get_report(self, db: Session, report_id: int) -> ReportResponse:
@@ -122,6 +124,11 @@ class ReportService:
 
     def _source_range_for_kst_date(self, target_date: date) -> tuple[datetime, datetime]:
         return get_kst_day_range_as_utc(target_date)
+
+    def _daily_report_title(self, target_date: date, *, mode: str) -> str:
+        if mode == "simple":
+            return f"{target_date.isoformat()} 간단 작업 리포트"
+        return f"{target_date.isoformat()} 일일 작업 리포트"
 
 
 def get_report_service() -> ReportService:
