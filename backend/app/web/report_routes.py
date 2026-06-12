@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
@@ -41,8 +43,9 @@ def report_detail(
 
 @router.post("/reports/daily/create")
 def create_daily_report_from_web(
+    mode: Literal["detailed", "simple"] = "detailed",
     db: Session = Depends(get_db),
     service: ReportService = Depends(get_report_service),
 ) -> RedirectResponse:
-    report = service.create_daily_report(db, DailyReportCreate())
+    report = service.create_daily_report(db, DailyReportCreate(mode=mode))
     return RedirectResponse(f"/reports/{report.id}/view", status_code=303)
