@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy.orm import Session
 
@@ -54,15 +54,33 @@ class ReportService:
                 getattr(self.summarizer, "last_was_truncated", False),
             )
         source_range_start, source_range_end = self._source_range_for_kst_date(target_date)
+        content = cleaned_content or self.fallback_builder.build(timeline)
+        created_by = "ai" if cleaned_content else "system"
+        title = f"{target_date.isoformat()} 일일 작업 리포트"
+        existing_report = self.repository.get_latest_by_identity(
+            db,
+            target_date=target_date,
+            mode=request.mode,
+            project_id=request.project_id,
+        )
+        if existing_report is not None:
+            existing_report.title = title
+            existing_report.content = content
+            existing_report.source_range_start = source_range_start
+            existing_report.source_range_end = source_range_end
+            existing_report.created_by = created_by
+            existing_report.updated_at = datetime.now(UTC)
+            return ReportResponse.model_validate(self.repository.update(db, existing_report))
+
         report = Report(
             project_id=request.project_id,
             date=target_date,
             mode=request.mode,
-            title=f"{target_date.isoformat()} 일일 작업 리포트",
-            content=cleaned_content or self.fallback_builder.build(timeline),
+            title=title,
+            content=content,
             source_range_start=source_range_start,
             source_range_end=source_range_end,
-            created_by="ai" if cleaned_content else "system",
+            created_by=created_by,
         )
         return ReportResponse.model_validate(self.repository.create(db, report))
 
@@ -82,7 +100,8 @@ class ReportService:
         self, db: Session, target_date: date | None = None
     ) -> ReportListResponse:
         report_date = parse_date_or_today_kst(target_date)
-        return self.list_reports(db, target_date=report_date, mode=None, limit=100)
+        reports = self.repository.list(db, target_date=report_date, mode=None, limit=1)
+        return ReportListResponse(items=reports, total=len(reports))
 
     def get_report(self, db: Session, report_id: int) -> ReportResponse:
         report = self.repository.get_by_id(db, report_id)
