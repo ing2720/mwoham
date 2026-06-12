@@ -282,3 +282,36 @@ find "$HOME/Library/Application Support/Mwoham/debug_audio" \
 포함됩니다. source별 최종 WAV와 chunk WAV를 직접 들어 무음/잡음 구간, 발화 누락,
 reject 결과를 비교합니다. 저장소 내부에는 WAV를 복사하지 않습니다. toggle을
 다시 끄면 이후 회의는 debug WAV를 남기지 않습니다.
+
+## Daily Report Input 연동
+
+`source=local_whisper_full_meeting`으로 저장된 transcript는 backend report prompt의
+`MEETING_MEMO_CONTEXT`와 `PRIORITY_MEETING_TRANSCRIPTS`에 회의 전사 근거로
+반영합니다. macOS 앱이 저장한 원문은 다음처럼 timestamp/source label이 붙은
+시간순 segment 목록입니다.
+
+```text
+[00:00 microphone] ...
+[00:15 system_audio] ...
+```
+
+report input에서는 이 prefix를 내부 근거로만 사용합니다. prompt에는
+`source_type=local_whisper_full_meeting`, `sources=microphone,system_audio`처럼
+source 구분만 남기고, content에는 timestamp/source prefix를 제거한 회의 문장을
+넣습니다. 긴 전사는 meeting 단위로 dedupe/압축하고, decision, discussion,
+follow_up_candidate, utterance로 분류합니다.
+
+manual memo는 계속 `confidence=user_direct` 근거로 우선합니다. local Whisper 전사는
+회의 근거로만 다루며, 단순 잡담/농담/휴식 대화나 남은 자막/광고성 문구는 report
+input에서 제외하거나 약화합니다. Apple Speech transcript는 기존 표준 transcript
+흐름을 유지합니다.
+
+daily report prompt input에는 `CURRENT_WORK_FOCUS`, `MEETING_MEMO_CONTEXT`,
+`PRIORITY_MEETING_TRANSCRIPTS`, `WORK_EVIDENCE_BY_TIME` 같은 내부 섹션명이 남을
+수 있습니다. 이 라벨은 모델이 근거 우선순위를 이해하기 위한 내부 표식이며, 최종
+리포트 본문에는 그대로 출력하지 않습니다. prompt instruction과 report content
+cleaner가 내부 라벨명을 사용자에게 보이는 문장으로 노출하지 않도록 막고, 라벨 뒤의
+실제 작업/회의 내용만 자연어 요약에 반영합니다.
+
+이 연동은 prompt input 구성만 바꾸며 DB migration, backend endpoint, report API
+schema, macOS STT 엔진은 변경하지 않습니다.

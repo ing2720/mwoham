@@ -427,6 +427,97 @@ def test_prompt_builder_deduplicates_multi_source_transcripts_in_meeting_context
     assert "apple_speech_full_meeting" not in context
 
 
+def test_prompt_builder_formats_local_whisper_full_meeting_for_report_context() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="transcript",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                content=(
+                    "회의 전사 수집됨:\n"
+                    "[00:00 system_audio] 카카오 소셜로그인은 안 되죠?\n"
+                    "[00:15 microphone] 프리사인 URL 머지 검토 필요합니다.\n"
+                    "[00:30 system_audio] 쉬는 시간입니다.\n"
+                    "[00:45 microphone] 자막 제공 및 광고를 포함하고 있습니다."
+                ),
+                meeting_id=8,
+                source="local_whisper_full_meeting",
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    context = _prompt_section(prompt, "MEETING_MEMO_CONTEXT:", "PRIORITY_MEETING_TRANSCRIPTS:")
+
+    assert "source_type=local_whisper_full_meeting" in context
+    assert "sources=microphone,system_audio" in context
+    assert "category=discussion" in context
+    assert "category=follow_up_candidate" in context
+    assert "카카오 소셜로그인은 안 되죠?" in context
+    assert "프리사인 URL 머지 검토 필요합니다." in context
+    assert "[00:00 system_audio]" not in context
+    assert "[00:15 microphone]" not in context
+    assert "쉬는 시간입니다" not in context
+    assert "자막 제공" not in context
+    assert "TRANSCRIPT_GROUP | meeting_id=8" in prompt
+    assert "source_type=local_whisper_full_meeting" in prompt
+    assert "[00:00 system_audio]" not in prompt
+
+
+def test_prompt_builder_keeps_apple_speech_transcript_context() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="transcript",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                content="회의 전사 수집됨: Apple Speech 회의 전사 저장 품질을 점검했습니다.",
+                meeting_id=4,
+                source="apple_speech_full_meeting",
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    context = _prompt_section(prompt, "MEETING_MEMO_CONTEXT:", "PRIORITY_MEETING_TRANSCRIPTS:")
+
+    assert "MEETING_TRANSCRIPT | meeting_id=4" in context
+    assert "source_type=standard_transcript" in context
+    assert "Apple Speech 회의 전사 저장 품질을 점검했습니다." in context
+    assert "apple_speech_full_meeting" not in context
+
+
+def test_prompt_builder_keeps_real_subtitle_feature_discussion() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="transcript",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+                content=(
+                    "회의 전사 수집됨:\n"
+                    "[00:00 microphone] 자막 제공 기능의 접근성 개선을 검토했습니다."
+                ),
+                meeting_id=6,
+                source="local_whisper_full_meeting",
+            )
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    context = _prompt_section(prompt, "MEETING_MEMO_CONTEXT:", "PRIORITY_MEETING_TRANSCRIPTS:")
+
+    assert "자막 제공 기능의 접근성 개선을 검토했습니다." in context
+    assert "category=discussion" in context
+
+
 def test_prompt_builder_does_not_turn_discussion_transcript_into_decision() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
@@ -1666,6 +1757,18 @@ def test_prompt_builder_instructs_next_tasks_not_to_repeat_completed_features() 
     assert "다음 작업 후보는 3~5개로 제한" in prompt
 
 
+def test_prompt_builder_instructs_not_to_emit_internal_input_labels() -> None:
+    timeline = TimelineResponse(date=date(2026, 5, 26), total=0, items=[])
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "prompt/input 내부 라벨명은" in prompt
+    assert "리포트에 쓰지 말고" in prompt
+    assert "CURRENT_WORK_FOCUS, MEETING_MEMO_CONTEXT, PRIORITY_MEETING_TRANSCRIPTS" in prompt
+    assert "WORK_EVIDENCE_BY_TIME 등 prompt/input 내부" in prompt
+    assert "자연어 요약에만 반영하세요" in prompt
+
+
 def test_prompt_builder_instructs_current_work_topic_from_context() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
@@ -2180,6 +2283,33 @@ def test_report_content_cleaner_fills_missing_sections() -> None:
     assert "## 주요 트러블슈팅\n확인된 내용 없음." in cleaned
     assert "## 회의/메모에서 나온 결정사항\n확인된 내용 없음." in cleaned
     assert "## 다음 작업 후보\n확인된 내용 없음." in cleaned
+
+
+def test_report_content_cleaner_removes_internal_prompt_labels_from_output() -> None:
+    content = "\n\n".join(
+        [
+            "## 오늘 한 일 요약\n- CURRENT_WORK_FOCUS: local Whisper report input 개선",
+            (
+                "## 시간대별 작업 흐름\n"
+                "- WORK_EVIDENCE_BY_TIME: prompt builder와 cleaner 보강\n"
+                "- MEETING_MEMO_CONTEXT 근거로 회의 전사 내용을 요약"
+            ),
+            "## 주요 트러블슈팅\nPRIORITY_MEETING_TRANSCRIPTS:",
+            "## 회의/메모에서 나온 결정사항\n- 결정사항 없음.",
+            "## 다음 작업 후보\n- CURRENT_WORK_FOCUS",
+        ]
+    )
+
+    cleaned = ReportContentCleaner().clean(content)
+
+    assert "CURRENT_WORK_FOCUS" not in cleaned
+    assert "MEETING_MEMO_CONTEXT" not in cleaned
+    assert "PRIORITY_MEETING_TRANSCRIPTS" not in cleaned
+    assert "WORK_EVIDENCE_BY_TIME" not in cleaned
+    assert "- local Whisper report input 개선" in cleaned
+    assert "- prompt builder와 cleaner 보강" in cleaned
+    assert "회의 전사 내용을 요약" in cleaned
+    assert "## 주요 트러블슈팅\n확인된 내용 없음." in cleaned
 
 
 def test_report_content_cleaner_preserves_normal_markdown() -> None:
