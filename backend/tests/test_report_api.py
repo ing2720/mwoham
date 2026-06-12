@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import GeminiClient
 from app.ai.prompt_builder import get_prompt_builder
@@ -86,6 +87,83 @@ def test_daily_report_api_uses_timeline_placeholder_content(client: TestClient) 
     detail_response = client.get(f"/reports/{created['id']}")
     assert detail_response.status_code == 200
     assert detail_response.json()["id"] == created["id"]
+
+
+def test_daily_report_api_updates_existing_same_identity_instead_of_inserting(
+    client: TestClient,
+) -> None:
+    original_override = app.dependency_overrides.get(get_report_service)
+    service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=StubSummarizer("## 오늘 한 일 요약\n첫 번째 생성"),
+    )
+    app.dependency_overrides[get_report_service] = lambda: service
+    try:
+        first_response = client.post(
+            "/reports/daily",
+            json={"date": "2026-05-26", "mode": "detailed", "project_id": None},
+        )
+        service.summarizer.content = "## 오늘 한 일 요약\n두 번째 생성으로 갱신"
+        second_response = client.post(
+            "/reports/daily",
+            json={"date": "2026-05-26", "mode": "detailed", "project_id": None},
+        )
+    finally:
+        if original_override is None:
+            app.dependency_overrides.pop(get_report_service, None)
+        else:
+            app.dependency_overrides[get_report_service] = original_override
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    first = first_response.json()
+    second = second_response.json()
+    assert second["id"] == first["id"]
+    assert second["created_at"] == first["created_at"]
+    assert second["updated_at"] != first["updated_at"]
+    assert "두 번째 생성으로 갱신" in second["content"]
+    assert "첫 번째 생성" not in second["content"]
+
+    list_response = client.get("/reports?date=2026-05-26&mode=detailed")
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 1
+    assert list_response.json()["items"][0]["id"] == first["id"]
+
+
+def test_today_reports_returns_latest_single_report_with_list_schema(
+    client: TestClient,
+    db: Session,
+) -> None:
+    old_report = Report(
+        date=date(2026, 5, 26),
+        mode="detailed",
+        title="이전 리포트",
+        content="old",
+        created_by="system",
+        created_at=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+    )
+    latest_report = Report(
+        date=date(2026, 5, 26),
+        mode="summary",
+        title="최신 리포트",
+        content="latest",
+        created_by="system",
+        created_at=datetime(2026, 5, 26, 2, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 26, 3, 0, tzinfo=UTC),
+    )
+    db.add_all([old_report, latest_report])
+    db.commit()
+
+    response = client.get("/reports/today?date=2026-05-26")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 1
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == latest_report.id
+    assert body["items"][0]["title"] == "최신 리포트"
 
 
 def test_report_update_marks_report_as_user_edited(client: TestClient) -> None:

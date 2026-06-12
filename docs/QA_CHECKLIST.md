@@ -419,6 +419,10 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 
 - Gemini 호출에 성공하면 `created_by="ai"`입니다.
 - Gemini API key가 없거나 quota 초과면 `created_by="system"` fallback 리포트가 생성됩니다.
+- 같은 `date + mode + project_id`로 `/reports/daily`를 여러 번 실행해도 새 row가
+  계속 늘지 않고 기존 리포트가 갱신됩니다.
+- `/reports/today`는 list schema를 유지하면서 오늘 날짜 최신 리포트 1개를 맨 위
+  `items[0]`에 보여줍니다.
 - fallback 리포트는 raw timeline 전체 덤프가 아니라 요약, 주요 메모, 주요 화면 관찰, 주요 작업 환경 중심으로 짧게 생성됩니다.
 - daily report는 현재 detailed report 중심입니다. summary/simple/compact 요약본 분리는 아직 공식 기능이 아닙니다.
 - `CURRENT_WORK_FOCUS`가 있으면 오늘 한 일 요약과 시간대별 작업 흐름이 최신 작업 주제를 우선 반영합니다.

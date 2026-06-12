@@ -16,6 +16,29 @@ class ReportRepository:
     def get_by_id(self, db: Session, report_id: int) -> Report | None:
         return db.get(Report, report_id)
 
+    def get_latest_by_identity(
+        self,
+        db: Session,
+        *,
+        target_date: date,
+        mode: str,
+        project_id: int | None,
+    ) -> Report | None:
+        statement = select(Report).where(
+            Report.date == target_date,
+            Report.mode == mode,
+        )
+        if project_id is None:
+            statement = statement.where(Report.project_id.is_(None))
+        else:
+            statement = statement.where(Report.project_id == project_id)
+        statement = statement.order_by(
+            Report.updated_at.desc(),
+            Report.created_at.desc(),
+            Report.id.desc(),
+        )
+        return db.scalars(statement.limit(1)).first()
+
     def list(
         self,
         db: Session,
@@ -25,7 +48,11 @@ class ReportRepository:
         limit: int = 100,
     ) -> list[Report]:
         statement = self._filtered_select(target_date=target_date, mode=mode)
-        statement = statement.order_by(Report.created_at.desc(), Report.id.desc()).limit(limit)
+        statement = statement.order_by(
+            Report.updated_at.desc(),
+            Report.created_at.desc(),
+            Report.id.desc(),
+        ).limit(limit)
         return list(db.scalars(statement))
 
     def count(
