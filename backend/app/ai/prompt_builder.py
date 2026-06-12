@@ -47,6 +47,11 @@ class PromptBuilder:
         "tb 사용",
         "order by",
     )
+    LOCAL_WHISPER_FULL_MEETING_SOURCE = "local_whisper_full_meeting"
+    MEETING_SEGMENT_PREFIX_RE = re.compile(
+        r"^\[(?P<time>\d{1,2}:\d{2}(?::\d{2})?)\s+"
+        r"(?P<source>microphone|system_audio)\]\s*(?P<text>.*)$"
+    )
 
     def __init__(
         self,
@@ -92,6 +97,9 @@ class PromptBuilder:
                 "- Git 변경, command, 파일명, 브랜치명, 테스트를 각각 나열하지 말고, 같은 "
                 "시간대의 git_snapshot, command_result, diff context를 묶어 작업 단위와 "
                 "검증 흐름으로 요약하세요.",
+                "- CURRENT_WORK_FOCUS, MEETING_MEMO_CONTEXT, PRIORITY_MEETING_TRANSCRIPTS, "
+                "WORK_EVIDENCE_BY_TIME 등 prompt/input 내부 라벨명은 리포트에 "
+                "쓰지 말고 자연어 요약에만 반영하세요.",
                 "- CURRENT_WORK_FOCUS가 있으면 오늘 한 일 요약의 첫 문장은 이 주제를 중심으로 "
                 "작성하고, 시간대별 작업 흐름과 다음 작업 후보도 이 주제를 중심으로 작성하세요. "
                 "하루 중 이전 작업이 많더라도 CURRENT_WORK_FOCUS와 직접 관련이 약한 과거 "
@@ -189,6 +197,9 @@ class PromptBuilder:
                 "결정사항을 만들지 마세요. source 값은 근거로만 참고하고 최종 리포트에 과하게 "
                 "나열하지 마세요. MEETING_MEMO_CONTEXT는 회의/메모 근거입니다. 개발 로그와 "
                 "섞지 말고, manual memo는 사용자 직접 입력으로 전사보다 우선하세요.",
+                "- source=local_whisper_full_meeting은 microphone/system_audio가 시간순으로 "
+                "병합된 회의 전사입니다. timestamp와 source label은 내부 근거로만 보고, 최종 "
+                "리포트에는 필요 이상으로 그대로 노출하지 마세요.",
                 "- category=decision만 결정사항으로 쓰고 discussion/follow_up_candidate는 "
                 "논의사항이나 후속작업 후보로 다루세요. TRANSCRIPT_NOISE_SUMMARY는 제외/약화 "
                 "통계이며 짧은 발화, 반복어, source 중복 전사는 본문 사실로 쓰지 마세요.",
@@ -1213,6 +1224,85 @@ class PromptBuilder:
                 return normalized.removeprefix(prefix).strip()
         return normalized
 
+    def _transcript_content_without_collection_prefix(self, content: str) -> str:
+        prefixes = ("회의 전사 수집됨:", "회의 전사 수집됨")
+        normalized = content.strip()
+        for prefix in prefixes:
+            if normalized.startswith(prefix):
+                return normalized.removeprefix(prefix).strip()
+        return normalized
+
+    def _is_local_whisper_full_meeting(self, item) -> bool:
+        return getattr(item, "source", None) == self.LOCAL_WHISPER_FULL_MEETING_SOURCE
+
+    def _iter_report_transcript_entries(self, item) -> list[dict[str, str]]:
+        if self._is_local_whisper_full_meeting(item):
+            return self._extract_local_whisper_entries(item.content)
+        text = self._normalize_transcript_content(item.content)
+        return [{"text": text, "source_label": "", "time_label": ""}] if text else []
+
+    def _extract_local_whisper_entries(self, content: str) -> list[dict[str, str]]:
+        text = self._transcript_content_without_collection_prefix(content)
+        entries: list[dict[str, str]] = []
+        fallback_lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = " ".join(raw_line.split())
+            if not line:
+                continue
+            match = self.MEETING_SEGMENT_PREFIX_RE.match(line)
+            if match:
+                segment_text = self._weaken_transcript_for_report(match.group("text"))
+                if segment_text:
+                    entries.append(
+                        {
+                            "text": segment_text,
+                            "source_label": match.group("source"),
+                            "time_label": match.group("time"),
+                        }
+                    )
+            else:
+                fallback_lines.append(line)
+
+        if entries:
+            return entries
+
+        fallback_text = self._weaken_transcript_for_report(" ".join(fallback_lines))
+        if not fallback_text:
+            return []
+        return [{"text": fallback_text, "source_label": "", "time_label": ""}]
+
+    def _weaken_transcript_for_report(self, text: str) -> str:
+        without_prefix = self.MEETING_SEGMENT_PREFIX_RE.sub(r"\g<text>", text.strip())
+        normalized = re.sub(r"\s+", " ", without_prefix).strip()
+        if not normalized:
+            return ""
+        lowered = normalized.lower()
+        if self._is_subtitle_ad_transcript_noise(lowered):
+            return ""
+        if self._is_casual_meeting_noise(normalized):
+            return ""
+        return normalized
+
+    def _is_subtitle_ad_transcript_noise(self, lowered: str) -> bool:
+        strong_markers = (
+            "광고를 포함하고 있습니다",
+            "한글자막 by",
+            "자막 by",
+            "번역 by",
+            "구독 좋아요",
+            "시청해주셔서 감사합니다",
+            "subtitles by",
+            "translated by",
+        )
+        if any(marker in lowered for marker in strong_markers):
+            return True
+        if "자막 제공" not in lowered:
+            return False
+        work_markers = ("기능", "접근성", "구현", "검토", "정책", "설정", "ui")
+        if any(marker in lowered for marker in work_markers):
+            return False
+        return lowered.count("자막 제공") >= 2 or len(lowered) <= 20
+
     def _format_meeting_memo_context(self, items) -> list[str]:
         memo_lines = self._format_manual_memo_context(items)
         transcript_lines, noise_summary = self._format_meeting_transcript_context(items)
@@ -1244,37 +1334,61 @@ class PromptBuilder:
         return lines
 
     def _format_meeting_transcript_context(self, items) -> tuple[list[str], str]:
-        grouped: dict[int | str, list] = defaultdict(list)
+        grouped: dict[int | str, list[dict]] = defaultdict(list)
         skipped_short = 0
         skipped_noise = 0
         skipped_duplicate = 0
         for item in items:
             if item.type != "transcript":
                 continue
-            text = self._normalize_transcript_content(item.content)
-            if self._contains_uncertain_noise(text) or self._is_transcript_filler_noise(text):
-                skipped_noise += 1
-                continue
-            if not self.transcript_quality_policy.is_meaningful_for_report(text):
-                skipped_short += 1
-                continue
             key = item.meeting_id or f"transcript-{item.id}"
-            if self._has_similar_transcript(grouped[key], text):
-                skipped_duplicate += 1
-                continue
-            grouped[key].append(item)
+            for entry in self._iter_report_transcript_entries(item):
+                text = entry["text"]
+                if self._contains_uncertain_noise(text) or self._is_transcript_filler_noise(text):
+                    skipped_noise += 1
+                    continue
+                if not self.transcript_quality_policy.is_meaningful_for_report(text):
+                    skipped_short += 1
+                    continue
+                if self._has_similar_transcript(grouped[key], text):
+                    skipped_duplicate += 1
+                    continue
+                grouped[key].append(
+                    {
+                        "item": item,
+                        "text": text,
+                        "source_label": entry.get("source_label", ""),
+                        "time_label": entry.get("time_label", ""),
+                        "source_type": (
+                            self.LOCAL_WHISPER_FULL_MEETING_SOURCE
+                            if self._is_local_whisper_full_meeting(item)
+                            else "standard_transcript"
+                        ),
+                    }
+                )
 
         lines: list[str] = []
         for key, group_items in grouped.items():
-            sorted_items = sorted(group_items, key=lambda item: item.timestamp)
+            sorted_items = sorted(
+                group_items,
+                key=lambda entry: (entry["item"].timestamp, entry.get("time_label", "")),
+            )
             categorized: dict[str, list[str]] = defaultdict(list)
-            for item in sorted_items:
-                text = self._normalize_transcript_content(item.content)
+            source_labels: set[str] = set()
+            source_types: set[str] = set()
+            for entry in sorted_items:
+                text = entry["text"]
                 category = self._meeting_context_category(text, is_memo=False)
                 if text not in categorized[category]:
                     categorized[category].append(text)
-            start_time = self._format_kst_time(sorted_items[0].timestamp)
-            end_time = self._format_kst_time(sorted_items[-1].timestamp)
+                if entry.get("source_label"):
+                    source_labels.add(entry["source_label"])
+                if entry.get("source_type"):
+                    source_types.add(entry["source_type"])
+            start_time = self._format_kst_time(sorted_items[0]["item"].timestamp)
+            end_time = self._format_kst_time(sorted_items[-1]["item"].timestamp)
+            source_text = ",".join(sorted(source_labels)) if source_labels else "-"
+            source_type_text = ",".join(sorted(source_types)) if source_types else "-"
             for category in ("decision", "discussion", "follow_up_candidate", "utterance"):
                 texts = categorized.get(category)
                 if not texts:
@@ -1284,7 +1398,8 @@ class PromptBuilder:
                 lines.append(
                     f"- MEETING_TRANSCRIPT | meeting_id={key} | "
                     f"time_range={start_time}~{end_time} | category={category} | "
-                    f"label={label} | content={merged}"
+                    f"label={label} | source_type={source_type_text} | "
+                    f"sources={source_text} | content={merged}"
                 )
 
         total_skipped = skipped_short + skipped_noise + skipped_duplicate
@@ -1300,7 +1415,9 @@ class PromptBuilder:
     def _has_similar_transcript(self, existing_items: list, text: str) -> bool:
         return any(
             self.transcript_quality_policy.is_near_duplicate(
-                self._normalize_transcript_content(item.content),
+                item["text"]
+                if isinstance(item, dict)
+                else self._normalize_transcript_content(item.content),
                 text,
             )
             for item in existing_items
@@ -1340,6 +1457,10 @@ class PromptBuilder:
             "가능성",
             "이슈",
             "공유",
+            "인가요",
+            "되나요",
+            "되죠",
+            "안 되",
         )
         if any(marker in normalized for marker in decision_markers):
             return "decision"
@@ -1377,43 +1498,108 @@ class PromptBuilder:
             return True
         return len(set(compacted)) <= 2 and len(compacted) >= 4
 
+    def _is_casual_meeting_noise(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", " ", text).strip().lower()
+        if not normalized:
+            return True
+        casual_markers = (
+            "농담",
+            "웃기",
+            "ㅋㅋ",
+            "ㅎㅎ",
+            "쉬는 시간",
+            "휴식",
+            "잡담",
+            "점심",
+            "커피",
+        )
+        if any(marker in normalized for marker in casual_markers):
+            work_markers = (
+                "결정",
+                "진행",
+                "검토",
+                "작업",
+                "이슈",
+                "머지",
+                "배포",
+                "테스트",
+                "로그인",
+                "url",
+            )
+            return not any(marker in normalized for marker in work_markers)
+        return False
+
     def _format_transcript_groups(self, items) -> list[str]:
-        grouped: dict[int | str, list] = defaultdict(list)
+        grouped: dict[int | str, list[dict]] = defaultdict(list)
         for item in items:
             if item.type != "transcript":
                 continue
-            text = self._normalize_transcript_content(item.content)
-            if self._contains_uncertain_noise(text):
-                continue
-            if not self.transcript_quality_policy.is_meaningful_for_report(text):
-                continue
             key = item.meeting_id or f"transcript-{item.id}"
-            grouped[key].append(item)
+            for entry in self._iter_report_transcript_entries(item):
+                text = entry["text"]
+                if self._contains_uncertain_noise(text):
+                    continue
+                if self._is_transcript_filler_noise(text):
+                    continue
+                if not self.transcript_quality_policy.is_meaningful_for_report(text):
+                    continue
+                grouped[key].append(
+                    {
+                        "item": item,
+                        "text": text,
+                        "source_label": entry.get("source_label", ""),
+                        "source_type": (
+                            self.LOCAL_WHISPER_FULL_MEETING_SOURCE
+                            if self._is_local_whisper_full_meeting(item)
+                            else "standard_transcript"
+                        ),
+                    }
+                )
 
         lines: list[str] = []
         for key, group_items in grouped.items():
-            sorted_items = sorted(group_items, key=lambda item: item.timestamp)
+            sorted_items = sorted(
+                group_items,
+                key=lambda entry: entry["item"].timestamp,
+            )
             texts: list[str] = []
-            for item in sorted_items:
-                text = self._normalize_transcript_content(item.content)
+            for entry in sorted_items:
+                text = entry["text"]
                 if text and text not in texts:
                     texts.append(text)
             if not texts:
                 continue
-            start_time = self._format_kst_time(sorted_items[0].timestamp)
-            end_time = self._format_kst_time(sorted_items[-1].timestamp)
+            start_time = self._format_kst_time(sorted_items[0]["item"].timestamp)
+            end_time = self._format_kst_time(sorted_items[-1]["item"].timestamp)
             merged = self._truncate(" / ".join(texts[:5]), 500)
             speakers = sorted(
                 {
-                    item.speaker
-                    for item in sorted_items
-                    if getattr(item, "speaker", None)
+                    entry["item"].speaker
+                    for entry in sorted_items
+                    if getattr(entry["item"], "speaker", None)
+                }
+            )
+            source_labels = sorted(
+                {
+                    entry["source_label"]
+                    for entry in sorted_items
+                    if entry.get("source_label")
+                }
+            )
+            source_types = sorted(
+                {
+                    entry["source_type"]
+                    for entry in sorted_items
+                    if entry.get("source_type")
                 }
             )
             speaker_text = ",".join(speakers) if speakers else "-"
+            source_text = ",".join(source_labels) if source_labels else "-"
+            source_type_text = ",".join(source_types) if source_types else "-"
             lines.append(
                 f"- TRANSCRIPT_GROUP | meeting_id={key} | time_range={start_time}~{end_time} | "
-                f"count={len(sorted_items)} | speaker={speaker_text} | text={merged}"
+                f"count={len(sorted_items)} | speaker={speaker_text} | "
+                f"source_type={source_type_text} | sources={source_text} | text={merged}"
             )
         return lines
 
