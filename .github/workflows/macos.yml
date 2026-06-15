@@ -23,4 +23,5 @@ jobs:
           -scheme MwohamMac
           -destination platform=macOS
           -derivedDataPath /tmp/MwohamMacDerivedData
+          CODE_SIGNING_ALLOWED=NO
           build

@@ -94,29 +94,127 @@ open "http://127.0.0.1:8765/dashboard"
 
 ## 3. Mac 앱 실행
 
-명령:
+개발용 고정 서명 설정:
 
 ```bash
-xcodebuild \
-  -project mac-client/MwohamMac/MwohamMac.xcodeproj \
-  -scheme MwohamMac \
-  -destination platform=macOS \
-  -derivedDataPath /private/tmp/MwohamMacDerivedData \
-  build
+security find-identity -v -p codesigning
+
+# 인증서 표시 이름의 괄호가 아닌 subject OU가 실제 Team ID입니다.
+security find-certificate \
+  -c "Apple Development: YOUR_NAME" \
+  -p | openssl x509 -noout -subject
+
+mkdir -p ~/.config/mwoham
+cat > ~/.config/mwoham/macos-signing.env <<'EOF'
+MWOHAM_DEVELOPMENT_TEAM=YOUR_TEAM_ID
+EOF
+
+./scripts/build_macos_app.sh --open
 ```
+
+다른 Mac 최초 설정:
+
+1. Xcode > Settings > Accounts에 Apple ID를 추가합니다.
+2. `Manage Certificates...`에서 Apple Development 인증서를 생성합니다.
+3. `security find-identity`로 인증서를 확인합니다.
+4. 인증서 subject의 `OU`를 `MWOHAM_DEVELOPMENT_TEAM`에 설정합니다.
+5. `build_macos_app.sh --open`으로 고정 경로 signed 앱을 실행합니다.
+
+인증서가 여러 개이면 설정 파일에 다음 값을 선택적으로 추가합니다.
+
+```bash
+MWOHAM_CODE_SIGN_IDENTITY="Apple Development: name@example.com (CERTIFICATE_ID)"
+```
+
+빠른 UI/CI 확인:
+
+```bash
+./scripts/build_macos_app.sh --unsigned
+./scripts/build_macos_app.sh --unsigned --open
+```
+
+unsigned 모드는 Team ID와 인증서 없이 빌드할 수 있지만 TCC 상태가 안정적으로
+유지되지 않습니다. 권한 테스트에는 사용하지 않습니다. signed 빌드가 실패해도
+unsigned로 자동 fallback하지 않습니다.
 
 확인:
 
-- Xcode에서 `MwohamMac` scheme을 실행합니다.
+- 앱 실행 경로가 `~/Applications/MwohamMac.app`인지 확인합니다.
 - 일반 창에서 백엔드 연결 상태가 `연결됨`으로 보입니다.
 - 메뉴바 항목이 표시됩니다.
 - 메뉴바에서 플로팅 위젯을 열고 닫을 수 있습니다.
+
+bundle 및 코드 서명 확인:
+
+```bash
+APP="$HOME/Applications/MwohamMac.app"
+
+/usr/libexec/PlistBuddy \
+  -c "Print :CFBundleIdentifier" \
+  "$APP/Contents/Info.plist"
+codesign --verify --deep --strict --verbose=2 "$APP"
+codesign -dv --verbose=4 "$APP" 2>&1 \
+  | grep -E "^(Identifier|Authority|TeamIdentifier|Signature)="
+codesign -d -r- "$APP" 2>&1
+```
+
+정상 기대 결과:
+
+- Debug/Release bundle identifier가 모두 `com.ing2720.MwohamMac`입니다.
+- `Signature=adhoc`이 출력되지 않습니다.
+- `Authority=Apple Development: ...`가 표시됩니다.
+- `TeamIdentifier`가 `MWOHAM_DEVELOPMENT_TEAM`과 같습니다.
+- 앱을 다시 빌드해도 실행 경로와 designated requirement가 유지됩니다.
+
+TCC 권한 확인:
+
+- 시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서
+  `~/Applications/MwohamMac.app`을 허용합니다.
+- 화면 기록, 마이크, 음성 인식도 같은 고정 앱 bundle 기준으로 허용합니다.
+- 접근성 권한은 앱에서 자동 허용할 수 없습니다.
+- 기존 ad-hoc 앱을 사용했다면 목록의 이전 MwohamMac 항목을 제거하고 서명된
+  고정 경로 앱을 다시 추가한 뒤 앱을 재실행합니다.
+
+권한 온보딩 확인:
+
+1. 첫 실행 상태로 확인하려면 다음 값을 초기화한 뒤 signed 앱을 실행합니다.
+
+```bash
+defaults delete com.ing2720.MwohamMac hasCompletedPermissionOnboarding 2>/dev/null || true
+./scripts/build_macos_app.sh --open
+```
+
+2. `권한 설정` 화면에 마이크, 음성 인식, 화면 기록, 접근성 상태가 각각
+   표시되는지 확인합니다.
+3. 마이크, 음성 인식 또는 Local Whisper, backend 연결 중 필수 조건이 부족하면
+   `시작 가능` 상태가 표시되지 않는지 확인합니다.
+4. 화면 기록이나 접근성 권한만 없으면 warning이 표시되지만 `시작하기`가
+   가능한지 확인합니다.
+5. 접근성 권한이 없어도 현재 앱/창 정보가 수집되면 `제한됨`으로 표시되고 앱
+   사용을 막지 않는지 확인합니다.
+6. `권한 상태 다시 확인`을 눌러 현재 TCC와 backend 상태가 갱신되는지 확인합니다.
+7. 설정 > 권한에서 `권한 설정 다시 보기`를 눌러 온보딩이 다시 열리는지
+   확인합니다.
+8. 각 권한의 설정 열기 버튼이 해당 macOS 개인정보 보호 설정 화면으로 이동하는지
+   확인합니다. 앱이 권한을 자동 승인하지 않는지 확인합니다.
+9. 선택 항목의 `debug audio 저장` Toggle을 켜고 끌 때 설정 > Local Whisper의
+   QA/debug WAV 보관 설정과 동기화되는지 확인합니다.
+10. `개발 이벤트 추적` Toggle을 끄면 실행 중 watcher가 종료되고 recording을
+    시작해도 자동 watcher가 시작되지 않는지 확인합니다.
+11. `개발 이벤트 추적` Toggle을 다시 켜면 상태가 `켜짐`으로 표시되고 기존
+    수동 Dev Tracking 시작 경로로 watcher 실행을 시도하는지 확인합니다.
 
 실패 시 의심 원인:
 
 - 백엔드가 실행 중이 아닙니다.
 - 앱 sandbox/권한 설정 때문에 로컬 API 호출이 막혔습니다.
 - `LOCAL_API_TOKEN`이 백엔드에만 설정되어 있고 앱 환경에는 전달되지 않았습니다.
+- Xcode 계정에 Apple Development 인증서가 없습니다.
+- `MWOHAM_DEVELOPMENT_TEAM`이 실제 인증서 Team ID와 다릅니다.
+- 인증서 이름 끝의 괄호 값을 Team ID로 잘못 사용했습니다. 실제 값은 subject의
+  `OU`와 `codesign`의 `TeamIdentifier`입니다.
+- Xcode Run 또는 DerivedData의 임시 앱에 권한을 부여했습니다.
+- `--unsigned` 또는 `CODE_SIGNING_ALLOWED=NO` 빌드를 실행 앱으로 사용했습니다.
 
 ## 4. 기록 시작, 일시정지, 재개, 종료
 
@@ -619,8 +717,13 @@ xcodebuild \
   -scheme MwohamMac \
   -destination platform=macOS \
   -derivedDataPath /private/tmp/MwohamMacDerivedData \
+  CODE_SIGNING_ALLOWED=NO \
   build
 ```
+
+이 명령은 CI/컴파일 확인용 unsigned build입니다. 접근성, 화면 기록, 마이크 등
+TCC 권한 QA에는 `./scripts/build_macos_app.sh --open`으로 생성한 stable signed
+앱을 사용합니다.
 
 자주 보는 API:
 

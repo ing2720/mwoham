@@ -21,6 +21,41 @@ backend 기본 주소는 `http://127.0.0.1:8765`입니다. backend가 실행 중
 
 창 제목이 비어 있으면 시스템 설정 > 개인정보 보호 및 보안에서 MwohamMac 앱에 손쉬운 사용 권한을 허용해 주세요. macOS 버전이나 대상 앱에 따라 화면 기록 권한이 필요할 수도 있습니다.
 
+접근성 권한은 앱이 자동으로 승인할 수 없습니다. 개발 빌드는 Xcode DerivedData
+경로에서 직접 실행하지 말고 다음 고정 bundle을 사용합니다.
+
+```bash
+./scripts/build_macos_app.sh --open
+```
+
+기본 실행 경로는 `~/Applications/MwohamMac.app`, bundle identifier는
+`com.ing2720.MwohamMac`입니다. 스크립트는 Apple Development 인증서와 Team
+ID를 요구하고 ad-hoc 서명을 거부합니다.
+
+개인 Team ID는 repo에 저장하지 않고
+`~/.config/mwoham/macos-signing.env`에 설정합니다.
+
+```bash
+MWOHAM_DEVELOPMENT_TEAM=YOUR_TEAM_ID
+```
+
+Team ID는 인증서 Common Name의 괄호 값이 아니라 certificate subject의 `OU`와
+일치해야 합니다. `MWOHAM_CODE_SIGN_IDENTITY`는 인증서가 여러 개인 경우에만
+`security find-identity -v -p codesigning`의 전체 이름으로 지정합니다.
+
+서명 인증서는 Xcode > Settings > Accounts에서 Apple ID를 등록하고
+`Manage Certificates...`에서 Apple Development 인증서를 생성합니다.
+
+다른 Mac이나 CI에서 UI만 확인하려면 다음 명시적 unsigned 모드를 사용합니다.
+
+```bash
+./scripts/build_macos_app.sh --unsigned
+./scripts/build_macos_app.sh --unsigned --open
+```
+
+unsigned 앱은 접근성, 화면 기록, 마이크 등 TCC 권한이 빌드마다 유지되는 것을
+보장하지 않습니다. 권한 QA에는 signed 고정 경로 앱만 사용합니다.
+
 현재 단계의 활성 창 추적은 화면 이미지나 마이크 입력을 저장하지 않습니다. 앱 이름과 창 제목 메타데이터를 사용해 `app_name + window_title` 기준 작업 구간을 만들고, 같은 앱/창이 유지되는 동안 duration을 누적합니다.
 
 권한이 없어도 앱은 화면 이미지를 캡처하지 않으며, 활성 창 제목은 빈 값으로 저장될 수 있습니다.
