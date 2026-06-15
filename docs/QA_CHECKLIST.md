@@ -717,8 +717,13 @@ xcodebuild \
   -scheme MwohamMac \
   -destination platform=macOS \
   -derivedDataPath /private/tmp/MwohamMacDerivedData \
+  CODE_SIGNING_ALLOWED=NO \
   build
 ```
+
+이 명령은 CI/컴파일 확인용 unsigned build입니다. 접근성, 화면 기록, 마이크 등
+TCC 권한 QA에는 `./scripts/build_macos_app.sh --open`으로 생성한 stable signed
+앱을 사용합니다.
 
 자주 보는 API:
 

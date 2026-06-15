@@ -298,7 +298,9 @@ Mwoham의 현재 구현 원칙:
 ## CI
 
 - Backend CI는 ruff, pytest, coverage, alembic, git diff check를 검증합니다.
-- macOS client CI는 `MwohamMac`의 `xcodebuild build`만 검증합니다.
+- macOS client CI는 인증서가 없는 runner에서
+  `CODE_SIGNING_ALLOWED=NO`를 명시한 unsigned `xcodebuild build`를 검증합니다.
+- 권한/TCC QA는 CI 산출물이 아니라 로컬 stable signed 앱으로 검증합니다.
 - 화면 기록 권한, OCR 수집, Speech/마이크 권한, 메뉴바/플로팅 동작은 macOS 권한과 실제 사용자 세션이 필요하므로 수동 QA에서 검증합니다.
 
 ## Git 제외 대상

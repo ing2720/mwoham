@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_FILE="${ROOT_DIR}/mac-client/MwohamMac/MwohamMac.xcodeproj/project.pbxproj"
 BUILD_SCRIPT="${ROOT_DIR}/scripts/build_macos_app.sh"
+MACOS_WORKFLOW="${ROOT_DIR}/.github/workflows/macos.yml"
 
 expect_count() {
   local expected="$1"
@@ -36,6 +37,7 @@ grep -Fq 'EXPECTED_BUNDLE_IDENTIFIER="com.ing2720.MwohamMac"' \
 grep -Fq 'codesign --verify --deep --strict' "${BUILD_SCRIPT}"
 grep -Fq 'The build stopped without falling back to unsigned mode.' \
   "${BUILD_SCRIPT}"
+grep -Fq 'CODE_SIGNING_ALLOWED=NO' "${MACOS_WORKFLOW}"
 
 bash -n "${BUILD_SCRIPT}"
 
