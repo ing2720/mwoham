@@ -14,44 +14,21 @@ struct MenuBarStatusView: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text(viewModel.isConnected ? "백엔드 연결됨" : "백엔드 연결 실패")
-            if !viewModel.isConnected {
+            StatusBadge(state: viewModel.connectionState, compact: true)
+            if viewModel.connectionState.isError {
                 Text("로컬 서버가 실행 중인지 확인해 주세요.")
                 Text("주소: \(viewModel.backendAddressText)")
             }
-            Text("현재 기록 상태: \(viewModel.recordingStatus)")
+            StatusBadge(state: viewModel.recordingState, compact: true)
             Text("기록 시간: \(viewModel.recordingElapsedTime)")
-            Text("Dev Tracking: \(viewModel.shortDevTrackingStatus)")
+            StatusBadge(state: viewModel.devTrackingState, compact: true)
 
             Divider()
 
-            Button("기록 시작") {
-                Task {
-                    await viewModel.startRecording()
-                }
-            }
-            .disabled(!viewModel.canStartRecording)
-
-            Button("일시정지") {
-                Task {
-                    await viewModel.pauseRecording()
-                }
-            }
-            .disabled(!viewModel.canPauseRecording)
-
-            Button("재개") {
-                Task {
-                    await viewModel.resumeRecording()
-                }
-            }
-            .disabled(!viewModel.canResumeRecording)
-
-            Button("기록 종료") {
-                Task {
-                    await viewModel.stopRecording()
-                }
-            }
-            .disabled(!viewModel.canStopRecording)
+            RecordingControl(
+                viewModel: viewModel.recording,
+                style: .menu
+            )
 
             Divider()
 

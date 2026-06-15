@@ -135,6 +135,26 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             : "Apple Speech"
     }
 
+    var state: MeetingTranscriptionState {
+        MeetingTranscriptionState(statusText: transcriptionStatus)
+    }
+
+    var sttEngineState: STTEngineState {
+        STTEngineState(description: displayedSTTEngine)
+    }
+
+    var microphoneState: CollectorState {
+        CollectorState(statusText: microphoneProviderStatus)
+    }
+
+    var systemAudioState: CollectorState {
+        CollectorState(statusText: systemAudioProviderStatus)
+    }
+
+    var fullMeetingState: CollectorState {
+        CollectorState(statusText: fullMeetingProviderStatus)
+    }
+
     func applyStatus(_ status: StatusResponse) {
         currentMeeting = status.currentMeeting
         meetingMode = status.meetingMode ? "켜짐" : "꺼짐"

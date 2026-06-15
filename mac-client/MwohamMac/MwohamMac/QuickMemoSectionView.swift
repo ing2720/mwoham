@@ -7,16 +7,16 @@ import AppKit
 import SwiftUI
 
 struct QuickMemoSectionView: View {
-    @ObservedObject var viewModel: BackendStatusViewModel
+    @ObservedObject var viewModel: QuickMemoViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("빠른 메모")
                 .font(.headline)
 
-            MemoTextEditor(text: $viewModel.memoContent) {
+            MemoTextEditor(text: $viewModel.content) {
                 Task {
-                    await viewModel.saveMemo()
+                    await viewModel.save()
                 }
             }
             .frame(minHeight: 70)
@@ -28,17 +28,16 @@ struct QuickMemoSectionView: View {
             HStack {
                 Spacer()
 
-                Button {
-                    Task {
-                        await viewModel.saveMemo()
-                    }
-                } label: {
-                    Label("메모 저장", systemImage: "square.and.arrow.down")
+                PrimaryActionButton(
+                    title: "메모 저장",
+                    systemImage: "square.and.arrow.down",
+                    isDisabled: !viewModel.canSave
+                ) {
+                    await viewModel.save()
                 }
-                .disabled(!viewModel.canSaveMemo)
             }
 
-            Text(viewModel.memoStatusMessage.isEmpty ? " " : viewModel.memoStatusMessage)
+            Text(viewModel.statusMessage.isEmpty ? " " : viewModel.statusMessage)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
