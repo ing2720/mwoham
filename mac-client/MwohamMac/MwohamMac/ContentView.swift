@@ -31,7 +31,7 @@ final class BackendStatusViewModel: ObservableObject {
             UserDefaults.standard.set(devTrackingRepoPath, forKey: Self.devTrackingRepoPathKey)
         }
     }
-    @Published var devTrackingManualStartRequested = false
+    @Published private(set) var isDevTrackingRunning = false
     @Published var currentMeeting: MeetingResponse?
     @Published var meetingTranscription: MeetingTranscriptionViewModel!
 
@@ -257,15 +257,6 @@ final class BackendStatusViewModel: ObservableObject {
                     self?.currentApp = "비공개 앱"
                     self?.currentWindow = "비공개 앱 사용 중"
                 }
-            },
-            onFrontmostAppChange: { [weak self] appName in
-                guard let self, self.devTrackingManualStartRequested else {
-                    self?.devTrackingStatus = "Dev Tracking: 수동 시작 대기 중"
-                    return
-                }
-                self.devTrackingProcessController.handleActiveApplication(appName) { status in
-                    self.devTrackingStatus = status
-                }
             }
         )
     }
@@ -293,28 +284,22 @@ final class BackendStatusViewModel: ObservableObject {
     func stopActiveWindowTracking() {
         activeWindowCollector.stop()
         ocrCollector.stop()
-        devTrackingManualStartRequested = false
         devTrackingProcessController.stop { [weak self] status in
-            self?.devTrackingStatus = status
+            self?.applyDevTrackingStatus(status)
         }
         activeWindowTrackingStatus = "활성 창 추적 대기 중"
         ocrStatus = "OCR 대기 중"
     }
 
     func startDevTracking() {
-        devTrackingManualStartRequested = true
-        if devTrackingRepoPathForDisplay().contains("/Desktop/") {
-            devTrackingStatus = "Dev Tracking: Desktop repo 접근 권한이 필요할 수 있음"
-        }
-        devTrackingProcessController.handleActiveApplication(currentApp) { [weak self] status in
-            self?.devTrackingStatus = status
+        devTrackingProcessController.start(backendConnected: isConnected) { [weak self] status in
+            self?.applyDevTrackingStatus(status)
         }
     }
 
     func stopDevTracking() {
-        devTrackingManualStartRequested = false
         devTrackingProcessController.stop { [weak self] status in
-            self?.devTrackingStatus = status
+            self?.applyDevTrackingStatus(status)
         }
     }
 
@@ -328,14 +313,6 @@ final class BackendStatusViewModel: ObservableObject {
         }
 
         return value
-    }
-
-    private func devTrackingRepoPathForDisplay() -> String {
-        let configuredPath = devTrackingRepoPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if configuredPath.isEmpty {
-            return DevTrackingProcessController.defaultRepoPathForDisplay()
-        }
-        return configuredPath
     }
 
     private func displayRecordingStatus(_ status: String) -> String {
@@ -371,6 +348,7 @@ final class BackendStatusViewModel: ObservableObject {
                 try await localApiClient.stopRecording()
             }
 
+            applyDevTrackingAutomation(after: action)
             let snapshot = try await localApiClient.fetchSnapshot()
             applySnapshot(snapshot)
         } catch {
@@ -379,6 +357,38 @@ final class BackendStatusViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    private func applyDevTrackingAutomation(after recordingAction: RecordingAction) {
+        let transition: DevTrackingRecordingTransition
+        switch recordingAction {
+        case .start:
+            transition = .started
+        case .pause:
+            transition = .paused
+        case .resume:
+            transition = .resumed
+        case .stop:
+            transition = .stopped
+        }
+
+        switch DevTrackingAutomationPolicy.action(for: transition) {
+        case .start:
+            devTrackingProcessController.start(backendConnected: isConnected) { [weak self] status in
+                self?.applyDevTrackingStatus(status)
+            }
+        case .stop:
+            devTrackingProcessController.stop { [weak self] status in
+                self?.applyDevTrackingStatus(status)
+            }
+        case .none:
+            break
+        }
+    }
+
+    private func applyDevTrackingStatus(_ status: String) {
+        devTrackingStatus = status
+        isDevTrackingRunning = devTrackingProcessController.isRunning
     }
 
     private func refreshAfterFailedAction() async {
@@ -734,7 +744,10 @@ private struct SettingsView: View {
                             .textSelection(.enabled)
                     }
 
-                    Text("추적 repo 경로는 다음 watcher 시작부터 적용됩니다.")
+                    Text(
+                        "기록 시작/종료 시 자동으로 함께 시작/중지됩니다. "
+                            + "수동 제어도 가능하며 Desktop 경로는 사용할 수 없습니다."
+                    )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
@@ -742,12 +755,12 @@ private struct SettingsView: View {
                         Button("Dev Tracking 시작") {
                             viewModel.startDevTracking()
                         }
-                        .disabled(viewModel.devTrackingManualStartRequested)
+                        .disabled(viewModel.isDevTrackingRunning)
 
                         Button("Dev Tracking 중지") {
                             viewModel.stopDevTracking()
                         }
-                        .disabled(!viewModel.devTrackingManualStartRequested)
+                        .disabled(!viewModel.isDevTrackingRunning)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
