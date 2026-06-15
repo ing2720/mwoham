@@ -94,29 +94,98 @@ open "http://127.0.0.1:8765/dashboard"
 
 ## 3. Mac 앱 실행
 
-명령:
+개발용 고정 서명 설정:
 
 ```bash
-xcodebuild \
-  -project mac-client/MwohamMac/MwohamMac.xcodeproj \
-  -scheme MwohamMac \
-  -destination platform=macOS \
-  -derivedDataPath /private/tmp/MwohamMacDerivedData \
-  build
+security find-identity -v -p codesigning
+
+# 인증서 표시 이름의 괄호가 아닌 subject OU가 실제 Team ID입니다.
+security find-certificate \
+  -c "Apple Development: YOUR_NAME" \
+  -p | openssl x509 -noout -subject
+
+mkdir -p ~/.config/mwoham
+cat > ~/.config/mwoham/macos-signing.env <<'EOF'
+MWOHAM_DEVELOPMENT_TEAM=YOUR_TEAM_ID
+EOF
+
+./scripts/build_macos_app.sh --open
 ```
+
+다른 Mac 최초 설정:
+
+1. Xcode > Settings > Accounts에 Apple ID를 추가합니다.
+2. `Manage Certificates...`에서 Apple Development 인증서를 생성합니다.
+3. `security find-identity`로 인증서를 확인합니다.
+4. 인증서 subject의 `OU`를 `MWOHAM_DEVELOPMENT_TEAM`에 설정합니다.
+5. `build_macos_app.sh --open`으로 고정 경로 signed 앱을 실행합니다.
+
+인증서가 여러 개이면 설정 파일에 다음 값을 선택적으로 추가합니다.
+
+```bash
+MWOHAM_CODE_SIGN_IDENTITY="Apple Development: name@example.com (CERTIFICATE_ID)"
+```
+
+빠른 UI/CI 확인:
+
+```bash
+./scripts/build_macos_app.sh --unsigned
+./scripts/build_macos_app.sh --unsigned --open
+```
+
+unsigned 모드는 Team ID와 인증서 없이 빌드할 수 있지만 TCC 상태가 안정적으로
+유지되지 않습니다. 권한 테스트에는 사용하지 않습니다. signed 빌드가 실패해도
+unsigned로 자동 fallback하지 않습니다.
 
 확인:
 
-- Xcode에서 `MwohamMac` scheme을 실행합니다.
+- 앱 실행 경로가 `~/Applications/MwohamMac.app`인지 확인합니다.
 - 일반 창에서 백엔드 연결 상태가 `연결됨`으로 보입니다.
 - 메뉴바 항목이 표시됩니다.
 - 메뉴바에서 플로팅 위젯을 열고 닫을 수 있습니다.
+
+bundle 및 코드 서명 확인:
+
+```bash
+APP="$HOME/Applications/MwohamMac.app"
+
+/usr/libexec/PlistBuddy \
+  -c "Print :CFBundleIdentifier" \
+  "$APP/Contents/Info.plist"
+codesign --verify --deep --strict --verbose=2 "$APP"
+codesign -dv --verbose=4 "$APP" 2>&1 \
+  | grep -E "^(Identifier|Authority|TeamIdentifier|Signature)="
+codesign -d -r- "$APP" 2>&1
+```
+
+정상 기대 결과:
+
+- Debug/Release bundle identifier가 모두 `com.ing2720.MwohamMac`입니다.
+- `Signature=adhoc`이 출력되지 않습니다.
+- `Authority=Apple Development: ...`가 표시됩니다.
+- `TeamIdentifier`가 `MWOHAM_DEVELOPMENT_TEAM`과 같습니다.
+- 앱을 다시 빌드해도 실행 경로와 designated requirement가 유지됩니다.
+
+TCC 권한 확인:
+
+- 시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서
+  `~/Applications/MwohamMac.app`을 허용합니다.
+- 화면 기록, 마이크, 음성 인식도 같은 고정 앱 bundle 기준으로 허용합니다.
+- 접근성 권한은 앱에서 자동 허용할 수 없습니다.
+- 기존 ad-hoc 앱을 사용했다면 목록의 이전 MwohamMac 항목을 제거하고 서명된
+  고정 경로 앱을 다시 추가한 뒤 앱을 재실행합니다.
 
 실패 시 의심 원인:
 
 - 백엔드가 실행 중이 아닙니다.
 - 앱 sandbox/권한 설정 때문에 로컬 API 호출이 막혔습니다.
 - `LOCAL_API_TOKEN`이 백엔드에만 설정되어 있고 앱 환경에는 전달되지 않았습니다.
+- Xcode 계정에 Apple Development 인증서가 없습니다.
+- `MWOHAM_DEVELOPMENT_TEAM`이 실제 인증서 Team ID와 다릅니다.
+- 인증서 이름 끝의 괄호 값을 Team ID로 잘못 사용했습니다. 실제 값은 subject의
+  `OU`와 `codesign`의 `TeamIdentifier`입니다.
+- Xcode Run 또는 DerivedData의 임시 앱에 권한을 부여했습니다.
+- `--unsigned` 또는 `CODE_SIGNING_ALLOWED=NO` 빌드를 실행 앱으로 사용했습니다.
 
 ## 4. 기록 시작, 일시정지, 재개, 종료
 

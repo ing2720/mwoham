@@ -65,11 +65,33 @@ macOS 앱은 Xcode에서 실행하거나, 내부 테스트용 Release 앱 번들
 개발 중 macOS 권한을 안정적으로 유지하려면 고정 경로의 `MwohamMac.app` bundle을 사용합니다:
 
 ```bash
+mkdir -p ~/.config/mwoham
+cat > ~/.config/mwoham/macos-signing.env <<'EOF'
+MWOHAM_DEVELOPMENT_TEAM=YOUR_TEAM_ID
+EOF
+
 ./scripts/build_macos_app.sh --open
 ```
 
+Team ID는 인증서 표시 이름 끝의 괄호 값이 아니라 인증서 subject의 `OU` 또는
+서명 앱의 `TeamIdentifier`입니다. 스크립트는 해당 Team ID의 Apple Development
+인증서를 찾아 SHA-1 fingerprint로 정확히 지정합니다. 인증서가 여러 개이면
+`MWOHAM_CODE_SIGN_IDENTITY`에 `security find-identity`가 출력한 전체 이름을
+선택적으로 설정할 수 있습니다.
+
 화면 기록, 마이크, 음성 인식 등 macOS 권한은 이 스크립트가 여는 고정 앱 번들인
 `~/Applications/MwohamMac.app` 기준으로 부여합니다.
+
+`build_macos_app.sh`는 `com.ing2720.MwohamMac` bundle identifier, Apple
+Development 서명, 설정된 Team ID를 검증합니다. 인증서가 없거나 ad-hoc
+서명으로 생성된 앱은 TCC identity가 빌드마다 달라질 수 있으므로 실행하지
+않습니다. 빠른 UI 확인이나 CI는 `--unsigned` 또는 `--unsigned --open`으로
+실행할 수 있지만 권한 유지 용도로 사용하지 않습니다. signed 실패 시 unsigned로
+자동 전환되지 않습니다.
+
+macOS 접근성, 화면 기록, 마이크 권한은 앱이 자동 허용할 수 없습니다. 최초 설치
+또는 기존 ad-hoc 앱에서 서명된 앱으로 전환한 뒤 시스템 설정에서 고정 경로의
+앱을 다시 허용해야 합니다.
 
 ## 환경 설정
 
