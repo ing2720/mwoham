@@ -491,72 +491,41 @@ private enum RecordingAction {
 
 struct ContentView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
+    @State private var selectedSection: MainSection? = .today
 
     init(viewModel: BackendStatusViewModel) {
         self.viewModel = viewModel
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                ConnectionMessageView(isConnected: viewModel.isConnected)
-
-                Spacer()
-
-                Button {
-                    Task {
-                        await viewModel.refresh()
+        NavigationSplitView {
+            List(MainSection.allCases, selection: $selectedSection) { section in
+                Label(section.title, systemImage: section.systemImage)
+                    .tag(section)
+            }
+            .navigationTitle("Mwoham")
+            .navigationSplitViewColumnWidth(min: 170, ideal: 190)
+        } detail: {
+            ScrollView {
+                detailContent
+                    .frame(maxWidth: 760, alignment: .topLeading)
+                    .padding(24)
+            }
+            .navigationTitle((selectedSection ?? .today).title)
+            .toolbar {
+                ToolbarItemGroup {
+                    Button {
+                        Task {
+                            await viewModel.refresh()
+                        }
+                    } label: {
+                        Label("새로고침", systemImage: "arrow.clockwise")
                     }
-                } label: {
-                    Label("새로고침", systemImage: "arrow.clockwise")
+                    .disabled(viewModel.isLoading)
                 }
-                .disabled(viewModel.isLoading)
-
-                Button {
-                    viewModel.openDashboard()
-                } label: {
-                    Label("대시보드 열기", systemImage: "safari")
-                }
-            }
-
-            if !viewModel.isConnected {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("로컬 서버가 실행 중인지 확인해 주세요.")
-                    Text("주소: \(viewModel.backendAddressText)")
-                        .textSelection(.enabled)
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            RecordingControlsView(viewModel: viewModel)
-
-            StatusSectionView(viewModel: viewModel)
-
-            DevTrackingSettingsView(viewModel: viewModel)
-
-            Divider()
-
-            MeetingTranscriptionSectionView(viewModel: viewModel.meetingTranscription)
-
-            Divider()
-
-            QuickMemoSectionView(viewModel: viewModel)
-
-            if viewModel.isLoading {
-                ProgressView("상태를 확인하는 중")
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
-        .frame(minWidth: 520, minHeight: 500, alignment: .topLeading)
-        .padding(24)
+        .frame(minWidth: 720, minHeight: 560)
         .task {
             viewModel.startActiveWindowTracking()
             viewModel.startOCRCollection()
@@ -566,34 +535,291 @@ struct ContentView: View {
             viewModel.updateElapsedTime()
         }
     }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            switch selectedSection ?? .today {
+            case .today:
+                TodayView(viewModel: viewModel)
+            case .meetingTranscription:
+                MeetingTranscriptionPageView(
+                    viewModel: viewModel.meetingTranscription
+                )
+            case .settings:
+                SettingsView(viewModel: viewModel)
+            }
+
+            if viewModel.isLoading {
+                ProgressView("상태를 확인하는 중")
+            }
+
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
+        }
+    }
 }
 
-private struct DevTrackingSettingsView: View {
+private enum MainSection: String, CaseIterable, Identifiable {
+    case today
+    case meetingTranscription
+    case settings
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .today:
+            return "오늘"
+        case .meetingTranscription:
+            return "회의 전사"
+        case .settings:
+            return "설정"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .today:
+            return "calendar"
+        case .meetingTranscription:
+            return "waveform"
+        case .settings:
+            return "gearshape"
+        }
+    }
+}
+
+private struct TodayView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Dev Tracking 설정")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 20) {
+            ConnectionMessageView(isConnected: viewModel.isConnected)
 
-            TextField("비워두면 현재 mwoham repo를 추적합니다.", text: $viewModel.devTrackingRepoPath)
-                .textFieldStyle(.roundedBorder)
-                .textSelection(.enabled)
+            GroupBox("기록") {
+                VStack(alignment: .leading, spacing: 14) {
+                    Grid(
+                        alignment: .leading,
+                        horizontalSpacing: 20,
+                        verticalSpacing: 10
+                    ) {
+                        TodayStatusRow(
+                            title: "현재 기록 상태",
+                            value: viewModel.recordingStatus
+                        )
+                        TodayStatusRow(
+                            title: "기록 시간",
+                            value: viewModel.recordingElapsedTime
+                        )
+                        TodayStatusRow(
+                            title: "현재 앱",
+                            value: viewModel.currentApp
+                        )
+                        TodayStatusRow(
+                            title: "현재 창",
+                            value: viewModel.currentWindow
+                        )
+                    }
 
-            Text("추적 repo 경로는 다음 watcher 시작부터 적용됩니다.")
-                .font(.footnote)
+                    RecordingControlsView(viewModel: viewModel)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+            }
+
+            QuickMemoSectionView(viewModel: viewModel)
+        }
+    }
+}
+
+private struct TodayStatusRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        GridRow {
+            Text(title)
                 .foregroundStyle(.secondary)
+            Text(value)
+                .fontWeight(.medium)
+                .textSelection(.enabled)
+        }
+    }
+}
 
-            HStack {
-                Button("Dev Tracking 시작") {
-                    viewModel.startDevTracking()
-                }
-                .disabled(viewModel.devTrackingManualStartRequested)
+private struct MeetingTranscriptionPageView: View {
+    @ObservedObject var viewModel: MeetingTranscriptionViewModel
 
-                Button("Dev Tracking 중지") {
-                    viewModel.stopDevTracking()
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("회의 전사")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            MeetingTranscriptionSectionView(viewModel: viewModel)
+        }
+    }
+}
+
+private struct SettingsView: View {
+    @ObservedObject var viewModel: BackendStatusViewModel
+    @ObservedObject var meetingViewModel: MeetingTranscriptionViewModel
+
+    init(viewModel: BackendStatusViewModel) {
+        self.viewModel = viewModel
+        self.meetingViewModel = viewModel.meetingTranscription
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("설정")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            GroupBox("Local Whisper") {
+                VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("Whisper 실행 파일") {
+                        TextField(
+                            "whisper-cli 절대 경로",
+                            text: $meetingViewModel.whisperBinaryPath
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 360)
+                    }
+
+                    LabeledContent("Whisper 모델") {
+                        TextField(
+                            "GGML model 절대 경로",
+                            text: $meetingViewModel.whisperModelPath
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 360)
+                    }
+
+                    Toggle(
+                        "QA/debug용 소스별 WAV 보관",
+                        isOn: $meetingViewModel.whisperDebugAudioExportEnabled
+                    )
+
+                    Text(
+                        "경로와 debug 옵션은 다음 회의 시작부터 적용됩니다. "
+                            + "기본 임시 오디오는 처리 후 삭제됩니다."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 }
-                .disabled(!viewModel.devTrackingManualStartRequested)
+                .disabled(!meetingViewModel.canChangeAudioSource)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+            }
+
+            GroupBox("Dev Tracking") {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField(
+                        "비워두면 현재 mwoham repo를 추적합니다.",
+                        text: $viewModel.devTrackingRepoPath
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .textSelection(.enabled)
+
+                    LabeledContent("현재 상태") {
+                        Text(viewModel.devTrackingStatus)
+                            .textSelection(.enabled)
+                    }
+
+                    Text("추적 repo 경로는 다음 watcher 시작부터 적용됩니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Button("Dev Tracking 시작") {
+                            viewModel.startDevTracking()
+                        }
+                        .disabled(viewModel.devTrackingManualStartRequested)
+
+                        Button("Dev Tracking 중지") {
+                            viewModel.stopDevTracking()
+                        }
+                        .disabled(!viewModel.devTrackingManualStartRequested)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+            }
+
+            GroupBox("백엔드") {
+                VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("연결 상태") {
+                        Text(viewModel.isConnected ? "연결됨" : "연결 실패")
+                    }
+                    LabeledContent("백엔드 주소") {
+                        Text(viewModel.backendAddressText)
+                            .textSelection(.enabled)
+                    }
+                    Button {
+                        viewModel.openDashboard()
+                    } label: {
+                        Label("대시보드 열기", systemImage: "safari")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+            }
+
+            GroupBox("권한") {
+                VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("현재 전사 입력") {
+                        Text(meetingViewModel.selectedAudioSourceDescription)
+                    }
+
+                    LabeledContent("권한 상태") {
+                        Text(
+                            meetingViewModel.shouldShowSpeechPermissionHelp
+                                ? "권한 확인 필요"
+                                : "필요 시 시스템 설정에서 확인"
+                        )
+                    }
+
+                    Text(meetingViewModel.permissionHelpText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            meetingViewModel.openSpeechRecognitionSettings()
+                        } label: {
+                            Label("음성 인식 설정", systemImage: "waveform")
+                        }
+
+                        if meetingViewModel.selectedAudioSource
+                            .requiresMicrophone {
+                            Button {
+                                meetingViewModel.openMicrophoneSettings()
+                            } label: {
+                                Label("마이크 설정", systemImage: "mic")
+                            }
+                        }
+
+                        if meetingViewModel.selectedAudioSource
+                            .requiresSystemAudio {
+                            Button {
+                                meetingViewModel.openScreenRecordingSettings()
+                            } label: {
+                                Label("화면 기록 설정", systemImage: "display")
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
             }
         }
     }

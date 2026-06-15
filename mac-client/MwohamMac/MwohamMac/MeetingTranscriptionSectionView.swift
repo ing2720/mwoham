@@ -40,7 +40,7 @@ struct MeetingTranscriptionSectionView: View {
 
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
                 GridRow {
-                    Text("입력 source")
+                    Text("입력 소스")
                         .foregroundStyle(.secondary)
                     Text(viewModel.selectedAudioSourceDescription)
                         .fontWeight(.medium)
@@ -53,23 +53,22 @@ struct MeetingTranscriptionSectionView: View {
                         .textSelection(.enabled)
                 }
                 GridRow {
-                    Text("STT engine")
+                    Text("STT 엔진")
                         .foregroundStyle(.secondary)
                     Text(viewModel.displayedSTTEngine)
                         .fontWeight(.medium)
                         .textSelection(.enabled)
                 }
                 GridRow {
-                    Text("최근 전사")
+                    Text("회의 모드")
                         .foregroundStyle(.secondary)
-                    Text(latestTranscriptText)
+                    Text(viewModel.meetingMode)
                         .fontWeight(.medium)
-                        .lineLimit(3)
                         .textSelection(.enabled)
                 }
                 if viewModel.selectedAudioSource == .fullMeeting {
                     GridRow {
-                        Text("Whisper inputs")
+                        Text("Whisper 입력")
                             .foregroundStyle(.secondary)
                         Text(viewModel.whisperInputSources)
                             .fontWeight(.medium)
@@ -82,54 +81,48 @@ struct MeetingTranscriptionSectionView: View {
                             .fontWeight(.medium)
                             .textSelection(.enabled)
                     }
-                    GridRow {
-                        Text("Whisper metadata")
-                            .foregroundStyle(.secondary)
-                        Text(viewModel.whisperDiagnostics)
-                            .fontWeight(.medium)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
-                    }
                 }
             }
 
-            if viewModel.selectedAudioSource == .fullMeeting {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Local Whisper 설정")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+            GroupBox("최근 전사") {
+                Text(latestTranscriptText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(8)
+                    .textSelection(.enabled)
+                    .padding(.vertical, 4)
+            }
 
-                    TextField(
-                        "whisper-cli 절대 경로",
-                        text: $viewModel.whisperBinaryPath
+            GroupBox("소스별 처리 결과") {
+                Grid(
+                    alignment: .leading,
+                    horizontalSpacing: 20,
+                    verticalSpacing: 8
+                ) {
+                    ProviderStatusRow(
+                        title: "마이크",
+                        value: viewModel.microphoneProviderStatus
                     )
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!viewModel.canChangeAudioSource)
-
-                    TextField(
-                        "GGML model 절대 경로",
-                        text: $viewModel.whisperModelPath
+                    ProviderStatusRow(
+                        title: "시스템 오디오",
+                        value: viewModel.systemAudioProviderStatus
                     )
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!viewModel.canChangeAudioSource)
-
-                    Toggle(
-                        "QA/debug용 source별 WAV 보관",
-                        isOn: $viewModel.whisperDebugAudioExportEnabled
+                    ProviderStatusRow(
+                        title: "회의 전체",
+                        value: viewModel.fullMeetingProviderStatus
                     )
-                    .disabled(!viewModel.canChangeAudioSource)
-
-                    Text("기본값은 비활성화입니다. 활성화 시 다음 회의의 microphone/system audio WAV를 각각 ~/Library/Application Support/Mwoham/debug_audio/에 복사합니다.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Text("경로와 debug 옵션은 다음 회의 시작부터 적용됩니다. 모델과 기본 임시 오디오는 앱이나 backend에 저장되지 않습니다.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
-                .padding(10)
-                .background(Color.secondary.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+            }
+
+            if viewModel.selectedAudioSource == .fullMeeting {
+                DisclosureGroup("Whisper 상세 정보") {
+                    Text(viewModel.whisperDiagnostics)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .padding(.top, 8)
+                }
             }
 
             if let guidanceText = viewModel.selectedAudioSourceGuidanceText {
@@ -140,43 +133,29 @@ struct MeetingTranscriptionSectionView: View {
             }
 
             if viewModel.shouldShowSpeechPermissionHelp {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(viewModel.permissionHelpText)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-
-                    HStack(spacing: 10) {
-                        Button {
-                            viewModel.openSpeechRecognitionSettings()
-                        } label: {
-                            Label("음성 인식 설정 열기", systemImage: "waveform")
-                        }
-
-                        if viewModel.selectedAudioSource.requiresMicrophone {
-                            Button {
-                                viewModel.openMicrophoneSettings()
-                            } label: {
-                                Label("마이크 설정 열기", systemImage: "mic")
-                            }
-                        }
-
-                        if viewModel.selectedAudioSource.requiresSystemAudio {
-                            Button {
-                                viewModel.openScreenRecordingSettings()
-                            } label: {
-                                Label("화면 기록 설정 열기", systemImage: "display")
-                            }
-                        }
-                    }
-                }
-                .padding(10)
-                .background(Color.orange.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                Text("권한 확인이 필요합니다. 설정 화면에서 관련 시스템 설정을 열 수 있습니다.")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
             }
         }
     }
 
     private var latestTranscriptText: String {
         viewModel.latestTranscriptText.isEmpty ? "아직 전사된 텍스트가 없습니다." : viewModel.latestTranscriptText
+    }
+}
+
+private struct ProviderStatusRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .fontWeight(.medium)
+                .textSelection(.enabled)
+        }
     }
 }
