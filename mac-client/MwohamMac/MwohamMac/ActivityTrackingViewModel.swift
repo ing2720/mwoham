@@ -23,6 +23,7 @@ final class ActivityTrackingViewModel: ObservableObject {
     }
     @Published private(set) var devTrackingManualStartRequested = false
     @Published private(set) var isDevTrackingRunning = false
+    private var isDevTrackingAutomaticSessionActive = false
 
     private static let repoPathKey = "devTrackingRepoPath"
     private let activeWindowCollector: ActiveWindowCollector
@@ -79,8 +80,17 @@ final class ActivityTrackingViewModel: ObservableObject {
                 }
             },
             onFrontmostAppChange: { [weak self] appName in
-                guard let self, self.devTrackingManualStartRequested else {
-                    self?.devTrackingState = CollectorState(
+                guard let self else {
+                    return
+                }
+                if self.isDevTrackingAutomaticSessionActive {
+                    if self.devTrackingProcessController.isRunning {
+                        self.applyDevTrackingStatus("Dev Tracking: 기록 세션 자동 감시 중")
+                    }
+                    return
+                }
+                guard self.devTrackingManualStartRequested else {
+                    self.devTrackingState = CollectorState(
                         statusText: "Dev Tracking: 수동 시작 대기 중"
                     )
                     return
@@ -117,6 +127,7 @@ final class ActivityTrackingViewModel: ObservableObject {
         activeWindowCollector.stop()
         ocrCollector.stop()
         devTrackingManualStartRequested = false
+        isDevTrackingAutomaticSessionActive = false
         devTrackingProcessController.stop { [weak self] status in
             self?.applyDevTrackingStatus(status)
         }
@@ -147,12 +158,14 @@ final class ActivityTrackingViewModel: ObservableObject {
     func handleRecordingTransition(_ transition: DevTrackingRecordingTransition) {
         switch DevTrackingAutomationPolicy.action(for: transition) {
         case .start:
+            isDevTrackingAutomaticSessionActive = true
             devTrackingProcessController.start(
                 backendConnected: isBackendConnected()
             ) { [weak self] status in
                 self?.applyDevTrackingStatus(status)
             }
         case .stop:
+            isDevTrackingAutomaticSessionActive = false
             devTrackingProcessController.stop { [weak self] status in
                 self?.applyDevTrackingStatus(status)
             }

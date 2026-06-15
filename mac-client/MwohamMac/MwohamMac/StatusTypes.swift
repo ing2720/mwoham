@@ -5,7 +5,14 @@
 
 import Foundation
 
-enum RecordingState: Equatable {
+protocol StatusPresentable {
+    var label: String { get }
+    var isRunning: Bool { get }
+    var isError: Bool { get }
+    var systemImage: String { get }
+}
+
+enum RecordingState: Equatable, StatusPresentable {
     case active
     case paused
     case stopped
@@ -63,7 +70,7 @@ enum RecordingState: Equatable {
     }
 }
 
-enum ConnectionState: Equatable {
+enum ConnectionState: Equatable, StatusPresentable {
     case checking
     case connected
     case disconnected
@@ -83,6 +90,10 @@ enum ConnectionState: Equatable {
         self == .connected
     }
 
+    var isRunning: Bool {
+        isActive
+    }
+
     var isError: Bool {
         self == .disconnected
     }
@@ -99,7 +110,7 @@ enum ConnectionState: Equatable {
     }
 }
 
-enum MeetingTranscriptionState: Equatable {
+enum MeetingTranscriptionState: Equatable, StatusPresentable {
     case idle
     case checkingPermission
     case starting
@@ -178,7 +189,7 @@ enum MeetingTranscriptionState: Equatable {
     }
 }
 
-enum STTEngineState: Equatable {
+enum STTEngineState: Equatable, StatusPresentable {
     case appleSpeech
     case localWhisper(String)
     case appleSpeechFallback
@@ -217,6 +228,10 @@ enum STTEngineState: Equatable {
         self != .unavailable
     }
 
+    var isRunning: Bool {
+        isActive
+    }
+
     var isError: Bool {
         self == .unavailable
     }
@@ -235,7 +250,7 @@ enum STTEngineState: Equatable {
     }
 }
 
-enum CollectorState: Equatable {
+enum CollectorState: Equatable, StatusPresentable {
     case idle(String)
     case running(String)
     case error(String)

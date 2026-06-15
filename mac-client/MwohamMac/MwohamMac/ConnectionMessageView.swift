@@ -14,16 +14,13 @@ struct ConnectionMessageView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Label(
-                state.label,
-                systemImage: state.systemImage
-            )
-            .foregroundStyle(state.isError ? .red : .green)
+            StatusBadge(state: state)
 
             if state.isError {
-                Text("로컬 서버가 실행 중인지 확인해 주세요.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                ErrorBanner(
+                    message: "로컬 서버가 실행 중인지 확인해 주세요.",
+                    title: "백엔드 연결 실패"
+                )
             }
         }
     }

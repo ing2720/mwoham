@@ -68,6 +68,31 @@ expect(
     "Desktop path should be blocked"
 )
 
+expect(
+    DevTrackingAutomationPolicy.terminationMessage(
+        status: 143,
+        wasRequested: true,
+        lastErrorOutput: ""
+    ) == "Dev Tracking: 종료됨",
+    "requested SIGTERM-style exit should not be an error"
+)
+expect(
+    DevTrackingAutomationPolicy.terminationMessage(
+        status: 15,
+        wasRequested: true,
+        lastErrorOutput: "Terminated"
+    ) == "Dev Tracking: 종료됨",
+    "requested signal termination should ignore stderr"
+)
+expect(
+    DevTrackingAutomationPolicy.terminationMessage(
+        status: 2,
+        wasRequested: false,
+        lastErrorOutput: "watcher failed"
+    ) == "Dev Tracking 오류: watcher 종료 코드 2 - watcher failed",
+    "unexpected termination should remain an error"
+)
+
 print("Dev Tracking automation policy tests passed")
 SWIFT
 

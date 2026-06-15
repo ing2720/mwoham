@@ -28,14 +28,13 @@ struct QuickMemoSectionView: View {
             HStack {
                 Spacer()
 
-                Button {
-                    Task {
-                        await viewModel.save()
-                    }
-                } label: {
-                    Label("메모 저장", systemImage: "square.and.arrow.down")
+                PrimaryActionButton(
+                    title: "메모 저장",
+                    systemImage: "square.and.arrow.down",
+                    isDisabled: !viewModel.canSave
+                ) {
+                    await viewModel.save()
                 }
-                .disabled(!viewModel.canSave)
             }
 
             Text(viewModel.statusMessage.isEmpty ? " " : viewModel.statusMessage)

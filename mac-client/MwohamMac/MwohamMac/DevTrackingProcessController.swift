@@ -16,6 +16,7 @@ final class DevTrackingProcessController {
     private var process: Process?
     private var stopTask: Task<Void, Never>?
     private var lastStartAttemptAt: Date?
+    private var expectedTerminationProcesses: [ObjectIdentifier: Process] = [:]
     private var terminationObserver: NSObjectProtocol?
     private var lastErrorOutput = ""
     private var stdoutBuffer = ""
@@ -68,11 +69,16 @@ final class DevTrackingProcessController {
             return
         }
 
-        start(backendConnected: true, onStatusChange: onStatusChange)
+        start(
+            backendConnected: true,
+            respectsDebounce: true,
+            onStatusChange: onStatusChange
+        )
     }
 
     func start(
         backendConnected: Bool,
+        respectsDebounce: Bool = false,
         onStatusChange: @escaping (String) -> Void
     ) {
         switch DevTrackingAutomationPolicy.startDecision(
@@ -81,7 +87,11 @@ final class DevTrackingProcessController {
             repoURL: configuredRepoURL()
         ) {
         case let .start(repoURL):
-            launch(repoURL: repoURL, onStatusChange: onStatusChange)
+            launch(
+                repoURL: repoURL,
+                respectsDebounce: respectsDebounce,
+                onStatusChange: onStatusChange
+            )
         case .alreadyRunning:
             onStatusChange("Dev Tracking: 이미 감시 중")
         case let .blocked(message):
@@ -99,17 +109,21 @@ final class DevTrackingProcessController {
         }
 
         if process.isRunning {
+            expectedTerminationProcesses[ObjectIdentifier(process)] = process
             process.terminate()
         }
         self.process = nil
+        lastStartAttemptAt = nil
         onStatusChange?("Dev Tracking: 종료됨")
     }
 
     private func launch(
         repoURL: URL,
+        respectsDebounce: Bool,
         onStatusChange: @escaping (String) -> Void
     ) {
-        if let lastStartAttemptAt,
+        if respectsDebounce,
+           let lastStartAttemptAt,
            Date().timeIntervalSince(lastStartAttemptAt) < debounceSeconds {
             onStatusChange("Dev Tracking: 개발 도구 감지됨, 시작 대기 중")
             return
@@ -171,13 +185,24 @@ final class DevTrackingProcessController {
                     standardOutput: standardOutput,
                     standardError: standardError
                 )
-                self.process = nil
-                if terminatedProcess.terminationStatus == 0 {
-                    onStatusChange("Dev Tracking: 종료됨")
-                } else {
-                    let detail = self.lastErrorOutput.isEmpty ? "" : " - \(self.lastErrorOutput)"
+                if self.process === terminatedProcess {
+                    self.process = nil
+                }
+                self.lastStartAttemptAt = nil
+                let processIdentifier = ObjectIdentifier(terminatedProcess)
+                let wasRequested =
+                    self.expectedTerminationProcesses.removeValue(
+                        forKey: processIdentifier
+                    ) != nil
+                let replacementIsRunning =
+                    self.process != nil && self.process !== terminatedProcess
+                if !replacementIsRunning {
                     onStatusChange(
-                        "Dev Tracking 오류: watcher 종료 코드 \(terminatedProcess.terminationStatus)\(detail)"
+                        DevTrackingAutomationPolicy.terminationMessage(
+                            status: terminatedProcess.terminationStatus,
+                            wasRequested: wasRequested,
+                            lastErrorOutput: self.lastErrorOutput
+                        )
                     )
                 }
             }
@@ -188,6 +213,7 @@ final class DevTrackingProcessController {
             self.process = process
             onStatusChange("Dev Tracking: 개발 도구 감지됨, 감시 중")
         } catch {
+            lastStartAttemptAt = nil
             onStatusChange("Dev Tracking 오류: \(error.localizedDescription)")
         }
     }

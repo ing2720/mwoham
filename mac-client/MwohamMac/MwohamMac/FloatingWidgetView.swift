@@ -33,17 +33,29 @@ struct FloatingWidgetView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                FloatingStatusRow(title: "현재 기록 상태", value: viewModel.recordingState.label)
+                FloatingStatusBadgeRow(
+                    title: "현재 기록 상태",
+                    state: viewModel.recordingState
+                )
                 FloatingStatusRow(title: "기록 시간", value: viewModel.recordingElapsedTime)
-                FloatingStatusRow(title: "활성 창 추적", value: viewModel.activeWindowTrackingState.label)
-                FloatingStatusRow(title: "OCR 상태", value: viewModel.ocrState.label)
-                FloatingStatusRow(title: "Dev Tracking", value: viewModel.shortDevTrackingStatus)
+                FloatingStatusBadgeRow(
+                    title: "활성 창 추적",
+                    state: viewModel.activeWindowTrackingState
+                )
+                FloatingStatusBadgeRow(title: "OCR 상태", state: viewModel.ocrState)
+                FloatingStatusBadgeRow(
+                    title: "Dev Tracking",
+                    state: viewModel.devTrackingState
+                )
                 FloatingStatusRow(title: "현재 앱", value: viewModel.currentApp)
                 FloatingStatusRow(title: "현재 창", value: viewModel.currentWindow)
             }
 
             Divider()
-            recordingControls
+            RecordingControl(
+                viewModel: viewModel.recording,
+                fillsWidth: true
+            )
         }
         .padding(14)
         .frame(width: 300, height: 290, alignment: .topLeading)
@@ -51,16 +63,7 @@ struct FloatingWidgetView: View {
 
     private var collapsedView: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(viewModel.connectionState.isError ? .red : .green)
-                .frame(width: 8, height: 8)
-                .accessibilityLabel(viewModel.connectionState.label)
-
-            Text(viewModel.recordingState.label)
-                .font(.footnote)
-                .fontWeight(.medium)
-                .lineLimit(1)
-                .frame(minWidth: 46, alignment: .leading)
+            StatusBadge(state: viewModel.recordingState, compact: true)
 
             Text(collapsedDetailText)
                 .font(.footnote)
@@ -70,7 +73,10 @@ struct FloatingWidgetView: View {
 
             Spacer(minLength: 4)
 
-            collapsedRecordingControl
+            RecordingControl(
+                viewModel: viewModel.recording,
+                style: .compact
+            )
 
             Button {
                 isCollapsed = false
@@ -87,11 +93,7 @@ struct FloatingWidgetView: View {
 
     private var headerView: some View {
         HStack {
-            Label(
-                viewModel.connectionState.label,
-                systemImage: viewModel.connectionState.systemImage
-            )
-            .foregroundStyle(viewModel.connectionState.isError ? .red : .green)
+            StatusBadge(state: viewModel.connectionState, compact: true)
 
             Spacer()
 
@@ -127,108 +129,6 @@ struct FloatingWidgetView: View {
         return "\(viewModel.recordingElapsedTime) · \(viewModel.shortDevTrackingStatus)"
     }
 
-    @ViewBuilder
-    private var recordingControls: some View {
-        switch viewModel.recordingState {
-        case .stopped:
-            recordingButton(
-                "기록 시작",
-                systemImage: "record.circle",
-                isDisabled: !viewModel.canStartRecording
-            ) {
-                await viewModel.startRecording()
-            }
-        case .active:
-            HStack(spacing: 8) {
-                recordingButton(
-                    "일시정지",
-                    systemImage: "pause.circle",
-                    isDisabled: !viewModel.canPauseRecording
-                ) {
-                    await viewModel.pauseRecording()
-                }
-
-                recordingButton(
-                    "기록 종료",
-                    systemImage: "stop.circle",
-                    isDisabled: !viewModel.canStopRecording
-                ) {
-                    await viewModel.stopRecording()
-                }
-            }
-        case .paused:
-            HStack(spacing: 8) {
-                recordingButton(
-                    "재개",
-                    systemImage: "play.circle",
-                    isDisabled: !viewModel.canResumeRecording
-                ) {
-                    await viewModel.resumeRecording()
-                }
-
-                recordingButton(
-                    "기록 종료",
-                    systemImage: "stop.circle",
-                    isDisabled: !viewModel.canStopRecording
-                ) {
-                    await viewModel.stopRecording()
-                }
-            }
-        default:
-            EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private var collapsedRecordingControl: some View {
-        switch viewModel.recordingState {
-        case .stopped:
-            compactRecordingButton("기록 시작", isDisabled: !viewModel.canStartRecording) {
-                await viewModel.startRecording()
-            }
-        case .active:
-            compactRecordingButton("일시정지", isDisabled: !viewModel.canPauseRecording) {
-                await viewModel.pauseRecording()
-            }
-        case .paused:
-            compactRecordingButton("재개", isDisabled: !viewModel.canResumeRecording) {
-                await viewModel.resumeRecording()
-            }
-        default:
-            EmptyView()
-        }
-    }
-
-    private func recordingButton(
-        _ title: String,
-        systemImage: String,
-        isDisabled: Bool,
-        action: @escaping () async -> Void
-    ) -> some View {
-        Button {
-            Task {
-                await action()
-            }
-        } label: {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity)
-        }
-        .disabled(isDisabled)
-    }
-
-    private func compactRecordingButton(
-        _ title: String,
-        isDisabled: Bool,
-        action: @escaping () async -> Void
-    ) -> some View {
-        Button(title) {
-            Task {
-                await action()
-            }
-        }
-        .controlSize(.small)
-        .disabled(isDisabled)
-    }
 }
 
 private struct FloatingStatusRow: View {
@@ -244,6 +144,22 @@ private struct FloatingStatusRow: View {
                 .fontWeight(.medium)
                 .lineLimit(1)
                 .truncationMode(.middle)
+        }
+        .font(.footnote)
+    }
+}
+
+private struct FloatingStatusBadgeRow<State: StatusPresentable>: View {
+    let title: String
+    let state: State
+
+    var body: some View {
+        HStack(alignment: .center) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Spacer()
+            StatusBadge(state: state, compact: true)
+                .lineLimit(1)
         }
         .font(.footnote)
     }

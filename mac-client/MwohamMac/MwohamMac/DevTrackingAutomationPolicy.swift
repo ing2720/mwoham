@@ -69,4 +69,17 @@ enum DevTrackingAutomationPolicy {
 
         return .start(standardizedURL)
     }
+
+    static func terminationMessage(
+        status: Int32,
+        wasRequested: Bool,
+        lastErrorOutput: String
+    ) -> String {
+        if wasRequested || status == 0 {
+            return "Dev Tracking: 종료됨"
+        }
+
+        let detail = lastErrorOutput.isEmpty ? "" : " - \(lastErrorOutput)"
+        return "Dev Tracking 오류: watcher 종료 코드 \(status)\(detail)"
+    }
 }

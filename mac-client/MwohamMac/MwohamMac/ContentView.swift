@@ -342,10 +342,7 @@ struct ContentView: View {
             }
 
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
+                ErrorBanner(message: errorMessage)
             }
         }
     }
@@ -400,7 +397,7 @@ private struct TodayView: View {
         VStack(alignment: .leading, spacing: 20) {
             ConnectionMessageView(state: viewModel.connectionState)
 
-            GroupBox("기록") {
+            StatusCard("기록", systemImage: "record.circle") {
                 VStack(alignment: .leading, spacing: 14) {
                     Grid(
                         alignment: .leading,
@@ -409,7 +406,8 @@ private struct TodayView: View {
                     ) {
                         TodayStatusRow(
                             title: "현재 기록 상태",
-                            value: recordingViewModel.state.label
+                            value: recordingViewModel.state.label,
+                            status: recordingViewModel.state
                         )
                         TodayStatusRow(
                             title: "기록 시간",
@@ -425,10 +423,8 @@ private struct TodayView: View {
                         )
                     }
 
-                    RecordingControlsView(viewModel: recordingViewModel)
+                    RecordingControl(viewModel: recordingViewModel)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
             }
 
             QuickMemoSectionView(viewModel: quickMemoViewModel)
@@ -439,14 +435,19 @@ private struct TodayView: View {
 private struct TodayStatusRow: View {
     let title: String
     let value: String
+    var status: RecordingState?
 
     var body: some View {
         GridRow {
             Text(title)
                 .foregroundStyle(.secondary)
-            Text(value)
-                .fontWeight(.medium)
-                .textSelection(.enabled)
+            if let status {
+                StatusBadge(state: status, compact: true)
+            } else {
+                Text(value)
+                    .fontWeight(.medium)
+                    .textSelection(.enabled)
+            }
         }
     }
 }
@@ -482,7 +483,7 @@ private struct SettingsView: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            GroupBox("Local Whisper") {
+            StatusCard("Local Whisper", systemImage: "cpu") {
                 VStack(alignment: .leading, spacing: 10) {
                     LabeledContent("Whisper 실행 파일") {
                         TextField(
@@ -515,11 +516,9 @@ private struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 }
                 .disabled(!meetingViewModel.canChangeAudioSource)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
             }
 
-            GroupBox("Dev Tracking") {
+            StatusCard("Dev Tracking", systemImage: "point.3.connected.trianglepath.dotted") {
                 VStack(alignment: .leading, spacing: 10) {
                     TextField(
                         "비워두면 현재 mwoham repo를 추적합니다.",
@@ -529,8 +528,10 @@ private struct SettingsView: View {
                     .textSelection(.enabled)
 
                     LabeledContent("현재 상태") {
-                        Text(activityViewModel.devTrackingState.label)
-                            .textSelection(.enabled)
+                        StatusBadge(
+                            state: activityViewModel.devTrackingState,
+                            compact: true
+                        )
                     }
 
                     Text("추적 repo 경로는 다음 watcher 시작부터 적용됩니다.")
@@ -538,25 +539,33 @@ private struct SettingsView: View {
                         .foregroundStyle(.secondary)
 
                     HStack {
-                        Button("Dev Tracking 시작") {
+                        PrimaryActionButton(
+                            title: "Dev Tracking 시작",
+                            systemImage: "play.circle",
+                            isDisabled: activityViewModel.isDevTrackingRunning
+                        ) {
                             activityViewModel.startDevTracking()
                         }
-                        .disabled(activityViewModel.isDevTrackingRunning)
 
-                        Button("Dev Tracking 중지") {
+                        PrimaryActionButton(
+                            title: "Dev Tracking 중지",
+                            systemImage: "stop.circle",
+                            role: .destructive,
+                            isDisabled: !activityViewModel.isDevTrackingRunning
+                        ) {
                             activityViewModel.stopDevTracking()
                         }
-                        .disabled(!activityViewModel.isDevTrackingRunning)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
             }
 
-            GroupBox("백엔드") {
+            StatusCard("백엔드", systemImage: "server.rack") {
                 VStack(alignment: .leading, spacing: 10) {
                     LabeledContent("연결 상태") {
-                        Text(viewModel.connectionState.label)
+                        StatusBadge(
+                            state: viewModel.connectionState,
+                            compact: true
+                        )
                     }
                     LabeledContent("백엔드 주소") {
                         Text(viewModel.backendAddressText)
@@ -568,11 +577,9 @@ private struct SettingsView: View {
                         Label("대시보드 열기", systemImage: "safari")
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
             }
 
-            GroupBox("권한") {
+            StatusCard("권한", systemImage: "lock.shield") {
                 VStack(alignment: .leading, spacing: 10) {
                     LabeledContent("현재 전사 입력") {
                         Text(meetingViewModel.selectedAudioSourceDescription)
@@ -617,8 +624,6 @@ private struct SettingsView: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
             }
         }
     }

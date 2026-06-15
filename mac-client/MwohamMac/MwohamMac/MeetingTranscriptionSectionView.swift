@@ -19,23 +19,22 @@ struct MeetingTranscriptionSectionView: View {
             .disabled(!viewModel.canChangeAudioSource)
 
             HStack(spacing: 10) {
-                Button {
-                    Task {
-                        await viewModel.start()
-                    }
-                } label: {
-                    Label("회의 전사 시작", systemImage: "mic.circle")
+                PrimaryActionButton(
+                    title: "회의 전사 시작",
+                    systemImage: "mic.circle",
+                    isDisabled: !viewModel.canStart
+                ) {
+                    await viewModel.start()
                 }
-                .disabled(!viewModel.canStart)
 
-                Button {
-                    Task {
-                        await viewModel.stop()
-                    }
-                } label: {
-                    Label("회의 전사 종료", systemImage: "stop.circle")
+                PrimaryActionButton(
+                    title: "회의 전사 종료",
+                    systemImage: "stop.circle",
+                    role: .destructive,
+                    isDisabled: !viewModel.canStop
+                ) {
+                    await viewModel.stop()
                 }
-                .disabled(!viewModel.canStop)
             }
 
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
@@ -48,16 +47,15 @@ struct MeetingTranscriptionSectionView: View {
                 GridRow {
                     Text("전사 상태")
                         .foregroundStyle(.secondary)
-                    Text(viewModel.state.label)
-                        .fontWeight(.medium)
-                        .textSelection(.enabled)
+                    StatusBadge(state: viewModel.state, compact: true)
                 }
                 GridRow {
                     Text("STT 엔진")
                         .foregroundStyle(.secondary)
-                    Text(viewModel.sttEngineState.label)
-                        .fontWeight(.medium)
-                        .textSelection(.enabled)
+                    StatusBadge(
+                        state: viewModel.sttEngineState,
+                        compact: true
+                    )
                 }
                 GridRow {
                     Text("회의 모드")
@@ -84,15 +82,22 @@ struct MeetingTranscriptionSectionView: View {
                 }
             }
 
-            GroupBox("최근 전사") {
-                Text(latestTranscriptText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(8)
-                    .textSelection(.enabled)
-                    .padding(.vertical, 4)
+            StatusCard("최근 전사", systemImage: "text.quote") {
+                if viewModel.latestTranscriptText.isEmpty {
+                    EmptyStateView(
+                        title: "최근 전사가 없습니다",
+                        message: "회의 전사를 시작하면 결과가 여기에 표시됩니다.",
+                        systemImage: "waveform"
+                    )
+                } else {
+                    Text(viewModel.latestTranscriptText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(8)
+                        .textSelection(.enabled)
+                }
             }
 
-            GroupBox("소스별 처리 결과") {
+            StatusCard("소스별 처리 결과", systemImage: "list.bullet.rectangle") {
                 Grid(
                     alignment: .leading,
                     horizontalSpacing: 20,
@@ -100,19 +105,17 @@ struct MeetingTranscriptionSectionView: View {
                 ) {
                     ProviderStatusRow(
                         title: "마이크",
-                        value: viewModel.microphoneState.label
+                        state: viewModel.microphoneState
                     )
                     ProviderStatusRow(
                         title: "시스템 오디오",
-                        value: viewModel.systemAudioState.label
+                        state: viewModel.systemAudioState
                     )
                     ProviderStatusRow(
                         title: "회의 전체",
-                        value: viewModel.fullMeetingState.label
+                        state: viewModel.fullMeetingState
                     )
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
             }
 
             if viewModel.selectedAudioSource == .fullMeeting {
@@ -133,29 +136,24 @@ struct MeetingTranscriptionSectionView: View {
             }
 
             if viewModel.shouldShowSpeechPermissionHelp {
-                Text("권한 확인이 필요합니다. 설정 화면에서 관련 시스템 설정을 열 수 있습니다.")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
+                ErrorBanner(
+                    message: "설정 화면에서 관련 시스템 설정을 열 수 있습니다.",
+                    title: "권한 확인이 필요합니다"
+                )
             }
         }
-    }
-
-    private var latestTranscriptText: String {
-        viewModel.latestTranscriptText.isEmpty ? "아직 전사된 텍스트가 없습니다." : viewModel.latestTranscriptText
     }
 }
 
 private struct ProviderStatusRow: View {
     let title: String
-    let value: String
+    let state: CollectorState
 
     var body: some View {
         GridRow {
             Text(title)
                 .foregroundStyle(.secondary)
-            Text(value)
-                .fontWeight(.medium)
-                .textSelection(.enabled)
+            StatusBadge(state: state, compact: true)
         }
     }
 }

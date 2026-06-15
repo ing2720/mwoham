@@ -16,6 +16,14 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
+func expectPresentable<State: StatusPresentable>(
+    _ state: State,
+    _ message: String
+) {
+    expect(!state.label.isEmpty, "\(message) label")
+    expect(!state.systemImage.isEmpty, "\(message) system image")
+}
+
 expect(RecordingState(apiValue: "active") == .active, "active recording state")
 expect(RecordingState(apiValue: "paused") == .paused, "paused recording state")
 expect(RecordingState(apiValue: "stopped") == .stopped, "stopped recording state")
@@ -55,6 +63,21 @@ expect(collectorError.isError, "collector error")
 expect(
     CollectorState(statusText: "Dev Tracking: 감시 중").isRunning,
     "collector running state"
+)
+
+expectPresentable(RecordingState.active, "recording presentable")
+expectPresentable(ConnectionState.connected, "connection presentable")
+expectPresentable(
+    MeetingTranscriptionState(statusText: "회의 전체 전사 중"),
+    "meeting presentable"
+)
+expectPresentable(
+    STTEngineState(description: "Local Whisper"),
+    "STT engine presentable"
+)
+expectPresentable(
+    CollectorState(statusText: "Dev Tracking: 감시 중"),
+    "collector presentable"
 )
 
 print("macOS status type tests passed")
