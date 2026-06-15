@@ -19,6 +19,7 @@ final class MeetingTranscriptionViewModel: ObservableObject {
     @Published var fullMeetingProviderStatus = "회의 전체 대기 중"
     @Published var currentSTTEngine = "Apple Speech"
     @Published var whisperDiagnostics = "아직 처리된 Whisper 오디오가 없습니다."
+    @Published private(set) var sttResultSummary = STTResultSummary.empty
     @Published var whisperInputSources =
         "microphone/system audio Whisper chunks -> time-ordered full meeting"
     @Published var whisperBinaryPath: String {
@@ -118,6 +119,17 @@ final class MeetingTranscriptionViewModel: ObservableObject {
         selectedAudioSource.displayName
     }
 
+    var sttInputSourceSummary: String {
+        switch selectedAudioSource {
+        case .microphone:
+            return "마이크"
+        case .systemAudio:
+            return "시스템 오디오"
+        case .fullMeeting:
+            return "마이크 + 시스템 오디오 (분리 처리)"
+        }
+    }
+
     var permissionHelpText: String {
         selectedAudioSource.permissionHelpText
     }
@@ -141,6 +153,54 @@ final class MeetingTranscriptionViewModel: ObservableObject {
 
     var sttEngineState: STTEngineState {
         STTEngineState(description: displayedSTTEngine)
+    }
+
+    var whisperSettingsInspection: WhisperSettingsInspection {
+        WhisperSettingsInspection.inspect(
+            binaryPath: whisperBinaryPath,
+            modelPath: whisperModelPath
+        )
+    }
+
+    var sttDisplayState: STTDisplayState {
+        if state.isError {
+            return .error(state.label)
+        }
+        if state.isRunning {
+            if case .processing = state {
+                return .processing
+            }
+        }
+        if sttResultSummary.usedFallback
+            || currentSTTEngine.localizedCaseInsensitiveContains("fallback") {
+            return .appleSpeechFallback
+        }
+        if currentSTTEngine.localizedCaseInsensitiveContains("whisper") {
+            return .localWhisperActive
+        }
+        if selectedAudioSource == .fullMeeting {
+            return whisperSettingsInspection.state
+        }
+        return .appleSpeech
+    }
+
+    var sttErrorMessage: String? {
+        guard state.isError else {
+            return nil
+        }
+        return state.label
+    }
+
+    var permissionErrorMessage: String? {
+        shouldShowSpeechPermissionHelp ? permissionHelpText : nil
+    }
+
+    var permissionIssues: [PermissionIssue] {
+        STTPermissionInspection.current().issues(for: selectedAudioSource)
+    }
+
+    var permissionInspection: STTPermissionInspection {
+        STTPermissionInspection.current()
     }
 
     var microphoneState: CollectorState {
@@ -192,6 +252,7 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             lastSubmittedTranscriptTextBySource = [:]
             lastTranscriptSubmissionAtBySource = [:]
             providerFailureMessages = []
+            sttResultSummary = .empty
             whisperDiagnostics =
                 "microphone Whisper와 system audio Whisper를 별도 수집 중"
             whisperInputSources =
@@ -223,6 +284,13 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             await fullMeetingTranscriptionProvider.stop()
             shouldShowSpeechPermissionHelp = speechPermissionService.isPermissionError(error)
             transcriptionStatus = "회의 전사 시작 실패: \(error.localizedDescription)"
+            sttResultSummary = STTResultSummary(
+                didComplete: true,
+                succeeded: false,
+                usedFallback: false,
+                processingSeconds: nil,
+                sourceDiagnostics: []
+            )
             await onRefreshAfterFailedAction()
         }
     }
@@ -348,6 +416,12 @@ final class MeetingTranscriptionViewModel: ObservableObject {
                 usedFallback: false,
                 temporalMergeApplied: result.temporalMergeApplied
             )
+            sttResultSummary = makeSTTResultSummary(
+                sourceResults: result.sourceResults,
+                usedFallback: false,
+                processingSeconds: result.processingSeconds,
+                succeeded: false
+            )
             guard let transcriptSource = MeetingAudioSource.fullMeeting.whisperTranscriptSource else {
                 return false
             }
@@ -368,6 +442,12 @@ final class MeetingTranscriptionViewModel: ObservableObject {
                     result.processingSeconds
                 )
             }
+            sttResultSummary = makeSTTResultSummary(
+                sourceResults: result.sourceResults,
+                usedFallback: false,
+                processingSeconds: result.processingSeconds,
+                succeeded: didSave
+            )
             return didSave
         case .appleSpeechFallback(
             let reason,
@@ -381,6 +461,14 @@ final class MeetingTranscriptionViewModel: ObservableObject {
                 sourceResults: sourceResults,
                 usedFallback: true,
                 temporalMergeApplied: false
+            )
+            sttResultSummary = makeSTTResultSummary(
+                sourceResults: sourceResults,
+                usedFallback: true,
+                processingSeconds: sourceResults
+                    .compactMap(\.processingSeconds)
+                    .reduce(0, +),
+                succeeded: false
             )
             let appleSource = MeetingAudioSource.fullMeeting.primaryTranscriptSource
             guard let appleTranscript = latestTranscriptTextBySource[appleSource] else {
@@ -396,6 +484,14 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             if didSave {
                 fullMeetingProviderStatus = "Apple Speech fallback 저장됨: \(reason)"
             }
+            sttResultSummary = makeSTTResultSummary(
+                sourceResults: sourceResults,
+                usedFallback: true,
+                processingSeconds: sourceResults
+                    .compactMap(\.processingSeconds)
+                    .reduce(0, +),
+                succeeded: didSave
+            )
             return didSave
         }
     }
@@ -433,11 +529,29 @@ final class MeetingTranscriptionViewModel: ObservableObject {
             } else if allowsRunningStatusUpdate {
                 transcriptionStatus = "전사 저장됨"
             }
+            if activeAudioSource != .fullMeeting {
+                sttResultSummary = STTResultSummary(
+                    didComplete: true,
+                    succeeded: true,
+                    usedFallback: false,
+                    processingSeconds: nil,
+                    sourceDiagnostics: []
+                )
+            }
             return true
         } catch {
             let message = "\(providerLabel(for: transcriptSource)) 전사 저장 실패: \(error.localizedDescription)"
             updateProviderStatus(transcriptSource, status: message)
             transcriptionStatus = activeAudioSource == .fullMeeting ? fullMeetingStatusSummary() : message
+            if activeAudioSource != .fullMeeting {
+                sttResultSummary = STTResultSummary(
+                    didComplete: true,
+                    succeeded: false,
+                    usedFallback: false,
+                    processingSeconds: nil,
+                    sourceDiagnostics: []
+                )
+            }
             return false
         }
     }
@@ -735,6 +849,64 @@ final class MeetingTranscriptionViewModel: ObservableObject {
                 + "debug_export=\(debugExport)"
         }
         return ([combinedSummary] + sourceSummaries).joined(separator: "\n")
+    }
+
+    private func makeSTTResultSummary(
+        sourceResults: [LocalWhisperSourceResult],
+        usedFallback: Bool,
+        processingSeconds: TimeInterval,
+        succeeded: Bool
+    ) -> STTResultSummary {
+        let sourceDiagnostics = TemporaryMeetingAudioSource.allCases.map { source in
+            guard let result = sourceResults.first(where: { $0.source == source }) else {
+                return STTSourceDiagnostic(
+                    id: source.rawValue,
+                    sourceLabel: sourceDisplayName(source),
+                    wasAttempted: false,
+                    wasIncluded: false,
+                    failureReason: nil,
+                    processingSeconds: nil,
+                    chunkCount: 0,
+                    acceptedChunkCount: 0,
+                    rejectedChunkCount: 0,
+                    rejectReasons: [:],
+                    debugExportPath: nil
+                )
+            }
+            return STTSourceDiagnostic(
+                id: source.rawValue,
+                sourceLabel: sourceDisplayName(source),
+                wasAttempted: true,
+                wasIncluded: result.isIncluded,
+                failureReason: result.failureReason,
+                processingSeconds: result.processingSeconds,
+                chunkCount: result.chunkDiagnostics?.chunkCount ?? 0,
+                acceptedChunkCount:
+                    result.chunkDiagnostics?.acceptedChunkCount ?? 0,
+                rejectedChunkCount:
+                    result.chunkDiagnostics?.rejectedChunkCount ?? 0,
+                rejectReasons: result.chunkDiagnostics?.rejectReasons ?? [:],
+                debugExportPath: result.audioMetadata?.debugExportURL?.path
+            )
+        }
+        return STTResultSummary(
+            didComplete: true,
+            succeeded: succeeded,
+            usedFallback: usedFallback,
+            processingSeconds: processingSeconds,
+            sourceDiagnostics: sourceDiagnostics
+        )
+    }
+
+    private func sourceDisplayName(
+        _ source: TemporaryMeetingAudioSource
+    ) -> String {
+        switch source {
+        case .microphone:
+            return "마이크"
+        case .systemAudio:
+            return "시스템 오디오"
+        }
     }
 
     private func whisperEngineDescription(

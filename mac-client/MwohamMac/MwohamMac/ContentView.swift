@@ -279,6 +279,7 @@ final class BackendStatusViewModel: ObservableObject {
 struct ContentView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
     @State private var selectedSection: MainSection? = .today
+    @Environment(\.scenePhase) private var scenePhase
 
     init(viewModel: BackendStatusViewModel) {
         self.viewModel = viewModel
@@ -317,6 +318,14 @@ struct ContentView: View {
             viewModel.startActiveWindowTracking()
             viewModel.startOCRCollection()
             await viewModel.refresh()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else {
+                return
+            }
+            Task {
+                await viewModel.refresh()
+            }
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             viewModel.updateElapsedTime()
@@ -485,6 +494,14 @@ private struct SettingsView: View {
 
             StatusCard("Local Whisper", systemImage: "cpu") {
                 VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("사용 상태") {
+                        StatusBadge(
+                            state: meetingViewModel
+                                .whisperSettingsInspection.state,
+                            compact: true
+                        )
+                    }
+
                     LabeledContent("Whisper 실행 파일") {
                         TextField(
                             "whisper-cli 절대 경로",
@@ -503,6 +520,30 @@ private struct SettingsView: View {
                         .frame(minWidth: 360)
                     }
 
+                    LabeledContent("실행 파일 확인") {
+                        Text(
+                            meetingViewModel.whisperSettingsInspection
+                                .binaryIsExecutable
+                                ? "실행 가능"
+                                : "실행할 수 없음"
+                        )
+                    }
+
+                    LabeledContent("모델 파일") {
+                        Text(
+                            meetingViewModel.whisperSettingsInspection.modelExists
+                                ? "파일 확인됨"
+                                : "파일 없음"
+                        )
+                    }
+
+                    LabeledContent("모델 크기") {
+                        Text(
+                            meetingViewModel.whisperSettingsInspection
+                                .modelFileSizeText
+                        )
+                    }
+
                     Toggle(
                         "QA/debug용 소스별 WAV 보관",
                         isOn: $meetingViewModel.whisperDebugAudioExportEnabled
@@ -514,6 +555,14 @@ private struct SettingsView: View {
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                    if let message = meetingViewModel
+                        .whisperSettingsInspection.state.detail {
+                        ErrorBanner(
+                            message: message,
+                            title: "Local Whisper 설정 확인 필요"
+                        )
+                    }
                 }
                 .disabled(!meetingViewModel.canChangeAudioSource)
             }
@@ -576,6 +625,13 @@ private struct SettingsView: View {
                     } label: {
                         Label("대시보드 열기", systemImage: "safari")
                     }
+
+                    if viewModel.connectionState.isError {
+                        ErrorBanner(
+                            message: "로컬 서버가 실행 중인지 확인해 주세요.",
+                            title: "백엔드 연결 실패"
+                        )
+                    }
                 }
             }
 
@@ -585,20 +641,43 @@ private struct SettingsView: View {
                         Text(meetingViewModel.selectedAudioSourceDescription)
                     }
 
-                    LabeledContent("권한 상태") {
-                        Text(
-                            meetingViewModel.shouldShowSpeechPermissionHelp
-                                ? "권한 확인 필요"
-                                : "필요 시 시스템 설정에서 확인"
-                        )
-                    }
+                    PermissionStatusRows(
+                        meetingViewModel: meetingViewModel,
+                        activityViewModel: activityViewModel
+                    )
 
                     Text(meetingViewModel.permissionHelpText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
 
+                    if let permissionErrorMessage =
+                        meetingViewModel.permissionErrorMessage {
+                        ErrorBanner(
+                            message: permissionErrorMessage,
+                            title: "STT 권한 확인 필요"
+                        )
+                    }
+
+                    ForEach(meetingViewModel.permissionIssues) { issue in
+                        PermissionBanner(issue: issue)
+                    }
+
+                    if let accessibilityIssue =
+                        meetingViewModel.permissionInspection.accessibilityIssue {
+                        PermissionBanner(issue: accessibilityIssue)
+                    }
+
                     HStack(spacing: 10) {
+                        Button {
+                            Task {
+                                await viewModel.refresh()
+                            }
+                        } label: {
+                            Label("권한 상태 새로고침", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(viewModel.isLoading)
+
                         Button {
                             meetingViewModel.openSpeechRecognitionSettings()
                         } label: {
@@ -622,9 +701,79 @@ private struct SettingsView: View {
                                 Label("화면 기록 설정", systemImage: "display")
                             }
                         }
+
+                        if !meetingViewModel.permissionInspection.accessibilityAuthorized {
+                            Button {
+                                openAccessibilitySettings()
+                            } label: {
+                                Label("접근성 설정", systemImage: "accessibility")
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private func openAccessibilitySettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private struct PermissionStatusRows: View {
+    @ObservedObject var meetingViewModel: MeetingTranscriptionViewModel
+    @ObservedObject var activityViewModel: ActivityTrackingViewModel
+
+    private var inspection: STTPermissionInspection {
+        meetingViewModel.permissionInspection
+    }
+
+    private var hasActiveWindowSignal: Bool {
+        activityViewModel.currentApp != "-"
+            && activityViewModel.currentApp != "없음"
+            && activityViewModel.currentWindow != "-"
+            && activityViewModel.currentWindow != "없음"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("활성 창 추적") {
+                StatusBadge(
+                    state: hasActiveWindowSignal
+                        ? CollectorState.running("활성 창 추적 중")
+                        : activityViewModel.activeWindowState,
+                    compact: true
+                )
+            }
+            LabeledContent("음성 인식") {
+                Text(inspection.speechRecognitionAuthorized ? "허용됨" : "권한 확인 필요")
+            }
+            LabeledContent("마이크") {
+                Text(inspection.microphoneAuthorized ? "허용됨" : "권한 확인 필요")
+            }
+            LabeledContent("화면 기록") {
+                Text(inspection.screenRecordingAuthorized ? "허용됨" : "권한 확인 필요")
+            }
+            LabeledContent("접근성") {
+                Text(inspection.accessibilityAuthorized ? "허용됨" : "권한 확인 필요")
+            }
+        }
+    }
+}
+
+private struct PermissionBanner: View {
+    let issue: PermissionIssue
+
+    var body: some View {
+        if issue.isWarning {
+            WarningBanner(message: issue.message, title: issue.title)
+        } else {
+            ErrorBanner(message: issue.message, title: issue.title)
         }
     }
 }
