@@ -279,6 +279,10 @@ final class BackendStatusViewModel: ObservableObject {
 struct ContentView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
     @State private var selectedSection: MainSection? = .today
+    @State private var isPermissionOnboardingPresented = false
+    @State private var didEvaluatePermissionOnboarding = false
+    @AppStorage("hasCompletedPermissionOnboarding")
+    private var hasCompletedPermissionOnboarding = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(viewModel: BackendStatusViewModel) {
@@ -318,6 +322,7 @@ struct ContentView: View {
             viewModel.startActiveWindowTracking()
             viewModel.startOCRCollection()
             await viewModel.refresh()
+            presentPermissionOnboardingIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else {
@@ -329,6 +334,38 @@ struct ContentView: View {
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             viewModel.updateElapsedTime()
+        }
+        .sheet(isPresented: $isPermissionOnboardingPresented) {
+            PermissionOnboardingView(
+                snapshot: permissionOnboardingSnapshot,
+                isRefreshing: viewModel.isLoading,
+                refresh: {
+                    await viewModel.refresh()
+                },
+                openMicrophoneSettings: {
+                    viewModel.meetingTranscription.openMicrophoneSettings()
+                },
+                openSpeechRecognitionSettings: {
+                    viewModel.meetingTranscription.openSpeechRecognitionSettings()
+                },
+                openScreenRecordingSettings: {
+                    viewModel.meetingTranscription.openScreenRecordingSettings()
+                },
+                openAccessibilitySettings: openAccessibilitySettings,
+                setDebugAudioEnabled: { isEnabled in
+                    viewModel.meetingTranscription
+                        .whisperDebugAudioExportEnabled = isEnabled
+                },
+                setDevTrackingEnabled: { isEnabled in
+                    viewModel.activityTracking
+                        .setDevTrackingEnabled(isEnabled)
+                },
+                dismiss: {
+                    hasCompletedPermissionOnboarding =
+                        permissionOnboardingSnapshot.canStart
+                    isPermissionOnboardingPresented = false
+                }
+            )
         }
     }
 
@@ -343,7 +380,12 @@ struct ContentView: View {
                     viewModel: viewModel.meetingTranscription
                 )
             case .settings:
-                SettingsView(viewModel: viewModel)
+                SettingsView(
+                    viewModel: viewModel,
+                    showPermissionOnboarding: {
+                        isPermissionOnboardingPresented = true
+                    }
+                )
             }
 
             if viewModel.isLoading {
@@ -354,6 +396,52 @@ struct ContentView: View {
                 ErrorBanner(message: errorMessage)
             }
         }
+    }
+
+    private var permissionOnboardingSnapshot: PermissionOnboardingSnapshot {
+        let inspection = viewModel.meetingTranscription.permissionInspection
+        let currentApp = viewModel.activityTracking.currentApp
+        let currentWindow = viewModel.activityTracking.currentWindow
+        let hasActiveWindowSignal =
+            currentApp != "-" && currentApp != "없음"
+            && currentWindow != "-" && currentWindow != "없음"
+
+        return PermissionOnboardingSnapshot(
+            microphoneAuthorized: inspection.microphoneAuthorized,
+            speechRecognitionAuthorized:
+                inspection.speechRecognitionAuthorized,
+            screenRecordingAuthorized: inspection.screenRecordingAuthorized,
+            accessibilityAuthorized: inspection.accessibilityAuthorized,
+            localWhisperAvailable:
+                viewModel.meetingTranscription.whisperSettingsInspection.state
+                    == .localWhisperAvailable,
+            backendConnected: viewModel.connectionState.isActive,
+            debugAudioEnabled:
+                viewModel.meetingTranscription.whisperDebugAudioExportEnabled,
+            devTrackingEnabled:
+                viewModel.activityTracking.isDevTrackingEnabled,
+            hasActiveWindowSignal: hasActiveWindowSignal
+        )
+    }
+
+    private func presentPermissionOnboardingIfNeeded() {
+        guard !didEvaluatePermissionOnboarding else {
+            return
+        }
+        didEvaluatePermissionOnboarding = true
+        if !hasCompletedPermissionOnboarding
+            || !permissionOnboardingSnapshot.canStart {
+            isPermissionOnboardingPresented = true
+        }
+    }
+
+    private func openAccessibilitySettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -479,11 +567,16 @@ private struct SettingsView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
     @ObservedObject var meetingViewModel: MeetingTranscriptionViewModel
     @ObservedObject var activityViewModel: ActivityTrackingViewModel
+    let showPermissionOnboarding: () -> Void
 
-    init(viewModel: BackendStatusViewModel) {
+    init(
+        viewModel: BackendStatusViewModel,
+        showPermissionOnboarding: @escaping () -> Void
+    ) {
         self.viewModel = viewModel
         self.meetingViewModel = viewModel.meetingTranscription
         self.activityViewModel = viewModel.activityTracking
+        self.showPermissionOnboarding = showPermissionOnboarding
     }
 
     var body: some View {
@@ -637,6 +730,13 @@ private struct SettingsView: View {
 
             StatusCard("권한", systemImage: "lock.shield") {
                 VStack(alignment: .leading, spacing: 10) {
+                    PrimaryActionButton(
+                        title: "권한 설정 다시 보기",
+                        systemImage: "checklist"
+                    ) {
+                        showPermissionOnboarding()
+                    }
+
                     LabeledContent("현재 전사 입력") {
                         Text(meetingViewModel.selectedAudioSourceDescription)
                     }

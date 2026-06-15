@@ -21,11 +21,20 @@ final class ActivityTrackingViewModel: ObservableObject {
             UserDefaults.standard.set(devTrackingRepoPath, forKey: Self.repoPathKey)
         }
     }
+    @Published private(set) var isDevTrackingEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                isDevTrackingEnabled,
+                forKey: Self.enabledKey
+            )
+        }
+    }
     @Published private(set) var devTrackingManualStartRequested = false
     @Published private(set) var isDevTrackingRunning = false
     private var isDevTrackingAutomaticSessionActive = false
 
     private static let repoPathKey = "devTrackingRepoPath"
+    private static let enabledKey = "devTrackingEnabled"
     private let activeWindowCollector: ActiveWindowCollector
     private let ocrCollector: OCRCollector
     private let devTrackingProcessController: DevTrackingProcessController
@@ -35,6 +44,9 @@ final class ActivityTrackingViewModel: ObservableObject {
     init(localApiClient: LocalApiClient) {
         devTrackingRepoPath =
             UserDefaults.standard.string(forKey: Self.repoPathKey) ?? ""
+        isDevTrackingEnabled =
+            UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool
+            ?? true
         activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
         ocrCollector = OCRCollector(localApiClient: localApiClient)
         devTrackingProcessController = DevTrackingProcessController(
@@ -136,6 +148,7 @@ final class ActivityTrackingViewModel: ObservableObject {
     }
 
     func startDevTracking() {
+        isDevTrackingEnabled = true
         devTrackingManualStartRequested = true
         if repoPathForDisplay().contains("/Desktop/") {
             devTrackingState = CollectorState(
@@ -149,15 +162,28 @@ final class ActivityTrackingViewModel: ObservableObject {
     }
 
     func stopDevTracking() {
+        isDevTrackingEnabled = false
         devTrackingManualStartRequested = false
         devTrackingProcessController.stop { [weak self] status in
             self?.applyDevTrackingStatus(status)
         }
     }
 
+    func setDevTrackingEnabled(_ isEnabled: Bool) {
+        if isEnabled {
+            startDevTracking()
+        } else {
+            stopDevTracking()
+        }
+    }
+
     func handleRecordingTransition(_ transition: DevTrackingRecordingTransition) {
         switch DevTrackingAutomationPolicy.action(for: transition) {
         case .start:
+            guard isDevTrackingEnabled else {
+                devTrackingState = .idle("Dev Tracking: 사용자 설정으로 꺼짐")
+                return
+            }
             isDevTrackingAutomaticSessionActive = true
             devTrackingProcessController.start(
                 backendConnected: isBackendConnected()
