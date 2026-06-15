@@ -21,6 +21,7 @@ final class BackendStatusViewModel: ObservableObject {
     let recording: RecordingViewModel
     let activityTracking: ActivityTrackingViewModel
     let quickMemo: QuickMemoViewModel
+    let backendLifecycle: BackendLifecycleManager
 
     private let localApiClient: LocalApiClient
     private var childSubscriptions: Set<AnyCancellable> = []
@@ -111,6 +112,9 @@ final class BackendStatusViewModel: ObservableObject {
         systemAudioTranscriptionProvider: SpeechTranscriptionProvider? = nil
     ) {
         self.localApiClient = localApiClient
+        self.backendLifecycle = BackendLifecycleManager(
+            localApiClient: localApiClient
+        )
         self.recording = RecordingViewModel(localApiClient: localApiClient)
         self.activityTracking = ActivityTrackingViewModel(localApiClient: localApiClient)
         self.quickMemo = QuickMemoViewModel(localApiClient: localApiClient)
@@ -142,6 +146,31 @@ final class BackendStatusViewModel: ObservableObject {
         }
 
         isRefreshing = false
+    }
+
+    func prepareBackend() async {
+        await backendLifecycle.ensureBackendAvailable()
+        await refresh()
+    }
+
+    func checkBackendLifecycle() async {
+        await backendLifecycle.checkHealth()
+        await refresh()
+    }
+
+    func startBackend() async {
+        await backendLifecycle.startBackend()
+        await refresh()
+    }
+
+    func restartBackend() async {
+        await backendLifecycle.restartBackend()
+        await refresh()
+    }
+
+    func stopOwnedBackend() {
+        backendLifecycle.stopBackend()
+        connectionState = .disconnected
     }
 
     func startRecording() async {
@@ -217,7 +246,12 @@ final class BackendStatusViewModel: ObservableObject {
     }
 
     private func observeChildViewModels() {
-        [recording.objectWillChange, activityTracking.objectWillChange, quickMemo.objectWillChange]
+        [
+            recording.objectWillChange,
+            activityTracking.objectWillChange,
+            quickMemo.objectWillChange,
+            backendLifecycle.objectWillChange,
+        ]
             .forEach { publisher in
                 publisher
                     .sink { [weak self] _ in
@@ -321,7 +355,7 @@ struct ContentView: View {
         .task {
             viewModel.startActiveWindowTracking()
             viewModel.startOCRCollection()
-            await viewModel.refresh()
+            await viewModel.prepareBackend()
             presentPermissionOnboardingIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
@@ -703,27 +737,100 @@ private struct SettingsView: View {
 
             StatusCard("백엔드", systemImage: "server.rack") {
                 VStack(alignment: .leading, spacing: 10) {
-                    LabeledContent("연결 상태") {
+                    LabeledContent("실행 상태") {
                         StatusBadge(
-                            state: viewModel.connectionState,
+                            state: viewModel.backendLifecycle.state,
                             compact: true
+                        )
+                    }
+                    LabeledContent("프로세스 소유") {
+                        Text(
+                            viewModel.backendLifecycle.ownsBackendProcess
+                                ? "앱이 시작함"
+                                : "외부 실행 또는 없음"
                         )
                     }
                     LabeledContent("백엔드 주소") {
                         Text(viewModel.backendAddressText)
                             .textSelection(.enabled)
                     }
-                    Button {
-                        viewModel.openDashboard()
-                    } label: {
-                        Label("대시보드 열기", systemImage: "safari")
+
+                    HStack {
+                        PrimaryActionButton(
+                            title: "backend 다시 확인",
+                            systemImage: "arrow.clockwise",
+                            isDisabled: viewModel.backendLifecycle.isBusy
+                        ) {
+                            await viewModel.checkBackendLifecycle()
+                        }
+
+                        PrimaryActionButton(
+                            title: "backend 시작",
+                            systemImage: "play.circle",
+                            isDisabled:
+                                viewModel.backendLifecycle.isBusy
+                                || viewModel.backendLifecycle.state == .connected
+                        ) {
+                            await viewModel.startBackend()
+                        }
+
+                        PrimaryActionButton(
+                            title: "backend 재시작",
+                            systemImage: "arrow.trianglehead.2.clockwise",
+                            isDisabled:
+                                viewModel.backendLifecycle.isBusy
+                                || !viewModel.backendLifecycle
+                                    .ownsBackendProcess
+                        ) {
+                            await viewModel.restartBackend()
+                        }
                     }
 
-                    if viewModel.connectionState.isError {
+                    HStack {
+                        PrimaryActionButton(
+                            title: "앱이 띄운 backend 중지",
+                            systemImage: "stop.circle",
+                            role: .destructive,
+                            isDisabled:
+                                !viewModel.backendLifecycle
+                                    .ownsBackendProcess
+                        ) {
+                            viewModel.stopOwnedBackend()
+                        }
+
+                        Button {
+                            viewModel.openDashboard()
+                        } label: {
+                            Label("대시보드 열기", systemImage: "safari")
+                        }
+                    }
+
+                    if let lifecycleError =
+                        viewModel.backendLifecycle.lastErrorMessage {
                         ErrorBanner(
-                            message: "로컬 서버가 실행 중인지 확인해 주세요.",
+                            message: lifecycleError,
                             title: "백엔드 연결 실패"
                         )
+                    }
+
+                    DisclosureGroup("backend 진단") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            LabeledContent("실행 경로") {
+                                Text(
+                                    viewModel.backendLifecycle
+                                        .backendDirectoryPath
+                                )
+                                .textSelection(.enabled)
+                            }
+                            Text(viewModel.backendLifecycle.recentLogText)
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: .leading
+                                )
+                        }
+                        .padding(.top, 6)
                     }
                 }
             }

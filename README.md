@@ -60,7 +60,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 - 리포트: http://127.0.0.1:8765/reports
 - 설정: http://127.0.0.1:8765/settings
 
-macOS 앱은 Xcode에서 실행하거나, 내부 테스트용 Release 앱 번들을 받아 실행합니다. 현재 테스트 배포는 backend를 앱에 번들링하지 않으므로 backend는 별도로 실행해야 합니다.
+macOS 앱은 Xcode에서 실행하거나, 내부 테스트용 Release 앱 번들을 받아 실행합니다. backend는 앱에 번들링하지 않지만, 로컬 개발 환경에서는 앱 시작 시 `/Users/a/Projects/mwoham/backend`의 상태를 확인하고 필요하면 `uv`로 자동 시작합니다. 다른 경로에 설치했거나 `uv`가 없는 환경에서는 backend를 별도로 실행해야 합니다.
 
 개발 중 macOS 권한을 안정적으로 유지하려면 고정 경로의 `MwohamMac.app` bundle을 사용합니다:
 
