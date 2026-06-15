@@ -6,7 +6,7 @@
 import SwiftUI
 
 struct ConnectionMessageView: View {
-    let isConnected: Bool
+    let state: ConnectionState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -15,12 +15,12 @@ struct ConnectionMessageView: View {
                 .fontWeight(.semibold)
 
             Label(
-                isConnected ? "백엔드 연결됨" : "백엔드 연결 실패",
-                systemImage: isConnected ? "checkmark.circle.fill" : "xmark.circle.fill"
+                state.label,
+                systemImage: state.systemImage
             )
-            .foregroundStyle(isConnected ? .green : .red)
+            .foregroundStyle(state.isError ? .red : .green)
 
-            if !isConnected {
+            if state.isError {
                 Text("로컬 서버가 실행 중인지 확인해 주세요.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

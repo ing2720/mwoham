@@ -14,12 +14,12 @@ struct MenuBarStatusView: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text(viewModel.isConnected ? "백엔드 연결됨" : "백엔드 연결 실패")
-            if !viewModel.isConnected {
+            Text(viewModel.connectionState.label)
+            if viewModel.connectionState.isError {
                 Text("로컬 서버가 실행 중인지 확인해 주세요.")
                 Text("주소: \(viewModel.backendAddressText)")
             }
-            Text("현재 기록 상태: \(viewModel.recordingStatus)")
+            Text("현재 기록 상태: \(viewModel.recordingState.label)")
             Text("기록 시간: \(viewModel.recordingElapsedTime)")
             Text("Dev Tracking: \(viewModel.shortDevTrackingStatus)")
 

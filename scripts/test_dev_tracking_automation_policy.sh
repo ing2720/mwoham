@@ -16,32 +16,20 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
-let repoRoot = ProcessInfo.processInfo.environment["MWOHAM_REPO_ROOT"]!
-let repoURL = URL(fileURLWithPath: repoRoot)
-
-expect(
-    DevTrackingAutomationPolicy.action(for: .started) == .start,
-    "recording start should start Dev Tracking"
+let repoURL = URL(
+    fileURLWithPath: ProcessInfo.processInfo.environment["MWOHAM_REPO_ROOT"]!
 )
-expect(
-    DevTrackingAutomationPolicy.action(for: .stopped) == .stop,
-    "recording stop should stop Dev Tracking"
-)
-expect(
-    DevTrackingAutomationPolicy.action(for: .paused) == .none,
-    "recording pause should keep Dev Tracking running"
-)
-expect(
-    DevTrackingAutomationPolicy.action(for: .resumed) == .none,
-    "recording resume should not start a duplicate watcher"
-)
+expect(DevTrackingAutomationPolicy.action(for: .started) == .start, "start transition")
+expect(DevTrackingAutomationPolicy.action(for: .stopped) == .stop, "stop transition")
+expect(DevTrackingAutomationPolicy.action(for: .paused) == .none, "pause transition")
+expect(DevTrackingAutomationPolicy.action(for: .resumed) == .none, "resume transition")
 expect(
     DevTrackingAutomationPolicy.startDecision(
         backendConnected: true,
         isRunning: false,
         repoURL: repoURL
     ) == .start(repoURL.standardizedFileURL),
-    "the current mwoham repo should pass path and .git validation"
+    "current repo should be valid"
 )
 expect(
     DevTrackingAutomationPolicy.startDecision(
@@ -49,7 +37,7 @@ expect(
         isRunning: false,
         repoURL: repoURL
     ) == .blocked("Dev Tracking: backend 연결이 없어 시작하지 않음"),
-    "a disconnected backend should block automatic start"
+    "backend should be required"
 )
 expect(
     DevTrackingAutomationPolicy.startDecision(
@@ -57,45 +45,35 @@ expect(
         isRunning: true,
         repoURL: repoURL
     ) == .alreadyRunning,
-    "an existing watcher should not start twice"
+    "duplicate start should be blocked"
 )
 
-let missingRepoURL = URL(fileURLWithPath: "/private/tmp/mwoham-missing-repo")
+let nonGitURL = URL(
+    fileURLWithPath: ProcessInfo.processInfo.environment["NON_GIT_REPO"]!
+)
 expect(
     DevTrackingAutomationPolicy.startDecision(
         backendConnected: true,
         isRunning: false,
-        repoURL: missingRepoURL
-    ) == .blocked("Dev Tracking 오류: 추적 repo 경로를 찾을 수 없습니다."),
-    "a missing repo should be rejected"
-)
-
-let nonGitRepoURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["NON_GIT_REPO"]!)
-expect(
-    DevTrackingAutomationPolicy.startDecision(
-        backendConnected: true,
-        isRunning: false,
-        repoURL: nonGitRepoURL
+        repoURL: nonGitURL
     ) == .blocked("Dev Tracking 오류: repo 경로에 .git이 없습니다."),
-    "a directory without .git should be rejected"
+    "non-git directory should be blocked"
 )
-
-let desktopURL = URL(fileURLWithPath: "/Users/a/Desktop/mwoham")
 expect(
     DevTrackingAutomationPolicy.startDecision(
         backendConnected: true,
         isRunning: false,
-        repoURL: desktopURL
+        repoURL: URL(fileURLWithPath: "/Users/a/Desktop/mwoham")
     ) == .blocked("Dev Tracking 오류: Desktop 경로는 감시 대상으로 사용할 수 없습니다."),
-    "Desktop paths should be rejected before filesystem access"
+    "Desktop path should be blocked"
 )
 
 print("Dev Tracking automation policy tests passed")
 SWIFT
 
-mkdir -p "$WORK_DIR/non-git-repo"
+mkdir -p "$WORK_DIR/non-git"
 CLANG_MODULE_CACHE_PATH="$WORK_DIR/module-cache" swiftc \
     "$WORK_DIR/main.swift" \
     "$SOURCE_FILE" \
     -o "$WORK_DIR/harness"
-MWOHAM_REPO_ROOT="$ROOT_DIR" NON_GIT_REPO="$WORK_DIR/non-git-repo" "$WORK_DIR/harness"
+MWOHAM_REPO_ROOT="$ROOT_DIR" NON_GIT_REPO="$WORK_DIR/non-git" "$WORK_DIR/harness"

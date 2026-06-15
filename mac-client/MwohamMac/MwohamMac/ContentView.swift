@@ -11,190 +11,86 @@ import SwiftUI
 
 @MainActor
 final class BackendStatusViewModel: ObservableObject {
-    @Published var isLoading = false
-    @Published var isConnected = false
-    @Published var recordingStatus = "-"
-    @Published var recordingElapsedTime = "기록 중 아님"
-    @Published var meetingMode = "-"
-    @Published var currentApp = "-"
-    @Published var currentWindow = "-"
-    @Published var errorMessage: String?
-    @Published var memoContent = ""
-    @Published var memoStatusMessage = ""
-    @Published var isSavingMemo = false
-    @Published var activeWindowTrackingStatus = "활성 창 추적 대기 중"
-    @Published var isPrivateAppActive = false
-    @Published var ocrStatus = "OCR 대기 중"
-    @Published var devTrackingStatus = "Dev Tracking: 대기 중"
-    @Published var devTrackingRepoPath: String {
-        didSet {
-            UserDefaults.standard.set(devTrackingRepoPath, forKey: Self.devTrackingRepoPathKey)
-        }
-    }
-    @Published private(set) var isDevTrackingRunning = false
-    @Published var currentMeeting: MeetingResponse?
+    @Published private(set) var connectionState: ConnectionState = .checking
+    @Published private(set) var isRefreshing = false
+    @Published private(set) var refreshErrorMessage: String?
+    @Published private(set) var meetingMode = "-"
+    @Published private(set) var currentMeeting: MeetingResponse?
     @Published var meetingTranscription: MeetingTranscriptionViewModel!
 
-    private static let devTrackingRepoPathKey = "devTrackingRepoPath"
+    let recording: RecordingViewModel
+    let activityTracking: ActivityTrackingViewModel
+    let quickMemo: QuickMemoViewModel
+
     private let localApiClient: LocalApiClient
-    private let activeWindowCollector: ActiveWindowCollector
-    private let ocrCollector: OCRCollector
-    private let devTrackingProcessController: DevTrackingProcessController
-    private var rawRecordingStatus = "unknown"
-    private var sessionStartedAt: Date?
-    private var statusElapsedSeconds: Int?
-    private var statusReceivedAt: Date?
+    private var childSubscriptions: Set<AnyCancellable> = []
+
+    var isLoading: Bool {
+        isRefreshing || recording.isLoading
+    }
+
+    var errorMessage: String? {
+        refreshErrorMessage ?? recording.errorMessage
+    }
+
+    var isConnected: Bool {
+        connectionState.isActive
+    }
+
+    var recordingState: RecordingState {
+        recording.state
+    }
+
+    var recordingStatus: String {
+        recording.state.label
+    }
+
+    var recordingElapsedTime: String {
+        recording.elapsedTime
+    }
+
+    var currentApp: String {
+        activityTracking.currentApp
+    }
+
+    var currentWindow: String {
+        activityTracking.currentWindow
+    }
+
+    var activeWindowTrackingState: CollectorState {
+        activityTracking.activeWindowState
+    }
+
+    var ocrState: CollectorState {
+        activityTracking.ocrState
+    }
+
+    var devTrackingState: CollectorState {
+        activityTracking.devTrackingState
+    }
 
     var shortDevTrackingStatus: String {
-        if devTrackingStatus.contains("오류") {
-            return "오류"
-        }
-
-        if devTrackingStatus.contains("감시 중")
-            || devTrackingStatus.contains("감시 시작")
-            || devTrackingStatus.contains("변경 없음")
-            || devTrackingStatus.contains("변경 감지")
-            || devTrackingStatus.contains("DevEvent 저장됨") {
-            return "Dev 추적 중"
-        }
-
-        return "대기"
+        activityTracking.shortDevTrackingLabel
     }
 
-    init() {
-        let localApiClient = LocalApiClient()
-        self.devTrackingRepoPath = UserDefaults.standard.string(forKey: Self.devTrackingRepoPathKey) ?? ""
-        self.localApiClient = localApiClient
-        self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
-        self.ocrCollector = OCRCollector(localApiClient: localApiClient)
-        self.devTrackingProcessController = DevTrackingProcessController(
-            repoPathProvider: {
-                UserDefaults.standard.string(forKey: BackendStatusViewModel.devTrackingRepoPathKey) ?? ""
-            }
-        )
-        configureMeetingTranscription(
-            localApiClient: localApiClient,
-            microphoneTranscriptionProvider: AppleSpeechTranscriptionProvider(),
-            systemAudioTranscriptionProvider: SystemAudioSpeechTranscriptionProvider(
-                speechPermissionService: SpeechPermissionService()
-            ),
-            fullMeetingTranscriptionProvider: FullMeetingSpeechTranscriptionProvider()
-        )
-    }
-
-    init(
-        localApiClient: LocalApiClient,
-        speechTranscriptionProvider: SpeechTranscriptionProvider? = nil,
-        systemAudioTranscriptionProvider: SpeechTranscriptionProvider? = nil
-    ) {
-        self.devTrackingRepoPath = UserDefaults.standard.string(forKey: Self.devTrackingRepoPathKey) ?? ""
-        self.localApiClient = localApiClient
-        self.activeWindowCollector = ActiveWindowCollector(localApiClient: localApiClient)
-        self.ocrCollector = OCRCollector(localApiClient: localApiClient)
-        self.devTrackingProcessController = DevTrackingProcessController(
-            repoPathProvider: {
-                UserDefaults.standard.string(forKey: BackendStatusViewModel.devTrackingRepoPathKey) ?? ""
-            }
-        )
-        configureMeetingTranscription(
-            localApiClient: localApiClient,
-            microphoneTranscriptionProvider: speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider(),
-            systemAudioTranscriptionProvider: systemAudioTranscriptionProvider ?? SystemAudioSpeechTranscriptionProvider(
-                speechPermissionService: SpeechPermissionService()
-            ),
-            fullMeetingTranscriptionProvider: FullMeetingSpeechTranscriptionProvider()
-        )
-    }
-
-    func refresh() async {
-        isLoading = true
-        errorMessage = nil
-
-        do {
-            let snapshot = try await localApiClient.fetchSnapshot()
-            applySnapshot(snapshot)
-        } catch {
-            isConnected = false
-            rawRecordingStatus = "unknown"
-            recordingStatus = "-"
-            recordingElapsedTime = "기록 중 아님"
-            meetingMode = "-"
-            currentApp = "-"
-            currentWindow = "-"
-            errorMessage = error.localizedDescription
-        }
-
-        isLoading = false
-    }
-
-    func startRecording() async {
-        await runRecordingAction(.start)
-    }
-
-    func pauseRecording() async {
-        await runRecordingAction(.pause)
-    }
-
-    func resumeRecording() async {
-        await runRecordingAction(.resume)
-    }
-
-    func stopRecording() async {
-        await runRecordingAction(.stop)
-    }
-
-    func saveMemo() async {
-        guard !isSavingMemo else {
-            return
-        }
-
-        let trimmedContent = memoContent.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedContent.isEmpty else {
-            memoStatusMessage = "메모 내용을 입력해 주세요."
-            return
-        }
-
-        isSavingMemo = true
-        memoStatusMessage = "메모 저장 중..."
-
-        do {
-            try await localApiClient.createMemo(content: trimmedContent)
-            memoContent = ""
-            memoStatusMessage = "메모가 저장되었습니다."
-
-            let snapshot = try await localApiClient.fetchSnapshot()
-            applySnapshot(snapshot)
-        } catch {
-            memoStatusMessage = "메모 저장에 실패했습니다: \(error.localizedDescription)"
-            await refreshAfterFailedAction()
-        }
-
-        isSavingMemo = false
+    var isPrivateAppActive: Bool {
+        activityTracking.isPrivateAppActive
     }
 
     var canStartRecording: Bool {
-        canUseControls && rawRecordingStatus == "stopped"
+        recording.canStart
     }
 
     var canPauseRecording: Bool {
-        canUseControls && rawRecordingStatus == "active"
+        recording.canPause
     }
 
     var canResumeRecording: Bool {
-        canUseControls && rawRecordingStatus == "paused"
+        recording.canResume
     }
 
     var canStopRecording: Bool {
-        canUseControls && (rawRecordingStatus == "active" || rawRecordingStatus == "paused")
-    }
-
-    var canSaveMemo: Bool {
-        isConnected && !isSavingMemo
-    }
-
-    var recordingState: String {
-        rawRecordingStatus
+        recording.canStop
     }
 
     var backendAddressText: String {
@@ -205,8 +101,130 @@ final class BackendStatusViewModel: ObservableObject {
         URL(string: "\(backendAddressText)/dashboard")!
     }
 
+    convenience init() {
+        self.init(localApiClient: LocalApiClient())
+    }
+
+    init(
+        localApiClient: LocalApiClient,
+        speechTranscriptionProvider: SpeechTranscriptionProvider? = nil,
+        systemAudioTranscriptionProvider: SpeechTranscriptionProvider? = nil
+    ) {
+        self.localApiClient = localApiClient
+        self.recording = RecordingViewModel(localApiClient: localApiClient)
+        self.activityTracking = ActivityTrackingViewModel(localApiClient: localApiClient)
+        self.quickMemo = QuickMemoViewModel(localApiClient: localApiClient)
+        configureMeetingTranscription(
+            localApiClient: localApiClient,
+            microphoneTranscriptionProvider: speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider(),
+            systemAudioTranscriptionProvider: systemAudioTranscriptionProvider ?? SystemAudioSpeechTranscriptionProvider(
+                speechPermissionService: SpeechPermissionService()
+            ),
+            fullMeetingTranscriptionProvider: FullMeetingSpeechTranscriptionProvider()
+        )
+        configureChildViewModels()
+        observeChildViewModels()
+    }
+
+    func refresh() async {
+        isRefreshing = true
+        refreshErrorMessage = nil
+
+        do {
+            let snapshot = try await localApiClient.fetchSnapshot()
+            applySnapshot(snapshot)
+        } catch {
+            connectionState = .disconnected
+            recording.reset()
+            meetingMode = "-"
+            activityTracking.resetDisplayedActivity()
+            refreshErrorMessage = error.localizedDescription
+        }
+
+        isRefreshing = false
+    }
+
+    func startRecording() async {
+        await recording.start()
+    }
+
+    func pauseRecording() async {
+        await recording.pause()
+    }
+
+    func resumeRecording() async {
+        await recording.resume()
+    }
+
+    func stopRecording() async {
+        await recording.stop()
+    }
+
     func openDashboard() {
         NSWorkspace.shared.open(dashboardURL)
+    }
+
+    func startActiveWindowTracking() {
+        activityTracking.startActiveWindowTracking()
+    }
+
+    func startOCRCollection() {
+        activityTracking.startOCRCollection()
+    }
+
+    func stopActiveWindowTracking() {
+        activityTracking.stopCollectors()
+    }
+
+    func updateElapsedTime() {
+        recording.updateElapsedTime()
+    }
+
+    private func configureChildViewModels() {
+        recording.configure(
+            isConnected: { [weak self] in
+                self?.connectionState.isActive == true
+            },
+            onSnapshotReceived: { [weak self] snapshot in
+                self?.applySnapshot(snapshot)
+            },
+            onRefreshAfterFailedAction: { [weak self] in
+                await self?.refreshAfterFailedAction()
+            },
+            onSuccessfulAction: { [weak self] transition in
+                self?.activityTracking.handleRecordingTransition(transition)
+            }
+        )
+        activityTracking.configure(
+            isRecordingActive: { [weak self] in
+                self?.recording.state.isActive == true
+            },
+            isBackendConnected: { [weak self] in
+                self?.connectionState.isActive == true
+            }
+        )
+        quickMemo.configure(
+            isConnected: { [weak self] in
+                self?.connectionState.isActive == true
+            },
+            onSnapshotReceived: { [weak self] snapshot in
+                self?.applySnapshot(snapshot)
+            },
+            onRefreshAfterFailedAction: { [weak self] in
+                await self?.refreshAfterFailedAction()
+            }
+        )
+    }
+
+    private func observeChildViewModels() {
+        [recording.objectWillChange, activityTracking.objectWillChange, quickMemo.objectWillChange]
+            .forEach { publisher in
+                publisher
+                    .sink { [weak self] _ in
+                        self?.objectWillChange.send()
+                    }
+                    .store(in: &childSubscriptions)
+            }
     }
 
     private func configureMeetingTranscription(
@@ -223,7 +241,7 @@ final class BackendStatusViewModel: ObservableObject {
             speechPermissionService: SpeechPermissionService(),
             transcriptSubmissionPolicy: MeetingTranscriptSubmissionPolicy(),
             isConnected: { [weak self] in
-                self?.isConnected == true
+                self?.connectionState.isActive == true
             },
             onMeetingStateChange: { [weak self] meeting, meetingMode in
                 self?.currentMeeting = meeting
@@ -238,264 +256,23 @@ final class BackendStatusViewModel: ObservableObject {
         )
     }
 
-    func startActiveWindowTracking() {
-        activeWindowCollector.start(
-            isRecordingActive: { [weak self] in
-                self?.rawRecordingStatus == "active"
-            },
-            onStatusChange: { [weak self] status in
-                self?.activeWindowTrackingStatus = status
-            },
-            onSnapshot: { [weak self] snapshot in
-                self?.isPrivateAppActive = false
-                self?.currentApp = snapshot.appName
-                self?.currentWindow = self?.displayValue(snapshot.windowTitle) ?? "없음"
-            },
-            onPrivateAppChange: { [weak self] isActive in
-                self?.isPrivateAppActive = isActive
-                if isActive {
-                    self?.currentApp = "비공개 앱"
-                    self?.currentWindow = "비공개 앱 사용 중"
-                }
-            }
-        )
-    }
-
-    func startOCRCollection() {
-        ocrCollector.start(
-            isRecordingActive: { [weak self] in
-                self?.rawRecordingStatus == "active"
-            },
-            isPrivateAppActive: { [weak self] in
-                self?.isPrivateAppActive == true
-            },
-            currentApp: { [weak self] in
-                self?.currentApp ?? "-"
-            },
-            currentWindow: { [weak self] in
-                self?.currentWindow ?? "-"
-            },
-            onStatusChange: { [weak self] status in
-                self?.ocrStatus = status
-            }
-        )
-    }
-
-    func stopActiveWindowTracking() {
-        activeWindowCollector.stop()
-        ocrCollector.stop()
-        devTrackingProcessController.stop { [weak self] status in
-            self?.applyDevTrackingStatus(status)
-        }
-        activeWindowTrackingStatus = "활성 창 추적 대기 중"
-        ocrStatus = "OCR 대기 중"
-    }
-
-    func startDevTracking() {
-        devTrackingProcessController.start(backendConnected: isConnected) { [weak self] status in
-            self?.applyDevTrackingStatus(status)
-        }
-    }
-
-    func stopDevTracking() {
-        devTrackingProcessController.stop { [weak self] status in
-            self?.applyDevTrackingStatus(status)
-        }
-    }
-
-    func updateElapsedTime() {
-        recordingElapsedTime = makeElapsedTimeText(at: Date())
-    }
-
-    private func displayValue(_ value: String?) -> String {
-        guard let value, !value.isEmpty else {
-            return "없음"
-        }
-
-        return value
-    }
-
-    private func displayRecordingStatus(_ status: String) -> String {
-        switch status {
-        case "active":
-            return "기록중"
-        case "paused":
-            return "일시정지"
-        case "stopped":
-            return "정지"
-        default:
-            return "알 수 없음"
-        }
-    }
-
-    private var canUseControls: Bool {
-        isConnected && !isLoading
-    }
-
-    private func runRecordingAction(_ action: RecordingAction) async {
-        isLoading = true
-        errorMessage = nil
-
-        do {
-            switch action {
-            case .start:
-                try await localApiClient.startRecording()
-            case .pause:
-                try await localApiClient.pauseRecording()
-            case .resume:
-                try await localApiClient.resumeRecording()
-            case .stop:
-                try await localApiClient.stopRecording()
-            }
-
-            applyDevTrackingAutomation(after: action)
-            let snapshot = try await localApiClient.fetchSnapshot()
-            applySnapshot(snapshot)
-        } catch {
-            errorMessage = "\(action.errorTitle) 요청 실패: \(error.localizedDescription)"
-            await refreshAfterFailedAction()
-        }
-
-        isLoading = false
-    }
-
-    private func applyDevTrackingAutomation(after recordingAction: RecordingAction) {
-        let transition: DevTrackingRecordingTransition
-        switch recordingAction {
-        case .start:
-            transition = .started
-        case .pause:
-            transition = .paused
-        case .resume:
-            transition = .resumed
-        case .stop:
-            transition = .stopped
-        }
-
-        switch DevTrackingAutomationPolicy.action(for: transition) {
-        case .start:
-            devTrackingProcessController.start(backendConnected: isConnected) { [weak self] status in
-                self?.applyDevTrackingStatus(status)
-            }
-        case .stop:
-            devTrackingProcessController.stop { [weak self] status in
-                self?.applyDevTrackingStatus(status)
-            }
-        case .none:
-            break
-        }
-    }
-
-    private func applyDevTrackingStatus(_ status: String) {
-        devTrackingStatus = status
-        isDevTrackingRunning = devTrackingProcessController.isRunning
-    }
-
     private func refreshAfterFailedAction() async {
         do {
             let snapshot = try await localApiClient.fetchSnapshot()
             applySnapshot(snapshot)
         } catch {
-            isConnected = false
+            connectionState = .disconnected
         }
     }
 
     private func applySnapshot(_ snapshot: BackendSnapshot) {
         let receivedAt = Date()
-        isConnected = snapshot.health.status == "ok"
-        rawRecordingStatus = snapshot.status.status
-        recordingStatus = displayRecordingStatus(snapshot.status.status)
-        sessionStartedAt = parseDate(snapshot.status.sessionStartedAt)
-        statusElapsedSeconds = snapshot.status.elapsedSeconds
-        statusReceivedAt = receivedAt
-        recordingElapsedTime = makeElapsedTimeText(at: receivedAt)
+        connectionState = snapshot.health.status == "ok" ? .connected : .disconnected
+        recording.applyStatus(snapshot.status, receivedAt: receivedAt)
+        activityTracking.applyStatus(snapshot.status)
         currentMeeting = snapshot.status.currentMeeting
         meetingMode = snapshot.status.meetingMode ? "켜짐" : "꺼짐"
         meetingTranscription.applyStatus(snapshot.status)
-        if isPrivateAppActive {
-            currentApp = "비공개 앱"
-            currentWindow = "비공개 앱 사용 중"
-        } else {
-            currentApp = displayValue(snapshot.status.currentApp)
-            currentWindow = displayValue(snapshot.status.currentWindow)
-        }
-    }
-
-    private func makeElapsedTimeText(at now: Date) -> String {
-        switch rawRecordingStatus {
-        case "active":
-            if let sessionStartedAt {
-                return formatElapsedSeconds(Int(max(0, now.timeIntervalSince(sessionStartedAt))))
-            }
-
-            if let statusElapsedSeconds, let statusReceivedAt {
-                let elapsedSinceStatus = Int(max(0, now.timeIntervalSince(statusReceivedAt)))
-                return formatElapsedSeconds(statusElapsedSeconds + elapsedSinceStatus)
-            }
-
-            return "-"
-        case "paused":
-            if let statusElapsedSeconds {
-                return formatElapsedSeconds(statusElapsedSeconds)
-            }
-
-            if let sessionStartedAt, let statusReceivedAt {
-                return formatElapsedSeconds(Int(max(0, statusReceivedAt.timeIntervalSince(sessionStartedAt))))
-            }
-
-            return "-"
-        default:
-            return "기록 중 아님"
-        }
-    }
-
-    private func formatElapsedSeconds(_ totalSeconds: Int) -> String {
-        if totalSeconds < 60 {
-            return "\(totalSeconds)초"
-        }
-
-        let totalMinutes = totalSeconds / 60
-        if totalMinutes < 60 {
-            return "\(totalMinutes)분"
-        }
-
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        return String(format: "%d시간 %02d분", hours, minutes)
-    }
-
-    private func parseDate(_ value: String?) -> Date? {
-        guard let value else {
-            return nil
-        }
-
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractionalFormatter.date(from: value) {
-            return date
-        }
-
-        return ISO8601DateFormatter().date(from: value)
-    }
-}
-
-private enum RecordingAction {
-    case start
-    case pause
-    case resume
-    case stop
-
-    var errorTitle: String {
-        switch self {
-        case .start:
-            return "기록 시작"
-        case .pause:
-            return "일시정지"
-        case .resume:
-            return "재개"
-        case .stop:
-            return "기록 종료"
-        }
     }
 }
 
@@ -608,10 +385,20 @@ private enum MainSection: String, CaseIterable, Identifiable {
 
 private struct TodayView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
+    @ObservedObject var recordingViewModel: RecordingViewModel
+    @ObservedObject var activityViewModel: ActivityTrackingViewModel
+    @ObservedObject var quickMemoViewModel: QuickMemoViewModel
+
+    init(viewModel: BackendStatusViewModel) {
+        self.viewModel = viewModel
+        self.recordingViewModel = viewModel.recording
+        self.activityViewModel = viewModel.activityTracking
+        self.quickMemoViewModel = viewModel.quickMemo
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            ConnectionMessageView(isConnected: viewModel.isConnected)
+            ConnectionMessageView(state: viewModel.connectionState)
 
             GroupBox("기록") {
                 VStack(alignment: .leading, spacing: 14) {
@@ -622,29 +409,29 @@ private struct TodayView: View {
                     ) {
                         TodayStatusRow(
                             title: "현재 기록 상태",
-                            value: viewModel.recordingStatus
+                            value: recordingViewModel.state.label
                         )
                         TodayStatusRow(
                             title: "기록 시간",
-                            value: viewModel.recordingElapsedTime
+                            value: recordingViewModel.elapsedTime
                         )
                         TodayStatusRow(
                             title: "현재 앱",
-                            value: viewModel.currentApp
+                            value: activityViewModel.currentApp
                         )
                         TodayStatusRow(
                             title: "현재 창",
-                            value: viewModel.currentWindow
+                            value: activityViewModel.currentWindow
                         )
                     }
 
-                    RecordingControlsView(viewModel: viewModel)
+                    RecordingControlsView(viewModel: recordingViewModel)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             }
 
-            QuickMemoSectionView(viewModel: viewModel)
+            QuickMemoSectionView(viewModel: quickMemoViewModel)
         }
     }
 }
@@ -681,10 +468,12 @@ private struct MeetingTranscriptionPageView: View {
 private struct SettingsView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
     @ObservedObject var meetingViewModel: MeetingTranscriptionViewModel
+    @ObservedObject var activityViewModel: ActivityTrackingViewModel
 
     init(viewModel: BackendStatusViewModel) {
         self.viewModel = viewModel
         self.meetingViewModel = viewModel.meetingTranscription
+        self.activityViewModel = viewModel.activityTracking
     }
 
     var body: some View {
@@ -734,33 +523,30 @@ private struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     TextField(
                         "비워두면 현재 mwoham repo를 추적합니다.",
-                        text: $viewModel.devTrackingRepoPath
+                        text: $activityViewModel.devTrackingRepoPath
                     )
                     .textFieldStyle(.roundedBorder)
                     .textSelection(.enabled)
 
                     LabeledContent("현재 상태") {
-                        Text(viewModel.devTrackingStatus)
+                        Text(activityViewModel.devTrackingState.label)
                             .textSelection(.enabled)
                     }
 
-                    Text(
-                        "기록 시작/종료 시 자동으로 함께 시작/중지됩니다. "
-                            + "수동 제어도 가능하며 Desktop 경로는 사용할 수 없습니다."
-                    )
+                    Text("추적 repo 경로는 다음 watcher 시작부터 적용됩니다.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
                     HStack {
                         Button("Dev Tracking 시작") {
-                            viewModel.startDevTracking()
+                            activityViewModel.startDevTracking()
                         }
-                        .disabled(viewModel.isDevTrackingRunning)
+                        .disabled(activityViewModel.isDevTrackingRunning)
 
                         Button("Dev Tracking 중지") {
-                            viewModel.stopDevTracking()
+                            activityViewModel.stopDevTracking()
                         }
-                        .disabled(!viewModel.isDevTrackingRunning)
+                        .disabled(!activityViewModel.isDevTrackingRunning)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -770,7 +556,7 @@ private struct SettingsView: View {
             GroupBox("백엔드") {
                 VStack(alignment: .leading, spacing: 10) {
                     LabeledContent("연결 상태") {
-                        Text(viewModel.isConnected ? "연결됨" : "연결 실패")
+                        Text(viewModel.connectionState.label)
                     }
                     LabeledContent("백엔드 주소") {
                         Text(viewModel.backendAddressText)

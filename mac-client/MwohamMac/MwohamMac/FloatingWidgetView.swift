@@ -24,7 +24,7 @@ struct FloatingWidgetView: View {
         VStack(alignment: .leading, spacing: 12) {
             headerView
 
-            if !viewModel.isConnected {
+            if viewModel.connectionState.isError {
                 Text("로컬 서버 확인: \(viewModel.backendAddressText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -33,10 +33,10 @@ struct FloatingWidgetView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                FloatingStatusRow(title: "현재 기록 상태", value: viewModel.recordingStatus)
+                FloatingStatusRow(title: "현재 기록 상태", value: viewModel.recordingState.label)
                 FloatingStatusRow(title: "기록 시간", value: viewModel.recordingElapsedTime)
-                FloatingStatusRow(title: "활성 창 추적", value: viewModel.activeWindowTrackingStatus)
-                FloatingStatusRow(title: "OCR 상태", value: viewModel.ocrStatus)
+                FloatingStatusRow(title: "활성 창 추적", value: viewModel.activeWindowTrackingState.label)
+                FloatingStatusRow(title: "OCR 상태", value: viewModel.ocrState.label)
                 FloatingStatusRow(title: "Dev Tracking", value: viewModel.shortDevTrackingStatus)
                 FloatingStatusRow(title: "현재 앱", value: viewModel.currentApp)
                 FloatingStatusRow(title: "현재 창", value: viewModel.currentWindow)
@@ -52,11 +52,11 @@ struct FloatingWidgetView: View {
     private var collapsedView: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(viewModel.isConnected ? .green : .red)
+                .fill(viewModel.connectionState.isError ? .red : .green)
                 .frame(width: 8, height: 8)
-                .accessibilityLabel(viewModel.isConnected ? "백엔드 연결됨" : "백엔드 연결 실패")
+                .accessibilityLabel(viewModel.connectionState.label)
 
-            Text(viewModel.recordingStatus)
+            Text(viewModel.recordingState.label)
                 .font(.footnote)
                 .fontWeight(.medium)
                 .lineLimit(1)
@@ -88,10 +88,10 @@ struct FloatingWidgetView: View {
     private var headerView: some View {
         HStack {
             Label(
-                viewModel.isConnected ? "백엔드 연결됨" : "백엔드 연결 실패",
-                systemImage: viewModel.isConnected ? "checkmark.circle.fill" : "xmark.circle.fill"
+                viewModel.connectionState.label,
+                systemImage: viewModel.connectionState.systemImage
             )
-            .foregroundStyle(viewModel.isConnected ? .green : .red)
+            .foregroundStyle(viewModel.connectionState.isError ? .red : .green)
 
             Spacer()
 
@@ -116,7 +116,7 @@ struct FloatingWidgetView: View {
     }
 
     private var collapsedDetailText: String {
-        if !viewModel.isConnected {
+        if viewModel.connectionState.isError {
             return "연결 실패"
         }
 
@@ -130,7 +130,7 @@ struct FloatingWidgetView: View {
     @ViewBuilder
     private var recordingControls: some View {
         switch viewModel.recordingState {
-        case "stopped":
+        case .stopped:
             recordingButton(
                 "기록 시작",
                 systemImage: "record.circle",
@@ -138,7 +138,7 @@ struct FloatingWidgetView: View {
             ) {
                 await viewModel.startRecording()
             }
-        case "active":
+        case .active:
             HStack(spacing: 8) {
                 recordingButton(
                     "일시정지",
@@ -156,7 +156,7 @@ struct FloatingWidgetView: View {
                     await viewModel.stopRecording()
                 }
             }
-        case "paused":
+        case .paused:
             HStack(spacing: 8) {
                 recordingButton(
                     "재개",
@@ -182,15 +182,15 @@ struct FloatingWidgetView: View {
     @ViewBuilder
     private var collapsedRecordingControl: some View {
         switch viewModel.recordingState {
-        case "stopped":
+        case .stopped:
             compactRecordingButton("기록 시작", isDisabled: !viewModel.canStartRecording) {
                 await viewModel.startRecording()
             }
-        case "active":
+        case .active:
             compactRecordingButton("일시정지", isDisabled: !viewModel.canPauseRecording) {
                 await viewModel.pauseRecording()
             }
-        case "paused":
+        case .paused:
             compactRecordingButton("재개", isDisabled: !viewModel.canResumeRecording) {
                 await viewModel.resumeRecording()
             }

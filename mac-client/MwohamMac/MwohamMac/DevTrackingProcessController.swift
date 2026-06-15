@@ -11,8 +11,10 @@ final class DevTrackingProcessController {
     private let backendPath: URL
     private let repoPathProvider: () -> String
     private let intervalSeconds: Int
+    private let gracePeriodSeconds: TimeInterval
     private let debounceSeconds: TimeInterval
     private var process: Process?
+    private var stopTask: Task<Void, Never>?
     private var lastStartAttemptAt: Date?
     private var terminationObserver: NSObjectProtocol?
     private var lastErrorOutput = ""
@@ -23,11 +25,13 @@ final class DevTrackingProcessController {
         backendPath: URL = DevTrackingProcessController.defaultBackendPath(),
         repoPathProvider: @escaping () -> String = { "" },
         intervalSeconds: Int = 60,
+        gracePeriodSeconds: TimeInterval = 120,
         debounceSeconds: TimeInterval = 10
     ) {
         self.backendPath = backendPath
         self.repoPathProvider = repoPathProvider
         self.intervalSeconds = intervalSeconds
+        self.gracePeriodSeconds = gracePeriodSeconds
         self.debounceSeconds = debounceSeconds
         self.terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
@@ -50,18 +54,34 @@ final class DevTrackingProcessController {
         process?.isRunning == true
     }
 
+    func handleActiveApplication(_ appName: String, onStatusChange: @escaping (String) -> Void) {
+        guard isDevelopmentTool(appName) else {
+            scheduleStop(onStatusChange: onStatusChange)
+            return
+        }
+
+        stopTask?.cancel()
+        stopTask = nil
+
+        if isRunning {
+            onStatusChange("Dev Tracking: 개발 도구 감지됨, 감시 중")
+            return
+        }
+
+        start(backendConnected: true, onStatusChange: onStatusChange)
+    }
+
     func start(
         backendConnected: Bool,
         onStatusChange: @escaping (String) -> Void
     ) {
-        let repoURL = configuredRepoURL()
         switch DevTrackingAutomationPolicy.startDecision(
             backendConnected: backendConnected,
             isRunning: isRunning,
-            repoURL: repoURL
+            repoURL: configuredRepoURL()
         ) {
-        case let .start(validatedRepoURL):
-            launch(repoURL: validatedRepoURL, onStatusChange: onStatusChange)
+        case let .start(repoURL):
+            launch(repoURL: repoURL, onStatusChange: onStatusChange)
         case .alreadyRunning:
             onStatusChange("Dev Tracking: 이미 감시 중")
         case let .blocked(message):
@@ -70,6 +90,9 @@ final class DevTrackingProcessController {
     }
 
     func stop(onStatusChange: ((String) -> Void)? = nil) {
+        stopTask?.cancel()
+        stopTask = nil
+
         guard let process else {
             onStatusChange?("Dev Tracking: 종료됨")
             return
@@ -88,7 +111,7 @@ final class DevTrackingProcessController {
     ) {
         if let lastStartAttemptAt,
            Date().timeIntervalSince(lastStartAttemptAt) < debounceSeconds {
-            onStatusChange("Dev Tracking: 시작 대기 중")
+            onStatusChange("Dev Tracking: 개발 도구 감지됨, 시작 대기 중")
             return
         }
 
@@ -163,7 +186,7 @@ final class DevTrackingProcessController {
         do {
             try process.run()
             self.process = process
-            onStatusChange("Dev Tracking: 감시 중")
+            onStatusChange("Dev Tracking: 개발 도구 감지됨, 감시 중")
         } catch {
             onStatusChange("Dev Tracking 오류: \(error.localizedDescription)")
         }
@@ -193,11 +216,9 @@ final class DevTrackingProcessController {
         if configuredPath.isEmpty {
             return backendPath.deletingLastPathComponent()
         }
-
         if configuredPath.hasPrefix("/") {
             return URL(fileURLWithPath: configuredPath)
         }
-
         return backendPath.appendingPathComponent(configuredPath)
     }
 
@@ -295,6 +316,52 @@ final class DevTrackingProcessController {
     private func clearPipeHandlers(standardOutput: Pipe?, standardError: Pipe?) {
         standardOutput?.fileHandleForReading.readabilityHandler = nil
         standardError?.fileHandleForReading.readabilityHandler = nil
+    }
+
+    private func scheduleStop(onStatusChange: @escaping (String) -> Void) {
+        guard isRunning else {
+            onStatusChange("Dev Tracking: 대기 중")
+            return
+        }
+
+        if stopTask != nil {
+            onStatusChange("Dev Tracking: 비개발 앱 감지, 종료 대기 중")
+            return
+        }
+
+        onStatusChange("Dev Tracking: 비개발 앱 감지, 종료 대기 중")
+        stopTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try await Task.sleep(nanoseconds: UInt64(gracePeriodSeconds * 1_000_000_000))
+            } catch {
+                return
+            }
+
+            await MainActor.run {
+                self.stop(onStatusChange: onStatusChange)
+            }
+        }
+    }
+
+    private func isDevelopmentTool(_ appName: String) -> Bool {
+        let normalized = appName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let exactMatches = [
+            "pycharm",
+            "visual studio code",
+            "code",
+            "terminal",
+            "iterm",
+            "iterm2",
+            "cursor",
+        ]
+        return exactMatches.contains(normalized)
+            || normalized.contains("pycharm")
+            || normalized.contains("visual studio code")
+            || normalized.contains("iterm")
     }
 
     nonisolated static func defaultRepoPathForDisplay(filePath: String = #filePath) -> String {

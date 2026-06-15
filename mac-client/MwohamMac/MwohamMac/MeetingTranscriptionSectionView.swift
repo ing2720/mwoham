@@ -48,14 +48,14 @@ struct MeetingTranscriptionSectionView: View {
                 GridRow {
                     Text("전사 상태")
                         .foregroundStyle(.secondary)
-                    Text(viewModel.transcriptionStatus)
+                    Text(viewModel.state.label)
                         .fontWeight(.medium)
                         .textSelection(.enabled)
                 }
                 GridRow {
                     Text("STT 엔진")
                         .foregroundStyle(.secondary)
-                    Text(viewModel.displayedSTTEngine)
+                    Text(viewModel.sttEngineState.label)
                         .fontWeight(.medium)
                         .textSelection(.enabled)
                 }
@@ -77,7 +77,7 @@ struct MeetingTranscriptionSectionView: View {
                     GridRow {
                         Text("회의 전체")
                             .foregroundStyle(.secondary)
-                        Text(viewModel.fullMeetingProviderStatus)
+                        Text(viewModel.fullMeetingState.label)
                             .fontWeight(.medium)
                             .textSelection(.enabled)
                     }
@@ -100,15 +100,15 @@ struct MeetingTranscriptionSectionView: View {
                 ) {
                     ProviderStatusRow(
                         title: "마이크",
-                        value: viewModel.microphoneProviderStatus
+                        value: viewModel.microphoneState.label
                     )
                     ProviderStatusRow(
                         title: "시스템 오디오",
-                        value: viewModel.systemAudioProviderStatus
+                        value: viewModel.systemAudioState.label
                     )
                     ProviderStatusRow(
                         title: "회의 전체",
-                        value: viewModel.fullMeetingProviderStatus
+                        value: viewModel.fullMeetingState.label
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -45,7 +45,6 @@ enum DevTrackingAutomationPolicy {
         guard backendConnected else {
             return .blocked("Dev Tracking: backend 연결이 없어 시작하지 않음")
         }
-
         guard !isRunning else {
             return .alreadyRunning
         }
@@ -62,7 +61,6 @@ enum DevTrackingAutomationPolicy {
               isDirectory.boolValue else {
             return .blocked("Dev Tracking 오류: 추적 repo 경로를 찾을 수 없습니다.")
         }
-
         guard fileManager.fileExists(
             atPath: standardizedURL.appendingPathComponent(".git").path
         ) else {
