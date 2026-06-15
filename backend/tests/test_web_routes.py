@@ -659,6 +659,65 @@ def test_reports_page_and_detail_render_generated_report(client: TestClient) -> 
     assert "## 요약" not in detail_response.text
 
 
+def test_reports_page_renders_mode_specific_create_buttons(client: TestClient) -> None:
+    response = client.get("/reports", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert "간단 리포트 생성" in response.text
+    assert "상세 리포트 생성" in response.text
+    assert 'action="/reports/daily/create?mode=simple"' in response.text
+    assert 'action="/reports/daily/create?mode=detailed"' in response.text
+
+
+def test_web_simple_report_create_form_uses_simple_mode(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    client.post("/recording/start", json={})
+    client.post(
+        "/memos",
+        json={
+            "timestamp": now.isoformat(),
+            "content": "웹에서 간단 리포트 생성",
+        },
+    )
+
+    response = client.post("/reports/daily/create?mode=simple", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/reports/")
+    assert response.headers["location"].endswith("/view")
+
+    detail_response = client.get(response.headers["location"])
+    assert detail_response.status_code == 200
+    assert "간단 리포트" in detail_response.text
+    assert "웹에서 간단 리포트 생성" in detail_response.text
+    assert "완료한 작업" in detail_response.text
+
+
+def test_web_detailed_report_create_form_uses_detailed_mode(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    client.post("/recording/start", json={})
+    client.post(
+        "/events",
+        json={
+            "timestamp": now.isoformat(),
+            "source": "web",
+            "content": "웹에서 상세 리포트 생성",
+        },
+    )
+
+    response = client.post("/reports/daily/create?mode=detailed", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/reports/")
+    assert response.headers["location"].endswith("/view")
+
+    detail_response = client.get(response.headers["location"])
+    assert detail_response.status_code == 200
+    assert "상세 리포트" in detail_response.text
+    assert "웹에서 상세 리포트 생성" in detail_response.text
+    assert "요약" in detail_response.text
+
+
 def test_web_report_create_form_redirects_to_detail(client: TestClient) -> None:
     now = datetime.now(UTC)
     client.post("/recording/start", json={})

@@ -7,6 +7,12 @@ REQUIRED_SECTIONS = [
     "회의/메모에서 나온 결정사항",
     "다음 작업 후보",
 ]
+SIMPLE_REQUIRED_SECTIONS = [
+    "오늘 한 일 요약",
+    "완료한 작업",
+    "다음 작업",
+    "테스트/검증 결과",
+]
 
 EMPTY_SECTION_TEXT = "확인된 내용 없음."
 HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$")
@@ -43,11 +49,11 @@ INTERNAL_PROMPT_LABEL_PREFIX_PATTERN = re.compile(
 
 
 class ReportContentCleaner:
-    def clean(self, content: str) -> str:
+    def clean(self, content: str, *, mode: str = "detailed") -> str:
         cleaned = self._remove_empty_bullets(content)
         cleaned = self._remove_internal_prompt_labels(cleaned)
         cleaned = self._collapse_blank_lines(cleaned)
-        cleaned = self._ensure_required_sections(cleaned)
+        cleaned = self._ensure_required_sections(cleaned, mode=mode)
         return cleaned.strip()
 
     def _remove_empty_bullets(self, content: str) -> str:
@@ -101,12 +107,15 @@ class ReportContentCleaner:
             previous_blank = is_blank
         return "\n".join(collapsed)
 
-    def _ensure_required_sections(self, content: str) -> str:
+    def _ensure_required_sections(self, content: str, *, mode: str) -> str:
+        required_sections = (
+            SIMPLE_REQUIRED_SECTIONS if mode == "simple" else REQUIRED_SECTIONS
+        )
         sections = self._split_sections(content)
         preface = sections.pop("", [])
         output = preface[:]
 
-        for required_section in REQUIRED_SECTIONS:
+        for required_section in required_sections:
             body = sections.pop(required_section, None)
             if body is None:
                 output.extend(["", f"## {required_section}", EMPTY_SECTION_TEXT])

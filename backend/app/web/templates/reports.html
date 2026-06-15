@@ -10,9 +10,14 @@
 
   <section class="panel" style="margin-bottom: 16px;">
     <h2>오늘 리포트</h2>
-    <form method="post" action="/reports/daily/create">
-      <button type="submit">오늘 리포트 생성</button>
-    </form>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <form method="post" action="/reports/daily/create?mode=simple">
+        <button type="submit">간단 리포트 생성</button>
+      </form>
+      <form method="post" action="/reports/daily/create?mode=detailed">
+        <button type="submit">상세 리포트 생성</button>
+      </form>
+    </div>
   </section>
 
   <section class="panel">

@@ -11,14 +11,19 @@ class GeminiSummarizer:
         self.last_was_truncated = False
         self.last_error_reason: str | None = None
 
-    def summarize_daily_report(self, timeline: TimelineResponse) -> str | None:
+    def summarize_daily_report(
+        self, timeline: TimelineResponse, *, mode: str = "detailed"
+    ) -> str | None:
         self.last_finish_reason = None
         self.last_was_truncated = False
         self.last_error_reason = None
         if not self.client.is_configured:
             self.last_error_reason = "api_key_missing"
             return None
-        prompt = self.prompt_builder.build_daily_report_prompt(timeline)
+        if mode == "simple":
+            prompt = self.prompt_builder.build_simple_daily_report_prompt(timeline)
+        else:
+            prompt = self.prompt_builder.build_daily_report_prompt(timeline)
         result = self.client.generate_text_result(prompt)
         self.last_finish_reason = result.finish_reason
         self.last_was_truncated = result.was_truncated

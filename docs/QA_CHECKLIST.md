@@ -412,8 +412,12 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 
 웹 확인:
 
-- `http://127.0.0.1:8765/reports`에서 `오늘 리포트 생성`을 누릅니다.
+- `http://127.0.0.1:8765/reports`에서 mode별 생성 버튼을 누릅니다.
 - 생성된 리포트 상세 화면을 엽니다.
+- `http://127.0.0.1:8765/reports`의 오늘 리포트 영역에 `간단 리포트 생성`과
+  `상세 리포트 생성` 버튼이 각각 표시되는지 확인합니다.
+- `간단 리포트 생성`은 simple mode report를 만들고, `상세 리포트 생성`은 detailed
+  mode report를 만들어야 합니다.
 
 정상 기대 결과:
 
@@ -423,8 +427,25 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
   계속 늘지 않고 기존 리포트가 갱신됩니다.
 - `/reports/today`는 list schema를 유지하면서 오늘 날짜 최신 리포트 1개를 맨 위
   `items[0]`에 보여줍니다.
+- `/reports/today?mode=detailed`는 오늘 최신 상세 리포트 1개를 반환합니다.
+- `/reports/today?mode=simple`은 오늘 최신 간단 리포트 1개를 반환합니다.
+- `POST /reports/daily?mode=simple`처럼 query mode를 넘겨도 해당 mode로 생성됩니다.
+  body와 query에 mode가 모두 있으면 query mode를 우선합니다.
 - fallback 리포트는 raw timeline 전체 덤프가 아니라 요약, 주요 메모, 주요 화면 관찰, 주요 작업 환경 중심으로 짧게 생성됩니다.
-- daily report는 현재 detailed report 중심입니다. summary/simple/compact 요약본 분리는 아직 공식 기능이 아닙니다.
+- daily report는 `detailed`와 `simple` 두 mode를 지원합니다.
+- `detailed`는 `오늘 한 일 요약`, `시간대별 작업 흐름`, `주요 트러블슈팅`,
+  `회의/메모에서 나온 결정사항`, `다음 작업 후보` 섹션을 유지합니다.
+- `simple`은 `오늘 한 일 요약`, `완료한 작업`, `다음 작업`, `테스트/검증 결과`
+  섹션으로 짧게 생성됩니다.
+- `simple` fallback은 화면 OCR raw text를 완료한 작업에 직접 넣지 않고, memo,
+  dev_event, command/test result, meeting transcript 같은 high-confidence 근거만
+  우선 사용합니다. 근거가 부족하면 `확인된 핵심 작업 없음`으로 표시합니다.
+- `simple` fallback은 high-confidence 근거도 원문 그대로 출력하지 않고 짧은 사용자
+  문장으로 요약합니다. meeting transcript의 `[00:00 microphone]` prefix, dev_event의
+  `changed_files=`, `exit_code=`, `duration_ms=`, `cwd=` 같은 raw metadata, `curl`
+  명령 문자열은 본문에 직접 나오지 않아야 합니다.
+- 같은 날짜에 `detailed`와 `simple`을 각각 생성해도 서로 덮어쓰지 않고 다른
+  mode의 report로 유지됩니다.
 - `CURRENT_WORK_FOCUS`가 있으면 오늘 한 일 요약과 시간대별 작업 흐름이 최신 작업 주제를 우선 반영합니다.
 - 자동 watcher 기반 `git_snapshot`은 report input에서 20분 버킷과 branch 기준으로 압축됩니다.
 - report 생성 시점의 `CURRENT_GIT_CHANGE_HINTS`와 `CURRENT_GIT_DIFF_CONTEXT`가 있으면 구체 작업 의도 파악에 우선 사용됩니다.

@@ -14,7 +14,7 @@ ReportExportFormat = Literal["markdown", "pdf"]
 class DailyReportCreate(ApiSchema):
     date: DateType | None = None
     project_id: int | None = None
-    mode: str = "detailed"
+    mode: Literal["detailed", "simple"] = "detailed"
 
 
 class ReportUpdate(ApiSchema):

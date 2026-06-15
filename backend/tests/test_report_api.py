@@ -12,6 +12,8 @@ from app.report.export_service import ReportExportService, get_report_export_ser
 from app.report.markdown_generator import MarkdownGenerator
 from app.report.pdf_generator import PdfGenerator
 from app.repositories.report_repository import ReportRepository
+from app.schemas.timeline import TimelineItem, TimelineResponse
+from app.services.report_fallback_builder import get_report_fallback_builder
 from app.services.report_service import ReportService, get_report_service
 from app.services.timeline_builder import get_timeline_builder
 
@@ -20,9 +22,11 @@ class StubSummarizer:
     def __init__(self, content: str | None) -> None:
         self.content = content
         self.calls = 0
+        self.modes: list[str] = []
 
-    def summarize_daily_report(self, timeline):
+    def summarize_daily_report(self, timeline, *, mode: str = "detailed"):
         self.calls += 1
+        self.modes.append(mode)
         return self.content
 
 
@@ -34,7 +38,7 @@ class QuotaExceededSummarizer:
     def __init__(self) -> None:
         self.calls = 0
 
-    def summarize_daily_report(self, timeline):
+    def summarize_daily_report(self, timeline, *, mode: str = "detailed"):
         self.calls += 1
         return None
 
@@ -131,6 +135,358 @@ def test_daily_report_api_updates_existing_same_identity_instead_of_inserting(
     assert list_response.json()["items"][0]["id"] == first["id"]
 
 
+def test_daily_report_api_generates_detailed_mode_report(client: TestClient) -> None:
+    original_override = app.dependency_overrides.get(get_report_service)
+    summarizer = StubSummarizer("## 오늘 한 일 요약\n상세 리포트 생성")
+    service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=summarizer,
+    )
+    app.dependency_overrides[get_report_service] = lambda: service
+    try:
+        response = client.post(
+            "/reports/daily",
+            json={"date": "2026-05-26", "mode": "detailed"},
+        )
+    finally:
+        if original_override is None:
+            app.dependency_overrides.pop(get_report_service, None)
+        else:
+            app.dependency_overrides[get_report_service] = original_override
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mode"] == "detailed"
+    assert body["title"] == "2026-05-26 일일 작업 리포트"
+    assert "## 오늘 한 일 요약\n상세 리포트 생성" in body["content"]
+    assert "## 시간대별 작업 흐름\n확인된 내용 없음." in body["content"]
+    assert "## 다음 작업 후보\n확인된 내용 없음." in body["content"]
+    assert summarizer.modes == ["detailed"]
+
+
+def test_daily_report_api_generates_simple_mode_report(client: TestClient) -> None:
+    original_override = app.dependency_overrides.get(get_report_service)
+    summarizer = StubSummarizer("## 오늘 한 일 요약\n- 간단 리포트 생성")
+    service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=summarizer,
+    )
+    app.dependency_overrides[get_report_service] = lambda: service
+    try:
+        response = client.post(
+            "/reports/daily",
+            json={"date": "2026-05-26", "mode": "simple"},
+        )
+    finally:
+        if original_override is None:
+            app.dependency_overrides.pop(get_report_service, None)
+        else:
+            app.dependency_overrides[get_report_service] = original_override
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mode"] == "simple"
+    assert body["title"] == "2026-05-26 간단 작업 리포트"
+    assert "## 오늘 한 일 요약\n- 간단 리포트 생성" in body["content"]
+    assert "## 완료한 작업\n확인된 내용 없음." in body["content"]
+    assert "## 다음 작업\n확인된 내용 없음." in body["content"]
+    assert "## 테스트/검증 결과\n확인된 내용 없음." in body["content"]
+    assert "## 시간대별 작업 흐름" not in body["content"]
+    assert "## 다음 작업 후보" not in body["content"]
+    assert summarizer.modes == ["simple"]
+
+
+def test_daily_report_api_accepts_simple_mode_query_parameter(
+    client: TestClient,
+) -> None:
+    response = client.post("/reports/daily?mode=simple", json={"date": "2026-05-26"})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mode"] == "simple"
+    assert body["title"] == "2026-05-26 간단 작업 리포트"
+    assert "## 완료한 작업" in body["content"]
+    assert "## 테스트/검증 결과" in body["content"]
+
+    today_response = client.get("/reports/today?date=2026-05-26&mode=simple")
+    assert today_response.status_code == 200
+    today_body = today_response.json()
+    assert today_body["total"] == 1
+    assert len(today_body["items"]) == 1
+    assert today_body["items"][0]["id"] == body["id"]
+    assert today_body["items"][0]["mode"] == "simple"
+
+
+def test_daily_report_api_accepts_detailed_mode_query_parameter(
+    client: TestClient,
+) -> None:
+    response = client.post("/reports/daily?mode=detailed", json={"date": "2026-05-26"})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mode"] == "detailed"
+    assert body["title"] == "2026-05-26 일일 작업 리포트"
+    assert "## 주요 메모" in body["content"]
+
+
+def test_daily_report_api_query_mode_overrides_body_mode(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/reports/daily?mode=simple",
+        json={"date": "2026-05-26", "mode": "detailed"},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mode"] == "simple"
+    assert "## 완료한 작업" in body["content"]
+
+
+def test_simple_fallback_does_not_use_screen_observation_raw_text_as_completed_work(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 1, 40, tzinfo=UTC).isoformat(),
+            "app_name": "Google Chrome",
+            "window_title": "Gemini 확장 프로그램 도움말",
+            "ocr_text": "\n".join(
+                [
+                    "feat: 장소 목록 추 83 open...",
+                    "ProTip! Ad...",
+                    "8888년 83388...",
+                    "Gemini 확장 프로그램 도움말",
+                ]
+            ),
+            "frame_hash": "simple-fallback-ocr-noise",
+        },
+    )
+
+    response = client.post("/reports/daily?mode=simple", json={"date": "2026-05-26"})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mode"] == "simple"
+    assert body["created_by"] == "system"
+    assert "## 완료한 작업\n- 확인된 핵심 작업 없음" in body["content"]
+    assert "## 다음 작업\n- 확인된 내용 없음." in body["content"]
+    assert "feat: 장소 목록 추 83 open" not in body["content"]
+    assert "ProTip! Ad" not in body["content"]
+    assert "8888년 83388" not in body["content"]
+    assert "Gemini 확장 프로그램 도움말" not in body["content"]
+
+
+def test_simple_fallback_prioritizes_memo_dev_event_and_test_evidence(
+    client: TestClient,
+) -> None:
+    client.post("/recording/start", json={})
+    client.post(
+        "/screen-observations",
+        json={
+            "timestamp": datetime(2026, 5, 26, 1, 20, tzinfo=UTC).isoformat(),
+            "app_name": "Google Chrome",
+            "window_title": "ProTip! Ad",
+            "ocr_text": "ProTip! Ad\nGemini 확장 프로그램 도움말",
+            "frame_hash": "simple-fallback-ignored-ocr",
+        },
+    )
+    client.post(
+        "/memos",
+        json={
+            "timestamp": datetime(2026, 5, 26, 1, 30, tzinfo=UTC).isoformat(),
+            "content": "simple report fallback QA 정책 정리",
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "git_snapshot",
+            "source": "script",
+            "summary": "Git 변경 파일 확인: backend/app/services/report_fallback_builder.py",
+            "details_json": {
+                "changed_files": ["backend/app/services/report_fallback_builder.py"]
+            },
+            "occurred_at": datetime(2026, 5, 26, 1, 40, tzinfo=UTC).isoformat(),
+        },
+    )
+    client.post(
+        "/dev-events",
+        json={
+            "event_type": "test_result",
+            "source": "terminal",
+            "command": "uv run pytest -q",
+            "status": "success",
+            "summary": "pytest 통과: 238 passed",
+            "details_json": {"exit_code": 0},
+            "occurred_at": datetime(2026, 5, 26, 1, 50, tzinfo=UTC).isoformat(),
+        },
+    )
+
+    response = client.post("/reports/daily?mode=simple", json={"date": "2026-05-26"})
+
+    assert response.status_code == 201
+    content = response.json()["content"]
+    assert "simple report fallback 품질 보강" in content
+    assert "simple report fallback 요약 로직 정리" in content
+    assert "pytest 검증 통과" in content
+    assert "report_fallback_builder.py" not in content
+    assert "uv run pytest -q" not in content
+    assert "확인된 핵심 작업 없음" not in content
+    assert "ProTip! Ad" not in content
+    assert "Gemini 확장 프로그램 도움말" not in content
+
+
+def test_simple_fallback_summarizes_meeting_transcript_without_raw_prefix() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="transcript",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                content=(
+                    "회의 전사 수집됨:\n"
+                    "[00:00 microphone] simple fallback 원문 노출을 줄여야 합니다.\n"
+                    "[00:05 system_audio] report mode QA도 같이 확인합시다."
+                ),
+                source="local_whisper_full_meeting",
+            )
+        ],
+    )
+
+    content = get_report_fallback_builder().build(timeline, mode="simple")
+
+    assert "회의 전사 기반 논의 정리" in content
+    assert "simple report fallback 품질 보강" in content
+    assert "[00:00 microphone]" not in content
+    assert "[00:05 system_audio]" not in content
+    assert "simple fallback 원문 노출을 줄여야 합니다" not in content
+    assert "report mode QA도 같이 확인합시다" not in content
+
+
+def test_simple_fallback_removes_dev_event_raw_metadata() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=1,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                content=(
+                    "Git 변경 감지 | changed_files=backend/app/ai/prompt_builder.py | "
+                    "exit_code=0 | duration_ms=12 | cwd=/Users/a/Projects/mwoham | "
+                    "curl http://127.0.0.1:8765/reports/daily"
+                ),
+                details_json={"changed_files": ["backend/app/ai/prompt_builder.py"]},
+            )
+        ],
+    )
+
+    content = get_report_fallback_builder().build(timeline, mode="simple")
+
+    assert "report prompt/context 로직 수정" in content
+    assert "changed_files=" not in content
+    assert "exit_code=" not in content
+    assert "duration_ms=" not in content
+    assert "cwd=" not in content
+    assert "curl http://127.0.0.1" not in content
+
+
+def test_simple_fallback_limits_completed_work_and_deduplicates_git_events() -> None:
+    items = [
+        TimelineItem(
+            type="dev_event",
+            id=index,
+            timestamp=datetime(2026, 5, 26, 1, index, tzinfo=UTC),
+            event_type="git_snapshot",
+            source="script",
+            content=f"Git 변경 감지 {index}",
+            details_json={"changed_files": ["backend/app/services/report_service.py"]},
+        )
+        for index in range(1, 8)
+    ]
+    items.extend(
+        [
+            TimelineItem(
+                type="dev_event",
+                id=20,
+                timestamp=datetime(2026, 5, 26, 2, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                content="Prompt 변경",
+                details_json={"changed_files": ["backend/app/ai/prompt_builder.py"]},
+            ),
+            TimelineItem(
+                type="memo",
+                id=21,
+                timestamp=datetime(2026, 5, 26, 2, 10, tzinfo=UTC),
+                content="simple fallback follow-up memo",
+            ),
+        ]
+    )
+    timeline = TimelineResponse(date=date(2026, 5, 26), total=len(items), items=items)
+
+    content = get_report_fallback_builder().build(timeline, mode="simple")
+    completed_section = content.split("## 완료한 작업", 1)[1].split("## 다음 작업", 1)[0]
+    completed_bullets = [
+        line for line in completed_section.splitlines() if line.strip().startswith("- ")
+    ]
+
+    assert len(completed_bullets) <= 5
+    assert completed_section.count("report 생성/조회 정책 수정") == 1
+    assert "report prompt/context 로직 수정" in completed_section
+    assert "simple report fallback 품질 보강" in completed_section
+
+
+def test_daily_report_api_keeps_detailed_and_simple_modes_separate(
+    client: TestClient,
+) -> None:
+    original_override = app.dependency_overrides.get(get_report_service)
+    summarizer = StubSummarizer("## 오늘 한 일 요약\n상세 생성")
+    service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=summarizer,
+    )
+    app.dependency_overrides[get_report_service] = lambda: service
+    try:
+        detailed_response = client.post(
+            "/reports/daily",
+            json={"date": "2026-05-26", "mode": "detailed"},
+        )
+        summarizer.content = "## 오늘 한 일 요약\n- 간단 생성"
+        simple_response = client.post(
+            "/reports/daily",
+            json={"date": "2026-05-26", "mode": "simple"},
+        )
+    finally:
+        if original_override is None:
+            app.dependency_overrides.pop(get_report_service, None)
+        else:
+            app.dependency_overrides[get_report_service] = original_override
+
+    detailed = detailed_response.json()
+    simple = simple_response.json()
+    assert detailed["id"] != simple["id"]
+    assert detailed["mode"] == "detailed"
+    assert simple["mode"] == "simple"
+
+    list_response = client.get("/reports?date=2026-05-26")
+    assert list_response.status_code == 200
+    body = list_response.json()
+    assert body["total"] == 2
+    assert {item["mode"] for item in body["items"]} == {"detailed", "simple"}
+
+
 def test_today_reports_returns_latest_single_report_with_list_schema(
     client: TestClient,
     db: Session,
@@ -164,6 +520,44 @@ def test_today_reports_returns_latest_single_report_with_list_schema(
     assert body["total"] == 1
     assert body["items"][0]["id"] == latest_report.id
     assert body["items"][0]["title"] == "최신 리포트"
+
+
+def test_today_reports_filters_latest_report_by_mode(
+    client: TestClient,
+    db: Session,
+) -> None:
+    detailed_report = Report(
+        date=date(2026, 5, 26),
+        mode="detailed",
+        title="상세 리포트",
+        content="detailed",
+        created_by="system",
+        created_at=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+    )
+    simple_report = Report(
+        date=date(2026, 5, 26),
+        mode="simple",
+        title="간단 리포트",
+        content="simple",
+        created_by="system",
+        created_at=datetime(2026, 5, 26, 2, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 26, 3, 0, tzinfo=UTC),
+    )
+    db.add_all([detailed_report, simple_report])
+    db.commit()
+
+    simple_response = client.get("/reports/today?date=2026-05-26&mode=simple")
+    detailed_response = client.get("/reports/today?date=2026-05-26&mode=detailed")
+
+    assert simple_response.status_code == 200
+    assert simple_response.json()["total"] == 1
+    assert simple_response.json()["items"][0]["id"] == simple_report.id
+    assert simple_response.json()["items"][0]["mode"] == "simple"
+    assert detailed_response.status_code == 200
+    assert detailed_response.json()["total"] == 1
+    assert detailed_response.json()["items"][0]["id"] == detailed_report.id
+    assert detailed_response.json()["items"][0]["mode"] == "detailed"
 
 
 def test_report_update_marks_report_as_user_edited(client: TestClient) -> None:
