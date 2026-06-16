@@ -254,6 +254,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = MwohamMac;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "회의 전사를 위해 마이크 음성을 텍스트로 변환합니다. 원본 음성은 저장하거나 전송하지 않습니다.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "회의 전사를 위해 Apple Speech 음성 인식을 사용합니다.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -301,6 +302,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = MwohamMac;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "회의 전사를 위해 마이크 음성을 텍스트로 변환합니다. 원본 음성은 저장하거나 전송하지 않습니다.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "회의 전사를 위해 Apple Speech 음성 인식을 사용합니다.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

@@ -25,7 +25,11 @@ backend 기본 주소는 `http://127.0.0.1:8765`입니다. backend가 실행 중
 경로에서 직접 실행하지 말고 다음 고정 bundle을 사용합니다.
 
 ```bash
+# signed Debug
 ./scripts/build_macos_app.sh --open
+
+# signed Release
+./scripts/build_macos_app.sh --release --open
 ```
 
 기본 실행 경로는 `~/Applications/MwohamMac.app`, bundle identifier는
@@ -51,10 +55,26 @@ Team ID는 인증서 Common Name의 괄호 값이 아니라 certificate subject�
 ```bash
 ./scripts/build_macos_app.sh --unsigned
 ./scripts/build_macos_app.sh --unsigned --open
+./scripts/build_macos_app.sh --unsigned --release
 ```
 
 unsigned 앱은 접근성, 화면 기록, 마이크 등 TCC 권한이 빌드마다 유지되는 것을
 보장하지 않습니다. 권한 QA에는 signed 고정 경로 앱만 사용합니다.
+
+## 앱 패키징 기준
+
+- 기본 configuration: `Debug`
+- 설치 앱 최종 확인: signed `Release`
+- 표시 이름: `MwohamMac`
+- bundle identifier: `com.ing2720.MwohamMac`
+- version/build: `1.0 (1)`
+- 기본 설치 경로: `~/Applications/MwohamMac.app`
+- 아이콘: `Assets.xcassets/AppIcon.appiconset`의 개발용 placeholder
+
+스크립트는 기존 앱 프로세스를 종료하고 bundle을 교체한 뒤, signed 모드에서
+strict codesign과 TeamIdentifier를 확인하고 LaunchServices에 다시 등록합니다.
+`--destination` 또는 `APP_PATH`를 명시하지 않으면 `/Applications`를 사용하지
+않습니다. signed 실패가 unsigned로 자동 전환되는 동작은 없습니다.
 
 현재 단계의 활성 창 추적은 화면 이미지나 마이크 입력을 저장하지 않습니다. 앱 이름과 창 제목 메타데이터를 사용해 `app_name + window_title` 기준 작업 구간을 만들고, 같은 앱/창이 유지되는 동안 duration을 누적합니다.
 

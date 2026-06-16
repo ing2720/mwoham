@@ -65,12 +65,21 @@ macOS 앱은 Xcode에서 실행하거나, 내부 테스트용 Release 앱 번들
 개발 중 macOS 권한을 안정적으로 유지하려면 고정 경로의 `MwohamMac.app` bundle을 사용합니다:
 
 ```bash
+security find-identity -v -p codesigning
+
 mkdir -p ~/.config/mwoham
 cat > ~/.config/mwoham/macos-signing.env <<'EOF'
 MWOHAM_DEVELOPMENT_TEAM=YOUR_TEAM_ID
 EOF
 
+# signed Debug: 개발 및 권한 QA
 ./scripts/build_macos_app.sh --open
+
+# signed Release: 설치 앱 최종 확인 권장
+./scripts/build_macos_app.sh --release --open
+
+# unsigned Debug: UI/CI 임시 확인 전용
+./scripts/build_macos_app.sh --unsigned --open
 ```
 
 Team ID는 인증서 표시 이름 끝의 괄호 값이 아니라 인증서 subject의 `OU` 또는
@@ -88,6 +97,24 @@ Development 서명, 설정된 Team ID를 검증합니다. 인증서가 없거나
 않습니다. 빠른 UI 확인이나 CI는 `--unsigned` 또는 `--unsigned --open`으로
 실행할 수 있지만 권한 유지 용도로 사용하지 않습니다. signed 실패 시 unsigned로
 자동 전환되지 않습니다.
+
+기본 configuration은 Debug이고 `--release`를 지정하면 Release를 빌드합니다.
+두 configuration 모두 표시 이름 `MwohamMac`, bundle identifier
+`com.ing2720.MwohamMac`, 버전 `1.0 (1)`을 사용합니다. 기본 설치 경로는
+`~/Applications/MwohamMac.app`이며 `--destination` 또는 `APP_PATH`를 명시한
+경우에만 변경됩니다. 설치 과정은 기존 앱 종료, bundle 교체, strict codesign
+검증, LaunchServices 등록 순서로 진행됩니다.
+
+```bash
+APP="$HOME/Applications/MwohamMac.app"
+codesign --verify --deep --strict --verbose=2 "$APP"
+codesign -dv --verbose=4 "$APP"
+spctl --assess --type execute --verbose=4 "$APP"
+```
+
+Apple Development 앱은 Developer ID 배포 및 notarization 산출물이 아니므로
+`spctl` 결과는 로컬 개발 인증서 정책에 따라 거부될 수 있습니다. 내부 권한 QA의
+필수 기준은 strict codesign, Identifier, TeamIdentifier, Authority 일치입니다.
 
 macOS 접근성, 화면 기록, 마이크 권한은 앱이 자동 허용할 수 없습니다. 최초 설치
 또는 기존 ad-hoc 앱에서 서명된 앱으로 전환한 뒤 시스템 설정에서 고정 경로의

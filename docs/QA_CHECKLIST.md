@@ -144,6 +144,26 @@ EOF
 ./scripts/build_macos_app.sh --open
 ```
 
+패키징 모드:
+
+```bash
+# signed Debug: 개발 및 권한/TCC QA
+./scripts/build_macos_app.sh --open
+
+# signed Release: 설치 앱 최종 QA 권장
+./scripts/build_macos_app.sh --release --open
+
+# unsigned Debug: UI 임시 확인만
+./scripts/build_macos_app.sh --unsigned --open
+
+# unsigned Release: 명시적으로 요청한 임시 패키징 확인만
+./scripts/build_macos_app.sh --unsigned --release
+```
+
+각 실행에서 `Build mode`, `Configuration`, `Bundle ID`, `Team ID`, signing
+identity, app output path가 출력되는지 확인합니다. signed 실패 시 unsigned
+build가 자동으로 이어지지 않아야 합니다.
+
 다른 Mac 최초 설정:
 
 1. Xcode > Settings > Accounts에 Apple ID를 추가합니다.
@@ -188,6 +208,7 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 codesign -dv --verbose=4 "$APP" 2>&1 \
   | grep -E "^(Identifier|Authority|TeamIdentifier|Signature)="
 codesign -d -r- "$APP" 2>&1
+spctl --assess --type execute --verbose=4 "$APP" || true
 ```
 
 정상 기대 결과:
@@ -197,6 +218,29 @@ codesign -d -r- "$APP" 2>&1
 - `Authority=Apple Development: ...`가 표시됩니다.
 - `TeamIdentifier`가 `MWOHAM_DEVELOPMENT_TEAM`과 같습니다.
 - 앱을 다시 빌드해도 실행 경로와 designated requirement가 유지됩니다.
+- 표시 이름이 `MwohamMac`, version/build가 `1.0 (1)`인지 확인합니다.
+- Finder와 Dock에서 placeholder 앱 아이콘이 기본 실행 파일 아이콘 대신
+  표시되는지 확인합니다.
+
+패키징/업데이트 QA:
+
+1. signed Debug를 설치하고 `~/Applications/MwohamMac.app`에서 실행되는지
+   확인합니다.
+2. signed Release로 교체한 뒤 실행 경로가 유지되고 기존 앱 프로세스가 새
+   bundle로 교체되는지 확인합니다.
+3. `codesign --verify --deep --strict`가 통과하고 Identifier, TeamIdentifier,
+   Authority가 기대값과 일치하는지 확인합니다.
+4. 앱 시작 후 backend lifecycle이 기존 backend를 재사용하거나 필요 시 자동
+   시작하는지 확인합니다.
+5. 권한 온보딩과 독립 권한 상태 표시가 signed 앱 identity 기준으로 유지되는지
+   확인합니다.
+6. unsigned 앱은 경고를 출력하고 실행되지만 권한/TCC QA에는 사용하지 않습니다.
+7. `--destination`을 지정하지 않은 기본 실행에서 `/Applications`가 아니라
+   `~/Applications/MwohamMac.app`을 사용하는지 확인합니다.
+
+`spctl`은 Developer ID/notarization 배포 검사가 포함되므로 Apple Development
+내부 빌드에서는 거부될 수 있습니다. 현재 필수 검증은 strict codesign과
+Identifier, TeamIdentifier, Authority 일치입니다.
 
 TCC 권한 확인:
 
