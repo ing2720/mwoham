@@ -22,6 +22,7 @@ final class BackendStatusViewModel: ObservableObject {
     let activityTracking: ActivityTrackingViewModel
     let quickMemo: QuickMemoViewModel
     let timeline: TimelineViewModel
+    let reports: ReportViewModel
     let backendLifecycle: BackendLifecycleManager
 
     private let localApiClient: LocalApiClient
@@ -120,6 +121,7 @@ final class BackendStatusViewModel: ObservableObject {
         self.activityTracking = ActivityTrackingViewModel(localApiClient: localApiClient)
         self.quickMemo = QuickMemoViewModel(localApiClient: localApiClient)
         self.timeline = TimelineViewModel(localApiClient: localApiClient)
+        self.reports = ReportViewModel(localApiClient: localApiClient)
         configureMeetingTranscription(
             localApiClient: localApiClient,
             microphoneTranscriptionProvider: speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider(),
@@ -253,6 +255,7 @@ final class BackendStatusViewModel: ObservableObject {
             activityTracking.objectWillChange,
             quickMemo.objectWillChange,
             timeline.objectWillChange,
+            reports.objectWillChange,
             backendLifecycle.objectWillChange,
         ]
             .forEach { publisher in
@@ -347,6 +350,8 @@ struct ContentView: View {
                         Task {
                             if selectedSection == .timeline {
                                 await viewModel.timeline.refresh()
+                            } else if selectedSection == .reports {
+                                await viewModel.reports.refresh()
                             } else {
                                 await viewModel.refresh()
                             }
@@ -356,6 +361,7 @@ struct ContentView: View {
                     }
                     .disabled(
                         viewModel.isLoading || viewModel.timeline.isLoading
+                            || viewModel.reports.isLoading
                     )
                 }
             }
@@ -421,6 +427,11 @@ struct ContentView: View {
             case .timeline:
                 TimelinePageView(
                     viewModel: viewModel.timeline,
+                    isBackendConnected: viewModel.connectionState.isActive
+                )
+            case .reports:
+                ReportPageView(
+                    viewModel: viewModel.reports,
                     isBackendConnected: viewModel.connectionState.isActive
                 )
             case .meetingTranscription:
@@ -496,6 +507,7 @@ struct ContentView: View {
 private enum MainSection: String, CaseIterable, Identifiable {
     case today
     case timeline
+    case reports
     case meetingTranscription
     case settings
 
@@ -509,6 +521,8 @@ private enum MainSection: String, CaseIterable, Identifiable {
             return "오늘"
         case .timeline:
             return "타임라인"
+        case .reports:
+            return "리포트"
         case .meetingTranscription:
             return "회의 전사"
         case .settings:
@@ -522,6 +536,8 @@ private enum MainSection: String, CaseIterable, Identifiable {
             return "calendar"
         case .timeline:
             return "list.bullet.rectangle"
+        case .reports:
+            return "doc.text"
         case .meetingTranscription:
             return "waveform"
         case .settings:

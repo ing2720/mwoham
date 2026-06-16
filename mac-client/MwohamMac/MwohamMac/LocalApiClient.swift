@@ -139,6 +139,15 @@ struct ScreenObservationCreateRequest: Encodable {
     }
 }
 
+struct DailyReportCreateRequest: Encodable {
+    let mode: String
+}
+
+struct ReportUpdateRequest: Encodable {
+    let title: String?
+    let content: String?
+}
+
 struct PrivateAppResponse: Decodable {
     let id: Int
     let appName: String
@@ -329,6 +338,39 @@ struct TimelineItemResponse: Decodable, Identifiable {
     }
 }
 
+struct ReportResponse: Decodable, Identifiable, Equatable {
+    let id: Int
+    let projectId: Int?
+    let date: String?
+    let mode: String
+    let title: String?
+    let content: String
+    let sourceRangeStart: String?
+    let sourceRangeEnd: String?
+    let createdBy: String
+    let createdAt: String
+    let updatedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case projectId = "project_id"
+        case date
+        case mode
+        case title
+        case content
+        case sourceRangeStart = "source_range_start"
+        case sourceRangeEnd = "source_range_end"
+        case createdBy = "created_by"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct ReportListResponse: Decodable {
+    let items: [ReportResponse]
+    let total: Int
+}
+
 enum LocalApiClientError: LocalizedError {
     case invalidResponse
     case badStatusCode(Int)
@@ -389,6 +431,56 @@ final class LocalApiClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         return try await send(request)
+    }
+
+    func fetchTodayReports(mode: String? = nil) async throws -> ReportListResponse {
+        var request = makeRequest(path: "/reports/today")
+        request.url = urlWithQueryItems(
+            request.url!,
+            queryItems: [
+                mode.map { URLQueryItem(name: "mode", value: $0) },
+            ].compactMap { $0 }
+        )
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        return try await send(request)
+    }
+
+    func fetchReports(limit: Int = 20) async throws -> ReportListResponse {
+        var request = makeRequest(path: "/reports")
+        request.url = urlWithQueryItems(
+            request.url!,
+            queryItems: [URLQueryItem(name: "limit", value: "\(limit)")]
+        )
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        return try await send(request)
+    }
+
+    func fetchReport(id: Int) async throws -> ReportResponse {
+        try await get("/reports/\(id)")
+    }
+
+    @discardableResult
+    func createDailyReport(mode: String) async throws -> ReportResponse {
+        try await post(
+            "/reports/daily",
+            body: DailyReportCreateRequest(mode: mode)
+        )
+    }
+
+    @discardableResult
+    func updateReport(
+        id: Int,
+        title: String? = nil,
+        content: String? = nil
+    ) async throws -> ReportResponse {
+        try await patch(
+            "/reports/\(id)",
+            body: ReportUpdateRequest(title: title, content: content)
+        )
     }
 
     @discardableResult
@@ -585,6 +677,18 @@ final class LocalApiClient {
         }
 
         return request
+    }
+
+    private func urlWithQueryItems(
+        _ url: URL,
+        queryItems: [URLQueryItem]
+    ) -> URL {
+        guard !queryItems.isEmpty else {
+            return url
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.queryItems = queryItems
+        return components?.url ?? url
     }
 
     private func send<Response: Decodable>(_ request: URLRequest) async throws -> Response {
