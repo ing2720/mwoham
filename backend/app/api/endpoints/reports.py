@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
@@ -26,6 +27,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 templates = Jinja2Templates(directory="app/web/templates")
 templates.env.filters["created_by_label"] = format_created_by
 templates.env.filters["report_mode_label"] = format_report_mode
+KST = ZoneInfo("Asia/Seoul")
 
 
 @router.post("/daily", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
@@ -63,12 +65,23 @@ def list_reports(
 ) -> ReportListResponse | Response:
     report_list = service.list_reports(db, target_date=target_date, mode=mode, limit=limit)
     if "text/html" in request.headers.get("accept", ""):
+        report_payloads = [
+            report.model_dump(mode="json")
+            for report in report_list.items
+        ]
+        today_text = datetime.now(KST).strftime("%Y-%m-%d")
         return templates.TemplateResponse(
             request,
             "reports.html",
             {
                 "active_page": "reports",
                 "reports": report_list.items,
+                "report_payloads": report_payloads,
+                "report_groups": _group_reports_by_date(
+                    report_payloads,
+                    today_text=today_text,
+                ),
+                "latest_report_id": report_payloads[0]["id"] if report_payloads else None,
                 "total": report_list.total,
             },
         )
@@ -143,3 +156,44 @@ def download_report(
         filename=filename,
         content_disposition_type="attachment",
     )
+
+
+def _group_reports_by_date(
+    reports: list[dict],
+    *,
+    today_text: str,
+) -> list[dict]:
+    grouped: dict[str, list[dict]] = {}
+    for report in reports:
+        report_item = {
+            **report,
+            "created_at_label": _format_iso_datetime(report.get("created_at")),
+            "updated_at_label": _format_iso_datetime(report.get("updated_at")),
+        }
+        report_date = report_item.get("date") or str(report_item.get("created_at", ""))[:10]
+        grouped.setdefault(report_date, []).append(report_item)
+
+    groups = []
+    for report_date in sorted(grouped, reverse=True):
+        items = sorted(
+            grouped[report_date],
+            key=lambda report: (report.get("updated_at") or "", report.get("id") or 0),
+            reverse=True,
+        )
+        is_today = report_date == today_text
+        groups.append(
+            {
+                "date": report_date,
+                "title": f"오늘 · {report_date}" if is_today else report_date,
+                "is_today": is_today,
+                "items": items,
+            }
+        )
+    return groups
+
+
+def _format_iso_datetime(value: str | None) -> str:
+    if not value:
+        return "-"
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed.astimezone(KST).strftime("%Y-%m-%d %H:%M")
