@@ -194,6 +194,12 @@ def test_activity_segments_are_created_updated_and_added_to_detail_timeline(
     assert [item for item in basic_items if item["type"] == "activity_segment"] == []
     assert segment_items[0]["app_name"] == "Chrome"
     assert segment_items[0]["duration_seconds"] == 8
+    assert segment_items[0]["display_title"] == "Chrome / PR 작성"
+    assert segment_items[0]["signal_level"] == "low_signal"
+    assert segment_items[0]["hidden_by_default"] is True
+    assert segment_items[0]["noise_reason"] == "short_app_switch"
+    assert segment_items[0]["event_count"] == 1
+    assert segment_items[0]["details_json"]["original_event_ids"] == [segment["id"]]
     assert "mac_active_window" not in {item["source"] for item in event_items}
     assert event_items[0]["content"] == "Ran pytest"
     assert memo_items[0]["content"] == "Manual note"

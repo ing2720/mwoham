@@ -311,6 +311,11 @@ struct TimelineItemResponse: Decodable, Identifiable {
     let endedAt: String?
     let durationSeconds: Int?
     let sampleCount: Int?
+    let displayTitle: String?
+    let signalLevel: String?
+    let hiddenByDefault: Bool?
+    let noiseReason: String?
+    let eventCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -335,6 +340,11 @@ struct TimelineItemResponse: Decodable, Identifiable {
         case endedAt = "ended_at"
         case durationSeconds = "duration_seconds"
         case sampleCount = "sample_count"
+        case displayTitle = "display_title"
+        case signalLevel = "signal_level"
+        case hiddenByDefault = "hidden_by_default"
+        case noiseReason = "noise_reason"
+        case eventCount = "event_count"
     }
 }
 

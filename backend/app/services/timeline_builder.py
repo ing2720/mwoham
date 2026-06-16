@@ -8,7 +8,6 @@ from app.core.timezone import (
     get_kst_day_range_as_utc,
     parse_date_or_today_kst,
 )
-from app.models.activity_segment import ActivitySegment
 from app.models.dev_event import DevEvent
 from app.models.manual_memo import ManualMemo
 from app.models.meeting_session import MeetingSession
@@ -22,6 +21,11 @@ from app.repositories.memo_repository import MemoRepository
 from app.repositories.screen_observation_repository import ScreenObservationRepository
 from app.repositories.work_event_repository import WorkEventRepository
 from app.schemas.timeline import TimelineItem, TimelineResponse
+from app.services.activity_event_refiner import (
+    ActivityEventRefiner,
+    RefinedActivityEvent,
+    get_activity_event_refiner,
+)
 from app.services.self_observation_filter import SelfObservationFilter, get_self_observation_filter
 from app.services.setting_service import SettingService, get_setting_service
 from app.services.transcript_quality import TranscriptQualityPolicy, get_transcript_quality_policy
@@ -39,6 +43,7 @@ class TimelineBuilder:
         setting_service: SettingService,
         self_observation_filter: SelfObservationFilter,
         transcript_quality_policy: TranscriptQualityPolicy,
+        activity_event_refiner: ActivityEventRefiner,
     ) -> None:
         self.activity_segment_repository = activity_segment_repository
         self.dev_event_repository = dev_event_repository
@@ -49,6 +54,7 @@ class TimelineBuilder:
         self.setting_service = setting_service
         self.self_observation_filter = self_observation_filter
         self.transcript_quality_policy = transcript_quality_policy
+        self.activity_event_refiner = activity_event_refiner
 
     def build_for_date(self, db: Session, target_date: date | None = None) -> TimelineResponse:
         timeline_date = parse_date_or_today_kst(target_date)
@@ -138,7 +144,8 @@ class TimelineBuilder:
             target_date=timeline_date,
             limit=1000,
         )
-        items = [self._activity_segment_to_item(segment) for segment in activity_segments]
+        refined_activity_events = self.activity_event_refiner.refine(activity_segments)
+        items = [self._activity_event_to_item(event) for event in refined_activity_events]
         items.extend(self._dev_event_to_detail_item(event) for event in dev_events)
         items.extend(self._event_to_item(event) for event in events)
         items.extend(self._memo_to_item(memo) for memo in memos)
@@ -193,25 +200,38 @@ class TimelineBuilder:
             session_id=event.session_id,
         )
 
-    def _activity_segment_to_item(self, segment: ActivitySegment) -> TimelineItem:
+    def _activity_event_to_item(self, event: RefinedActivityEvent) -> TimelineItem:
         time_range = (
-            f"{self._format_kst_clock(segment.started_at)}~"
-            f"{self._format_kst_clock(segment.ended_at)}"
+            f"{self._format_kst_clock(event.started_at)}~"
+            f"{self._format_kst_clock(event.ended_at)}"
         )
-        title = self._activity_title(segment.app_name, segment.window_title)
-        duration = self._duration_text(segment.duration_seconds)
+        duration = self._duration_text(event.duration_seconds)
         return TimelineItem(
             type="activity_segment",
-            id=segment.id,
-            timestamp=segment.started_at,
-            content=f"{time_range} {title} ({duration})",
-            source=segment.source,
-            app_name=segment.app_name,
-            window_title=segment.window_title,
-            session_id=segment.session_id,
-            ended_at=segment.ended_at,
-            duration_seconds=segment.duration_seconds,
-            sample_count=segment.sample_count,
+            id=event.id,
+            timestamp=event.started_at,
+            content=f"{time_range} {event.display_title} ({duration})",
+            display_label="작업 구간",
+            source=event.source,
+            app_name=event.app_name,
+            window_title=event.window_title,
+            session_id=event.session_id,
+            ended_at=event.ended_at,
+            duration_seconds=event.duration_seconds,
+            sample_count=event.sample_count,
+            display_title=event.display_title,
+            signal_level=event.signal_level,
+            hidden_by_default=event.hidden_by_default,
+            noise_reason=event.noise_reason,
+            event_count=event.event_count,
+            details_json={
+                "refinement": "activity_event_refiner",
+                "original_event_ids": event.original_event_ids,
+                "event_count": event.event_count,
+                "signal_level": event.signal_level,
+                "hidden_by_default": event.hidden_by_default,
+                "noise_reason": event.noise_reason,
+            },
         )
 
     def _dev_event_to_basic_item(self, event: DevEvent) -> TimelineItem:
@@ -321,14 +341,6 @@ class TimelineBuilder:
         if "diff_stat" in compacted:
             compacted["diff_stat"] = self._truncate(str(compacted["diff_stat"]), 240)
         return compacted
-
-    def _activity_title(self, app_name: str | None, window_title: str | None) -> str:
-        title_parts = [
-            value.strip()
-            for value in [app_name or "알 수 없는 앱", window_title]
-            if value and value.strip()
-        ]
-        return " / ".join(title_parts)
 
     def _duration_text(self, duration_seconds: int) -> str:
         if duration_seconds <= 0:
@@ -520,4 +532,5 @@ def get_timeline_builder() -> TimelineBuilder:
         setting_service=get_setting_service(),
         self_observation_filter=get_self_observation_filter(),
         transcript_quality_policy=get_transcript_quality_policy(),
+        activity_event_refiner=get_activity_event_refiner(),
     )

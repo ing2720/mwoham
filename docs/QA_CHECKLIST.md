@@ -900,6 +900,51 @@ cd ..
 git diff --check
 ```
 
+## 12. Activity Event 정제 QA
+
+확인:
+
+1. macOS 앱에서 기록을 시작하고 여러 앱/창을 전환합니다.
+2. 10~30초 이하로 짧게 머문 앱 전환이 타임라인에서 기본적으로 접히는지 확인합니다.
+3. 같은 앱과 같은 창 제목이 연속으로 반복되면 하나의 작업 구간으로 압축되어
+   보이는지 확인합니다.
+4. 빈 제목, `unknown`, `Untitled`, 앱 이름과 동일한 창 제목이 표시용 제목에서
+   과하게 반복되지 않는지 확인합니다.
+5. 긴 작업 구간은 `high_signal`로 취급되어 중요 이벤트 필터에서 계속 보이는지
+   확인합니다.
+6. 짧은 앱 전환이나 의미 약한 창 제목은 `low_signal` 또는 기본 접힘 상태로
+   표시되는지 확인합니다.
+7. 수동 메모, 회의 전사, Dev Tracking 이벤트는 Activity Event 정제 때문에
+   숨겨지지 않는지 확인합니다.
+8. `/activity-segments?date=YYYY-MM-DD` 원본 목록에는 원본 segment가 삭제되지 않고
+   남아 있는지 확인합니다.
+9. `/timeline/today/detail?date=YYYY-MM-DD` 응답의 activity item에 `display_title`,
+   `signal_level`, `hidden_by_default`, `noise_reason`, `event_count`가 내려오는지
+   확인합니다.
+10. 리포트 조회/편집, backend lifecycle, 메뉴바, 플로팅 위젯 동작이 기존과 같은지
+    확인합니다.
+
+정상 기대 결과:
+
+- Activity Event 원본 DB row는 삭제하지 않습니다.
+- 정제는 service/presentation layer에서 수행되고 timeline detail 응답에 표시용
+  metadata로 반영됩니다.
+- 타임라인 UI는 backend 정제 힌트를 우선 사용하고, 오래된 응답에는 기존 fallback
+  접힘 정책을 유지합니다.
+- report 생성 로직, DB/schema, STT, recording, Dev Tracking 정책은 변경하지 않습니다.
+
+검증 명령:
+
+```bash
+./scripts/test_macos_timeline_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+
+cd backend
+uv run python scripts/run_dev_checks.py --no-record
+uv run pytest -q
+```
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:
