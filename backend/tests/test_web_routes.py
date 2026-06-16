@@ -646,6 +646,12 @@ def test_reports_page_and_detail_render_generated_report(client: TestClient) -> 
 
     assert list_response.status_code == 200
     assert "일일 작업 리포트" in list_response.text
+    assert "report-modal-backdrop" in list_response.text
+    assert "report-editor" in list_response.text
+    assert "전체 복사" in list_response.text
+    assert "편집" in list_response.text
+    assert "저장" in list_response.text
+    assert "PDF 내보내기" not in list_response.text
     assert detail_response.status_code == 200
     assert "Implemented report skeleton" in detail_response.text
     assert "Markdown 내보내기" in detail_response.text
@@ -667,6 +673,29 @@ def test_reports_page_renders_mode_specific_create_buttons(client: TestClient) -
     assert "상세 리포트 생성" in response.text
     assert 'action="/reports/daily/create?mode=simple"' in response.text
     assert 'action="/reports/daily/create?mode=detailed"' in response.text
+
+
+def test_reports_page_groups_reports_by_date_and_embeds_modal_data(
+    client: TestClient,
+) -> None:
+    old_report = client.post(
+        "/reports/daily?mode=simple",
+        json={"date": "2026-05-25"},
+    ).json()
+    latest_report = client.post(
+        "/reports/daily?mode=detailed",
+        json={"date": "2026-05-26"},
+    ).json()
+
+    response = client.get("/reports", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert "2026-05-26" in response.text
+    assert "2026-05-25" in response.text
+    assert f'data-report-id="{latest_report["id"]}"' in response.text
+    assert f'data-report-id="{old_report["id"]}"' in response.text
+    assert "reports-data" in response.text
+    assert "최신" in response.text
 
 
 def test_web_simple_report_create_form_uses_simple_mode(client: TestClient) -> None:

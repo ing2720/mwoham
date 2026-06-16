@@ -3,14 +3,163 @@
 {% block title %}리포트 - 뭐함{% endblock %}
 
 {% block content %}
+  <style>
+    .report-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .report-date-group {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .report-date-title {
+      align-items: baseline;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+    }
+
+    .report-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      display: grid;
+      gap: 6px;
+      padding: 14px 16px;
+    }
+
+    .report-card-header {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+    }
+
+    .report-preview {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .report-latest {
+      background: #e7efff;
+      border-radius: 999px;
+      color: #1d4ed8;
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 650;
+      padding: 2px 8px;
+    }
+
+    .report-modal-backdrop {
+      align-items: center;
+      background: rgba(32, 33, 36, 0.42);
+      bottom: 0;
+      display: none;
+      justify-content: center;
+      left: 0;
+      padding: 24px;
+      position: fixed;
+      right: 0;
+      top: 0;
+      z-index: 20;
+    }
+
+    .report-modal-backdrop.is-open {
+      display: flex;
+    }
+
+    .report-modal {
+      background: var(--panel);
+      border-radius: 10px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+      display: grid;
+      gap: 14px;
+      max-height: min(86vh, 860px);
+      max-width: 880px;
+      overflow: auto;
+      padding: 20px;
+      width: min(880px, 100%);
+    }
+
+    .report-modal-header {
+      align-items: flex-start;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+    }
+
+    .report-modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .report-markdown {
+      background: #f8f8f5;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      max-height: 430px;
+      overflow: auto;
+      padding: 12px;
+      white-space: pre-wrap;
+    }
+
+    .report-editor {
+      min-height: 430px;
+    }
+
+    .report-message {
+      border-radius: 6px;
+      display: none;
+      font-size: 13px;
+      padding: 9px 10px;
+    }
+
+    .report-message.is-visible {
+      display: block;
+    }
+
+    .report-message.success {
+      background: #e7f5ed;
+      color: #166534;
+    }
+
+    .report-message.warning {
+      background: #fff7df;
+      color: #92400e;
+    }
+
+    .report-message.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .button-secondary {
+      background: #e5e7eb;
+      color: #1f2937;
+    }
+
+    .button-danger {
+      background: #b91c1c;
+    }
+  </style>
+
   <div class="page-title">
     <h1>리포트</h1>
     <span class="muted">생성된 리포트 {{ total }}개</span>
   </div>
 
   <section class="panel" style="margin-bottom: 16px;">
-    <h2>오늘 리포트</h2>
-    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <h2>리포트 생성</h2>
+    <div class="report-actions">
       <form method="post" action="/reports/daily/create?mode=simple">
         <button type="submit">간단 리포트 생성</button>
       </form>
@@ -18,23 +167,286 @@
         <button type="submit">상세 리포트 생성</button>
       </form>
     </div>
+    <p class="muted" style="margin: 0;">생성 후 목록에서 리포트를 선택해 원문을 확인하고 수정할 수 있습니다.</p>
   </section>
 
   <section class="panel">
     <h2>리포트 목록</h2>
-    <div class="list">
-      {% for report in reports %}
-        <article class="item">
-          <a class="item-title" href="/reports/{{ report.id }}/view">
-            {{ report.title if report.title else "제목 없는 리포트" }}
-          </a>
-          <div class="item-meta">
-            {{ report.date if report.date else "날짜 없음" }} · {{ report.mode | report_mode_label }} · {{ report.created_by | created_by_label }}
+    {% if report_groups %}
+      {% for group in report_groups %}
+        <div class="report-date-group">
+          <div class="report-date-title">
+            <strong>{{ group["title"] }}</strong>
+            <span class="muted">{{ group["items"] | length }}개</span>
           </div>
-        </article>
-      {% else %}
-        <div class="empty">아직 생성된 리포트가 없습니다.</div>
+          <div class="list">
+            {% for report in group["items"] %}
+              <article class="report-card" id="report-card-{{ report.id }}" data-report-id="{{ report.id }}">
+                <div class="report-card-header">
+                  <span class="badge">{{ report.mode | report_mode_label }}</span>
+                  {% if report.id == latest_report_id %}
+                    <span class="report-latest">최신</span>
+                  {% endif %}
+                </div>
+                <a class="item-title report-open" href="/reports/{{ report.id }}/view" data-report-id="{{ report.id }}">
+                  {{ report.title if report.title else "제목 없는 리포트" }}
+                </a>
+                <div class="report-preview" id="report-preview-{{ report.id }}"></div>
+                <div class="item-meta">
+                  생성 {{ report.created_at_label }} · 수정 <span id="report-updated-{{ report.id }}">{{ report.updated_at_label }}</span> · {{ report.created_by | created_by_label }}
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
       {% endfor %}
-    </div>
+    {% else %}
+      <div class="empty">아직 생성된 리포트가 없습니다.</div>
+    {% endif %}
   </section>
+
+  <div class="report-modal-backdrop" id="report-modal-backdrop" aria-hidden="true">
+    <section class="report-modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
+      <div class="report-modal-header">
+        <div>
+          <h2 id="report-modal-title" style="margin-bottom: 6px;">리포트</h2>
+          <div class="item-meta" id="report-modal-meta"></div>
+        </div>
+        <button type="button" class="button-secondary" id="report-close-button">닫기</button>
+      </div>
+
+      <div class="report-modal-actions">
+        <button type="button" id="report-edit-button">편집</button>
+        <button type="button" id="report-save-button" style="display: none;">저장</button>
+        <button type="button" class="button-secondary" id="report-cancel-button" style="display: none;">취소</button>
+        <button type="button" class="button-secondary" id="report-copy-button">전체 복사</button>
+      </div>
+
+      <div class="report-message warning" id="report-dirty-message">저장하지 않은 변경사항이 있습니다.</div>
+      <div class="report-message success" id="report-success-message"></div>
+      <div class="report-message error" id="report-error-message"></div>
+
+      <pre class="report-markdown" id="report-markdown-view"></pre>
+      <textarea class="report-editor" id="report-editor" style="display: none;" aria-label="리포트 Markdown 편집"></textarea>
+    </section>
+  </div>
+
+  <script type="application/json" id="reports-data">{{ report_payloads | tojson }}</script>
+  <script>
+    (() => {
+      const reports = new Map(
+        JSON.parse(document.getElementById("reports-data").textContent)
+          .map((report) => [String(report.id), report])
+      );
+      const backdrop = document.getElementById("report-modal-backdrop");
+      const title = document.getElementById("report-modal-title");
+      const meta = document.getElementById("report-modal-meta");
+      const markdownView = document.getElementById("report-markdown-view");
+      const editor = document.getElementById("report-editor");
+      const editButton = document.getElementById("report-edit-button");
+      const saveButton = document.getElementById("report-save-button");
+      const cancelButton = document.getElementById("report-cancel-button");
+      const copyButton = document.getElementById("report-copy-button");
+      const closeButton = document.getElementById("report-close-button");
+      const dirtyMessage = document.getElementById("report-dirty-message");
+      const successMessage = document.getElementById("report-success-message");
+      const errorMessage = document.getElementById("report-error-message");
+      let currentReport = null;
+      let lastSavedContent = "";
+      let editing = false;
+
+      const reportModeLabel = (mode) => {
+        if (mode === "simple") return "간단 리포트";
+        if (mode === "detailed") return "상세 리포트";
+        return "리포트";
+      };
+
+      const createdByLabel = (value) => {
+        if (value === "ai") return "AI";
+        if (value === "system") return "시스템";
+        if (value === "user") return "사용자";
+        return value || "-";
+      };
+
+      const preview = (content) => {
+        const compact = (content || "")
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .join(" ");
+        return compact.length > 140 ? `${compact.slice(0, 140)}...` : compact;
+      };
+
+      const formatDateTime = (value) => {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleString("ko-KR", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      };
+
+      const showMessage = (element, message) => {
+        element.textContent = message || "";
+        element.classList.toggle("is-visible", Boolean(message));
+      };
+
+      const clearMessages = () => {
+        showMessage(successMessage, "");
+        showMessage(errorMessage, "");
+      };
+
+      const setEditing = (isEditing) => {
+        editing = isEditing;
+        markdownView.style.display = isEditing ? "none" : "block";
+        editor.style.display = isEditing ? "block" : "none";
+        editButton.style.display = isEditing ? "none" : "inline-block";
+        saveButton.style.display = isEditing ? "inline-block" : "none";
+        cancelButton.style.display = isEditing ? "inline-block" : "none";
+        dirtyMessage.classList.toggle(
+          "is-visible",
+          isEditing && editor.value !== lastSavedContent
+        );
+      };
+
+      const refreshModal = () => {
+        if (!currentReport) return;
+        title.textContent = currentReport.title || "제목 없는 리포트";
+        meta.textContent = [
+          reportModeLabel(currentReport.mode),
+          currentReport.date || "날짜 없음",
+          `생성 ${formatDateTime(currentReport.created_at)}`,
+          `수정 ${formatDateTime(currentReport.updated_at)}`,
+          createdByLabel(currentReport.created_by),
+        ].join(" · ");
+        markdownView.textContent = currentReport.content || "";
+        editor.value = currentReport.content || "";
+        lastSavedContent = currentReport.content || "";
+        setEditing(false);
+      };
+
+      const openReport = (reportID) => {
+        currentReport = reports.get(String(reportID));
+        if (!currentReport) {
+          showMessage(errorMessage, "리포트를 찾을 수 없습니다.");
+          return;
+        }
+        clearMessages();
+        refreshModal();
+        backdrop.classList.add("is-open");
+        backdrop.setAttribute("aria-hidden", "false");
+      };
+
+      const closeReport = () => {
+        backdrop.classList.remove("is-open");
+        backdrop.setAttribute("aria-hidden", "true");
+        currentReport = null;
+        setEditing(false);
+        clearMessages();
+      };
+
+      const updateCard = (report) => {
+        const titleLink = document.querySelector(`.report-open[data-report-id="${report.id}"]`);
+        const previewElement = document.getElementById(`report-preview-${report.id}`);
+        const updatedElement = document.getElementById(`report-updated-${report.id}`);
+        if (titleLink) titleLink.textContent = report.title || "제목 없는 리포트";
+        if (previewElement) previewElement.textContent = preview(report.content);
+        if (updatedElement) updatedElement.textContent = formatDateTime(report.updated_at);
+      };
+
+      document.querySelectorAll(".report-open").forEach((link) => {
+        const reportID = link.dataset.reportId;
+        const report = reports.get(String(reportID));
+        const previewElement = document.getElementById(`report-preview-${reportID}`);
+        if (report && previewElement) previewElement.textContent = preview(report.content);
+
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          openReport(reportID);
+        });
+      });
+
+      editButton.addEventListener("click", () => {
+        clearMessages();
+        setEditing(true);
+        editor.focus();
+      });
+
+      cancelButton.addEventListener("click", () => {
+        editor.value = lastSavedContent;
+        setEditing(false);
+        clearMessages();
+      });
+
+      editor.addEventListener("input", () => {
+        dirtyMessage.classList.toggle("is-visible", editor.value !== lastSavedContent);
+      });
+
+      saveButton.addEventListener("click", async () => {
+        if (!currentReport) return;
+        clearMessages();
+        saveButton.disabled = true;
+
+        try {
+          const headers = { "Content-Type": "application/json" };
+          const token = window.localStorage.getItem("mwohamLocalApiToken");
+          if (token) headers.Authorization = `Bearer ${token}`;
+
+          const response = await fetch(`/reports/${currentReport.id}`, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ content: editor.value }),
+          });
+          if (!response.ok) {
+            throw new Error(`저장 실패: HTTP ${response.status}`);
+          }
+          const updated = await response.json();
+          reports.set(String(updated.id), updated);
+          currentReport = updated;
+          updateCard(updated);
+          refreshModal();
+          showMessage(successMessage, "저장 완료");
+        } catch (error) {
+          showMessage(errorMessage, error.message || "저장에 실패했습니다.");
+        } finally {
+          saveButton.disabled = false;
+        }
+      });
+
+      copyButton.addEventListener("click", async () => {
+        if (!currentReport) return;
+        clearMessages();
+        try {
+          await navigator.clipboard.writeText(currentReport.content || "");
+          showMessage(successMessage, "복사 완료");
+        } catch (error) {
+          try {
+            const temporary = document.createElement("textarea");
+            temporary.value = currentReport.content || "";
+            document.body.appendChild(temporary);
+            temporary.select();
+            document.execCommand("copy");
+            temporary.remove();
+            showMessage(successMessage, "복사 완료");
+          } catch {
+            showMessage(errorMessage, "복사에 실패했습니다.");
+          }
+        }
+      });
+
+      closeButton.addEventListener("click", closeReport);
+      backdrop.addEventListener("click", (event) => {
+        if (event.target === backdrop) closeReport();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && backdrop.classList.contains("is-open")) {
+          closeReport();
+        }
+      });
+    })();
+  </script>
 {% endblock %}

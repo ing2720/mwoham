@@ -860,6 +860,46 @@ git diff --check
 git diff --check
 ```
 
+## 11. 웹 리포트 편집 UX 확인
+
+확인:
+
+1. backend를 실행하고 브라우저에서 `/reports`에 진입합니다.
+2. 기존 리포트 목록이 날짜별 그룹으로 표시되는지 확인합니다.
+3. 오늘 날짜 그룹은 `오늘 · YYYY-MM-DD`로 표시되는지 확인합니다.
+4. 각 리포트 카드에 detailed/simple badge, 제목, preview, 생성/수정 시각, 최신
+   표시가 보이는지 확인합니다.
+5. 리포트 카드를 클릭하면 현재 페이지 안에서 상세 modal이 열리는지 확인합니다.
+6. 상세 modal에서 Markdown 원문, mode, 생성/수정 시각이 표시되는지 확인합니다.
+7. `편집`을 누르면 textarea 편집 모드로 전환되는지 확인합니다.
+8. Markdown을 수정하고 `저장`하면 modal 내용과 목록 카드 preview/수정 시각이
+   갱신되는지 확인합니다.
+9. 편집 중 `취소`를 누르면 마지막 저장본으로 복원되는지 확인합니다.
+10. 저장하지 않은 변경사항이 있을 때 warning 문구가 표시되는지 확인합니다.
+11. `전체 복사`가 클립보드에 Markdown 원문을 복사하는지 확인합니다.
+12. PATCH 저장 실패 또는 복사 실패 시 modal 안에 오류 메시지가 표시되는지
+   확인합니다.
+13. 리포트가 없는 상태에서는 빈 상태 문구가 표시되는지 확인합니다.
+14. 웹 리포트 modal에는 `PDF 내보내기` 버튼이 없는지 확인합니다.
+
+정상 기대 결과:
+
+- 웹 리포트 편집은 기존 `PATCH /reports/{id}` API를 사용하며 새 backend API를
+  추가하지 않습니다.
+- backend report 생성 로직, DB/schema, macOS 앱 파일은 변경하지 않습니다.
+- 저장 성공 시 화면 state가 갱신되고, 저장 실패 시 기존 저장본은 유지됩니다.
+- PDF 내보내기는 macOS 앱 로컬 기능으로만 유지합니다.
+
+검증 명령:
+
+```bash
+cd backend
+uv run pytest -q
+uv run python scripts/run_dev_checks.py --no-record
+cd ..
+git diff --check
+```
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:
