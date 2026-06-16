@@ -26,6 +26,8 @@ expect_count 2 "CODE_SIGN_IDENTITY = \"Apple Development\";" "${PROJECT_FILE}"
 expect_count 2 \
   "DEVELOPMENT_TEAM = \"\$(MWOHAM_DEVELOPMENT_TEAM)\";" \
   "${PROJECT_FILE}"
+expect_count 2 "INFOPLIST_KEY_CFBundleDisplayName = MwohamMac;" \
+  "${PROJECT_FILE}"
 expect_count 0 \
   "\"CODE_SIGN_IDENTITY[sdk=macosx*]\" = \"Apple Development\";" \
   "${PROJECT_FILE}"
@@ -34,7 +36,10 @@ grep -Fq 'APP_PATH="${APP_PATH:-${HOME}/Applications/MwohamMac.app}"' \
   "${BUILD_SCRIPT}"
 grep -Fq 'EXPECTED_BUNDLE_IDENTIFIER="com.ing2720.MwohamMac"' \
   "${BUILD_SCRIPT}"
+grep -Fq 'EXPECTED_DISPLAY_NAME="MwohamMac"' "${BUILD_SCRIPT}"
 grep -Fq 'codesign --verify --deep --strict' "${BUILD_SCRIPT}"
+grep -Fq 'LaunchServices.framework/Support/lsregister' "${BUILD_SCRIPT}"
+grep -Fq 'open -n "${APP_PATH}"' "${BUILD_SCRIPT}"
 grep -Fq 'The build stopped without falling back to unsigned mode.' \
   "${BUILD_SCRIPT}"
 grep -Fq 'CODE_SIGNING_ALLOWED=NO' "${MACOS_WORKFLOW}"
@@ -68,11 +73,23 @@ MWOHAM_SECURITY_IDENTITIES="${IDENTITIES}" \
 MWOHAM_CERTIFICATE_TEAM_ID=4TU7GC9X3Z \
 run_preflight "${BUILD_SCRIPT}" >"${TEMP_DIR}/signed.log" 2>&1
 grep -Fq "Build mode: signed" "${TEMP_DIR}/signed.log"
+grep -Fq "Configuration: Debug" "${TEMP_DIR}/signed.log"
 grep -Fq "Team ID: 4TU7GC9X3Z" "${TEMP_DIR}/signed.log"
 grep -Fq "Resolved signing identity: ${IDENTITY}" "${TEMP_DIR}/signed.log"
 grep -Fq "Resolved signing identity fingerprint: ABCDEF1234567890" \
   "${TEMP_DIR}/signed.log"
 grep -Fq "Resolved signing style: Manual" "${TEMP_DIR}/signed.log"
+grep -Fq "App output path: ${HOME}/Applications/MwohamMac.app" \
+  "${TEMP_DIR}/signed.log"
+
+MWOHAM_DEVELOPMENT_TEAM=4TU7GC9X3Z \
+MWOHAM_SECURITY_IDENTITIES="${IDENTITIES}" \
+MWOHAM_CERTIFICATE_TEAM_ID=4TU7GC9X3Z \
+run_preflight "${BUILD_SCRIPT}" --release \
+  >"${TEMP_DIR}/signed-release.log" 2>&1
+grep -Fq "Build mode: signed" "${TEMP_DIR}/signed-release.log"
+grep -Fq "Configuration: Release" "${TEMP_DIR}/signed-release.log"
+grep -Fq "signed Release" "${TEMP_DIR}/signed-release.log"
 
 MWOHAM_DEVELOPMENT_TEAM=4TU7GC9X3Z \
 MWOHAM_CODE_SIGN_IDENTITY="${IDENTITY}" \
@@ -99,6 +116,13 @@ grep -Fq "Build mode: unsigned" "${TEMP_DIR}/unsigned.log"
 grep -Fq "Team ID: none" "${TEMP_DIR}/unsigned.log"
 grep -Fq "Resolved signing style: none" "${TEMP_DIR}/unsigned.log"
 grep -Fq "unsigned/ad-hoc build입니다." "${TEMP_DIR}/unsigned.log"
+
+run_preflight "${BUILD_SCRIPT}" --unsigned --release \
+  >"${TEMP_DIR}/unsigned-release.log" 2>&1
+grep -Fq "Build mode: unsigned" "${TEMP_DIR}/unsigned-release.log"
+grep -Fq "Configuration: Release" "${TEMP_DIR}/unsigned-release.log"
+grep -Fq "unsigned Release는 임시 패키징/UI 확인용입니다." \
+  "${TEMP_DIR}/unsigned-release.log"
 
 run_preflight "${BUILD_SCRIPT}" --unsigned --open \
   >"${TEMP_DIR}/unsigned-open.log" 2>&1

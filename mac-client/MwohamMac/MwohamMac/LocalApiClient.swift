@@ -309,6 +309,14 @@ final class LocalApiClient {
         return BackendSnapshot(health: health, status: status)
     }
 
+    func fetchHealth() async throws -> HealthResponse {
+        var request = makeRequest(path: "/health")
+        request.httpMethod = "GET"
+        request.timeoutInterval = 2
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return try await send(request)
+    }
+
     @discardableResult
     func startRecording() async throws -> RecordingResponse {
         try await post("/recording/start")

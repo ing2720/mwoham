@@ -6,9 +6,9 @@ PROJECT_PATH="${ROOT_DIR}/mac-client/MwohamMac/MwohamMac.xcodeproj"
 SCHEME="MwohamMac"
 CONFIGURATION="Debug"
 DERIVED_DATA_PATH="${ROOT_DIR}/.derivedData/MwohamMac"
-BUILT_APP_PATH="${DERIVED_DATA_PATH}/Build/Products/${CONFIGURATION}/MwohamMac.app"
 APP_PATH="${APP_PATH:-${HOME}/Applications/MwohamMac.app}"
 EXPECTED_BUNDLE_IDENTIFIER="com.ing2720.MwohamMac"
+EXPECTED_DISPLAY_NAME="MwohamMac"
 SIGNING_CONFIG_PATH="${MWOHAM_SIGNING_CONFIG:-${HOME}/.config/mwoham/macos-signing.env}"
 SIGNING_IDENTITY="${MWOHAM_CODE_SIGN_IDENTITY:-}"
 DEVELOPMENT_TEAM="${MWOHAM_DEVELOPMENT_TEAM:-}"
@@ -18,10 +18,11 @@ ALLOW_UNSIGNED=0
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/build_macos_app.sh [--open] [--destination /path/to/MwohamMac.app]
-  ./scripts/build_macos_app.sh --unsigned [--destination /path/to/MwohamMac.app]
+  ./scripts/build_macos_app.sh [--release] [--open] [--destination /path/to/MwohamMac.app]
+  ./scripts/build_macos_app.sh --unsigned [--release] [--open] [--destination /path/to/MwohamMac.app]
 
-Builds and signs MwohamMac Debug app into a stable bundle path.
+Builds and installs MwohamMac into a stable bundle path.
+Default configuration: Debug
 Default destination: ~/Applications/MwohamMac.app
 
 Signing configuration:
@@ -38,6 +39,9 @@ whose certificate name contains the configured Team ID.
 
 --unsigned allows UI/CI builds without a Team ID or certificate. TCC permissions
 are not stable in that mode.
+
+--release builds the Release configuration. A signed Release build is recommended
+for installed-app and macOS permission/TCC verification.
 EOF
 }
 
@@ -195,6 +199,10 @@ while [[ $# -gt 0 ]]; do
       ALLOW_UNSIGNED=1
       shift
       ;;
+    --release)
+      CONFIGURATION="Release"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -209,6 +217,7 @@ done
 
 APP_PATH="$(absolute_path "${APP_PATH}")"
 validate_app_path "${APP_PATH}"
+BUILT_APP_PATH="${DERIVED_DATA_PATH}/Build/Products/${CONFIGURATION}/MwohamMac.app"
 
 if [[ -f "${SIGNING_CONFIG_PATH}" ]]; then
   # shellcheck disable=SC1090
@@ -246,15 +255,20 @@ XCODEBUILD_ARGUMENTS=(
 
 if [[ "${ALLOW_UNSIGNED}" -eq 1 ]]; then
   BUILD_MODE="unsigned"
+  DISPLAY_TEAM_ID="none"
   RESOLVED_SIGNING_IDENTITY="none"
   RESOLVED_SIGNING_IDENTITY_HASH="none"
   RESOLVED_SIGNING_STYLE="none"
   echo "Warning: unsigned/ad-hoc build입니다."
   echo "Warning: macOS 권한/TCC 상태가 안정적으로 유지되지 않을 수 있습니다."
   echo "Warning: 마이크/화면 기록/접근성 권한 테스트에는 signed build를 사용하세요."
+  if [[ "${CONFIGURATION}" == "Release" ]]; then
+    echo "Warning: unsigned Release는 임시 패키징/UI 확인용입니다."
+  fi
   XCODEBUILD_ARGUMENTS+=(CODE_SIGNING_ALLOWED=NO)
 else
   BUILD_MODE="signed"
+  DISPLAY_TEAM_ID="${DEVELOPMENT_TEAM}"
   if [[ -z "${DEVELOPMENT_TEAM}" ]]; then
     echo "MWOHAM_DEVELOPMENT_TEAM is required for a stable signed app." >&2
     echo "Create ${SIGNING_CONFIG_PATH} with:" >&2
@@ -295,13 +309,21 @@ else
 fi
 
 echo "Build mode: ${BUILD_MODE}"
+echo "Configuration: ${CONFIGURATION}"
 echo "Bundle ID: ${EXPECTED_BUNDLE_IDENTIFIER}"
-echo "Team ID: ${DEVELOPMENT_TEAM:-none}"
+echo "Team ID: ${DISPLAY_TEAM_ID:-none}"
 echo "Resolved signing identity: ${RESOLVED_SIGNING_IDENTITY}"
 echo "Resolved signing identity fingerprint: ${RESOLVED_SIGNING_IDENTITY_HASH}"
 echo "Resolved signing style: ${RESOLVED_SIGNING_STYLE}"
 echo "App output path: ${APP_PATH}"
 echo "DerivedData: ${DERIVED_DATA_PATH}"
+if [[ "${BUILD_MODE}" == "signed" && "${CONFIGURATION}" == "Release" ]]; then
+  echo "Install profile: signed Release (recommended for installed-app/TCC QA)"
+elif [[ "${BUILD_MODE}" == "signed" ]]; then
+  echo "Install profile: signed Debug (development and permission QA)"
+else
+  echo "Install profile: unsigned ${CONFIGURATION} (temporary UI/CI use only)"
+fi
 
 if [[ "${MWOHAM_BUILD_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   echo "Preflight-only mode: build skipped."
@@ -326,10 +348,21 @@ if [[ ! -d "${BUILT_APP_PATH}" ]]; then
   exit 1
 fi
 
-echo "Stopping running MwohamMac process if present..."
+echo "Installing MwohamMac..."
+echo "1/5 Stopping the existing MwohamMac process if present..."
 pkill -x MwohamMac 2>/dev/null || true
+for _ in {1..30}; do
+  if ! pgrep -x MwohamMac >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+if pgrep -x MwohamMac >/dev/null 2>&1; then
+  echo "MwohamMac is still running; refusing to replace the app bundle." >&2
+  exit 1
+fi
 
-echo "Replacing app bundle..."
+echo "2/5 Replacing the installed app bundle..."
 echo "From: ${BUILT_APP_PATH}"
 echo "To:   ${APP_PATH}"
 mkdir -p "$(dirname "${APP_PATH}")"
@@ -346,7 +379,32 @@ if [[ "${ACTUAL_BUNDLE_IDENTIFIER}" != "${EXPECTED_BUNDLE_IDENTIFIER}" ]]; then
   exit 1
 fi
 
+ACTUAL_DISPLAY_NAME="$(
+  /usr/libexec/PlistBuddy \
+    -c "Print :CFBundleDisplayName" \
+    "${APP_PATH}/Contents/Info.plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy \
+      -c "Print :CFBundleName" \
+      "${APP_PATH}/Contents/Info.plist"
+)"
+if [[ "${ACTUAL_DISPLAY_NAME}" != "${EXPECTED_DISPLAY_NAME}" ]]; then
+  echo "Unexpected app display name: ${ACTUAL_DISPLAY_NAME}" >&2
+  exit 1
+fi
+
+MARKETING_VERSION="$(
+  /usr/libexec/PlistBuddy \
+    -c "Print :CFBundleShortVersionString" \
+    "${APP_PATH}/Contents/Info.plist"
+)"
+BUILD_NUMBER="$(
+  /usr/libexec/PlistBuddy \
+    -c "Print :CFBundleVersion" \
+    "${APP_PATH}/Contents/Info.plist"
+)"
+
 if [[ "${ALLOW_UNSIGNED}" -eq 0 ]]; then
+  echo "3/5 Verifying the signed app bundle..."
   codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
   SIGNING_DETAILS="$(codesign -dv --verbose=4 "${APP_PATH}" 2>&1)"
   if grep -Fq "Signature=adhoc" <<<"${SIGNING_DETAILS}"; then
@@ -360,15 +418,26 @@ if [[ "${ALLOW_UNSIGNED}" -eq 0 ]]; then
   echo "${SIGNING_DETAILS}" \
     | grep -E "^(Identifier|Authority|TeamIdentifier|Signature)="
   codesign -d -r- "${APP_PATH}" 2>&1
+else
+  echo "3/5 Skipping codesign identity verification for explicit unsigned mode."
 fi
 
-echo "App bundle ready:"
-echo "${APP_PATH}"
+echo "4/5 Registering the installed app with LaunchServices..."
+"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister" \
+  -f "${APP_PATH}"
+
+echo "5/5 Installation complete."
+echo "Installed app: ${APP_PATH}"
+echo "Display name: ${ACTUAL_DISPLAY_NAME}"
+echo "Bundle ID: ${ACTUAL_BUNDLE_IDENTIFIER}"
+echo "Version: ${MARKETING_VERSION} (${BUILD_NUMBER})"
+echo "Configuration: ${CONFIGURATION}"
+echo "Build mode: ${BUILD_MODE}"
 
 if [[ "${SHOULD_OPEN}" -eq 1 ]]; then
   if [[ "${ALLOW_UNSIGNED}" -eq 1 ]]; then
     echo "Warning: opening an unsigned/ad-hoc app for temporary UI verification."
   fi
   echo "Opening app..."
-  open "${APP_PATH}"
+  open -n "${APP_PATH}"
 fi
