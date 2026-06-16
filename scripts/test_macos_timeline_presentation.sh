@@ -38,7 +38,9 @@ func item(
     duration: Int? = nil,
     important: Bool = false,
     appName: String? = nil,
-    windowTitle: String? = nil
+    windowTitle: String? = nil,
+    hiddenByDefault: Bool = false,
+    noiseReason: String? = nil
 ) -> TimelineDisplayItem {
     TimelineDisplayItem(
         id: id,
@@ -52,9 +54,12 @@ func item(
         appName: appName,
         windowTitle: windowTitle,
         durationSeconds: duration,
+        signalLevel: nil,
+        hiddenByDefault: hiddenByDefault,
+        eventCount: nil,
         isImportant: important,
-        isFoldedNoise: false,
-        noiseReason: nil,
+        isFoldedNoise: hiddenByDefault,
+        noiseReason: noiseReason,
         detailLines: []
     )
 }
@@ -104,6 +109,16 @@ let items = [
         windowTitle: "Timeline"
     ),
     item(
+        "activity-refined-hidden",
+        hour: 15,
+        minute: 4,
+        category: .appActivity,
+        title: "Preview",
+        duration: 120,
+        appName: "Preview",
+        windowTitle: "Untitled"
+    ),
+    item(
         "meeting",
         hour: 19,
         category: .meeting,
@@ -126,6 +141,24 @@ expect(
     "repeated app/window event is folded as noise"
 )
 expect(allGroups[1].isReportCandidate, "important afternoon group is report candidate")
+
+let refinedHidden = item(
+    "activity-refined-backend-hidden",
+    hour: 15,
+    minute: 6,
+    category: .appActivity,
+    title: "Finder",
+    duration: 120,
+    appName: "Finder",
+    windowTitle: nil,
+    hiddenByDefault: true,
+    noiseReason: "의미 약한 창 제목"
+)
+let refinedGroups = TimelinePresentationBuilder.groups(for: [refinedHidden], filter: .all)
+expect(
+    refinedGroups[0].foldedItems.first?.id == "activity-refined-backend-hidden",
+    "backend hidden_by_default hint folds activity"
+)
 
 let memoGroups = TimelinePresentationBuilder.groups(for: items, filter: .memo)
 expect(memoGroups.count == 1, "memo filter keeps only memo group")

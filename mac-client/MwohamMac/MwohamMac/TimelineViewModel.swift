@@ -89,9 +89,12 @@ final class TimelineViewModel: ObservableObject {
             appName: response.appName,
             windowTitle: response.windowTitle,
             durationSeconds: response.durationSeconds,
+            signalLevel: response.signalLevel,
+            hiddenByDefault: response.hiddenByDefault ?? false,
+            eventCount: response.eventCount,
             isImportant: important,
-            isFoldedNoise: false,
-            noiseReason: nil,
+            isFoldedNoise: response.hiddenByDefault ?? false,
+            noiseReason: noiseReasonText(response.noiseReason),
             detailLines: details
         )
     }
@@ -124,6 +127,9 @@ final class TimelineViewModel: ObservableObject {
 
         switch category {
         case .appActivity:
+            if let displayTitle = clean(response.displayTitle) {
+                return displayTitle
+            }
             if let appName = clean(response.appName),
                let windowTitle = clean(response.windowTitle),
                !windowTitle.isEmpty {
@@ -194,6 +200,12 @@ final class TimelineViewModel: ObservableObject {
                 || eventType.contains("commit")
                 || eventType.contains("test")
         case .appActivity:
+            if response.signalLevel == "high_signal" {
+                return true
+            }
+            if response.hiddenByDefault == true {
+                return false
+            }
             return (response.durationSeconds ?? 0) >= 900
         case .other:
             return false
@@ -228,6 +240,16 @@ final class TimelineViewModel: ObservableObject {
         if let sampleCount = response.sampleCount,
            sampleCount > 0 {
             lines.append("samples: \(sampleCount)")
+        }
+        if let eventCount = response.eventCount,
+           eventCount > 1 {
+            lines.append("events: \(eventCount)")
+        }
+        if let signalLevel = clean(response.signalLevel) {
+            lines.append("signal: \(signalLevel)")
+        }
+        if let noiseReason = noiseReasonText(response.noiseReason) {
+            lines.append("noise: \(noiseReason)")
         }
         if let endedAt {
             lines.append("ended: \(detailDateFormatter.string(from: endedAt))")
@@ -264,6 +286,23 @@ final class TimelineViewModel: ObservableObject {
             return "\(minutes)분"
         }
         return "\(minutes)분 \(remainder)초"
+    }
+
+    private static func noiseReasonText(_ reason: String?) -> String? {
+        switch clean(reason) {
+        case "short_app_switch":
+            return "짧은 앱 전환"
+        case "weak_window_title":
+            return "의미 약한 창 제목"
+        case "repeated_app_window":
+            return "반복 앱/창"
+        case "weak_app_context":
+            return "앱 정보 부족"
+        case let value?:
+            return value
+        case nil:
+            return nil
+        }
     }
 
     private static func clean(_ value: String?) -> String? {

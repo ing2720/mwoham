@@ -35,6 +35,11 @@ class TimelineItem(ApiSchema):
     ended_at: DateTimeType | None = None
     duration_seconds: int | None = None
     sample_count: int | None = None
+    display_title: str | None = None
+    signal_level: str | None = None
+    hidden_by_default: bool | None = None
+    noise_reason: str | None = None
+    event_count: int | None = None
 
 
 class TimelineResponse(ApiSchema):

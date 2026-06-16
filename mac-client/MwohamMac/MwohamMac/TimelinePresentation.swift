@@ -115,6 +115,9 @@ struct TimelineDisplayItem: Identifiable, Equatable {
     let appName: String?
     let windowTitle: String?
     let durationSeconds: Int?
+    let signalLevel: String?
+    let hiddenByDefault: Bool
+    let eventCount: Int?
     let isImportant: Bool
     var isFoldedNoise: Bool
     var noiseReason: String?
@@ -243,7 +246,10 @@ enum TimelinePresentationBuilder {
                     abs(item.timestamp.timeIntervalSince($0)) < 300
                 } == true
 
-            if isEmptyEvent(item) {
+            if copy.hiddenByDefault {
+                copy.isFoldedNoise = true
+                copy.noiseReason = copy.noiseReason ?? "낮은 신호"
+            } else if isEmptyEvent(item) {
                 copy.isFoldedNoise = true
                 copy.noiseReason = "빈 이벤트"
             } else if isShortActivity(item) {
