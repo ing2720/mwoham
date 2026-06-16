@@ -21,6 +21,7 @@ final class BackendStatusViewModel: ObservableObject {
     let recording: RecordingViewModel
     let activityTracking: ActivityTrackingViewModel
     let quickMemo: QuickMemoViewModel
+    let timeline: TimelineViewModel
     let backendLifecycle: BackendLifecycleManager
 
     private let localApiClient: LocalApiClient
@@ -118,6 +119,7 @@ final class BackendStatusViewModel: ObservableObject {
         self.recording = RecordingViewModel(localApiClient: localApiClient)
         self.activityTracking = ActivityTrackingViewModel(localApiClient: localApiClient)
         self.quickMemo = QuickMemoViewModel(localApiClient: localApiClient)
+        self.timeline = TimelineViewModel(localApiClient: localApiClient)
         configureMeetingTranscription(
             localApiClient: localApiClient,
             microphoneTranscriptionProvider: speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider(),
@@ -250,6 +252,7 @@ final class BackendStatusViewModel: ObservableObject {
             recording.objectWillChange,
             activityTracking.objectWillChange,
             quickMemo.objectWillChange,
+            timeline.objectWillChange,
             backendLifecycle.objectWillChange,
         ]
             .forEach { publisher in
@@ -342,12 +345,18 @@ struct ContentView: View {
                 ToolbarItemGroup {
                     Button {
                         Task {
-                            await viewModel.refresh()
+                            if selectedSection == .timeline {
+                                await viewModel.timeline.refresh()
+                            } else {
+                                await viewModel.refresh()
+                            }
                         }
                     } label: {
                         Label("새로고침", systemImage: "arrow.clockwise")
                     }
-                    .disabled(viewModel.isLoading)
+                    .disabled(
+                        viewModel.isLoading || viewModel.timeline.isLoading
+                    )
                 }
             }
         }
@@ -409,6 +418,11 @@ struct ContentView: View {
             switch selectedSection ?? .today {
             case .today:
                 TodayView(viewModel: viewModel)
+            case .timeline:
+                TimelinePageView(
+                    viewModel: viewModel.timeline,
+                    isBackendConnected: viewModel.connectionState.isActive
+                )
             case .meetingTranscription:
                 MeetingTranscriptionPageView(
                     viewModel: viewModel.meetingTranscription
@@ -481,6 +495,7 @@ struct ContentView: View {
 
 private enum MainSection: String, CaseIterable, Identifiable {
     case today
+    case timeline
     case meetingTranscription
     case settings
 
@@ -492,6 +507,8 @@ private enum MainSection: String, CaseIterable, Identifiable {
         switch self {
         case .today:
             return "오늘"
+        case .timeline:
+            return "타임라인"
         case .meetingTranscription:
             return "회의 전사"
         case .settings:
@@ -503,6 +520,8 @@ private enum MainSection: String, CaseIterable, Identifiable {
         switch self {
         case .today:
             return "calendar"
+        case .timeline:
+            return "list.bullet.rectangle"
         case .meetingTranscription:
             return "waveform"
         case .settings:
