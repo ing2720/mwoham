@@ -273,6 +273,62 @@ struct BackendSnapshot {
     let status: StatusResponse
 }
 
+struct TimelineResponse: Decodable {
+    let date: String
+    let items: [TimelineItemResponse]
+    let total: Int
+}
+
+struct TimelineItemResponse: Decodable, Identifiable {
+    let type: String
+    let id: Int
+    let timestamp: String
+    let content: String
+    let displayLabel: String?
+    let source: String?
+    let eventType: String?
+    let appName: String?
+    let windowTitle: String?
+    let meetingId: Int?
+    let speaker: String?
+    let confidence: Double?
+    let sessionId: Int?
+    let linkedType: String?
+    let linkedId: Int?
+    let repoPath: String?
+    let branch: String?
+    let command: String?
+    let status: String?
+    let endedAt: String?
+    let durationSeconds: Int?
+    let sampleCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case timestamp
+        case content
+        case displayLabel = "display_label"
+        case source
+        case eventType = "event_type"
+        case appName = "app_name"
+        case windowTitle = "window_title"
+        case meetingId = "meeting_id"
+        case speaker
+        case confidence
+        case sessionId = "session_id"
+        case linkedType = "linked_type"
+        case linkedId = "linked_id"
+        case repoPath = "repo_path"
+        case branch
+        case command
+        case status
+        case endedAt = "ended_at"
+        case durationSeconds = "duration_seconds"
+        case sampleCount = "sample_count"
+    }
+}
+
 enum LocalApiClientError: LocalizedError {
     case invalidResponse
     case badStatusCode(Int)
@@ -314,6 +370,24 @@ final class LocalApiClient {
         request.httpMethod = "GET"
         request.timeoutInterval = 2
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return try await send(request)
+    }
+
+    func fetchTimelineDetail(date: String? = nil) async throws -> TimelineResponse {
+        var request = makeRequest(path: "/timeline/today/detail")
+        if let date, !date.isEmpty {
+            var components = URLComponents(
+                url: request.url!,
+                resolvingAgainstBaseURL: false
+            )
+            components?.queryItems = [URLQueryItem(name: "date", value: date)]
+            if let url = components?.url {
+                request.url = url
+            }
+        }
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
         return try await send(request)
     }
 
