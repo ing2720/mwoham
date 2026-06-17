@@ -19,19 +19,106 @@ struct FloatingWidgetView: View {
     }
 
     var body: some View {
-        Group {
-            if isCollapsed {
-                collapsedView
-            } else {
-                expandedView
+        GeometryReader { proxy in
+            let layoutMode = resolvedLayoutMode(for: proxy.size)
+            content(for: layoutMode)
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .topLeading
+                )
+                .background(.regularMaterial)
+        }
+    }
+
+    @ViewBuilder
+    private func content(
+        for layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode
+    ) -> some View {
+        switch layoutMode {
+        case .compact:
+            compactView
+        case .normal:
+            normalView
+        case .expanded:
+            expandedView
+        }
+    }
+
+    private func resolvedLayoutMode(
+        for size: CGSize
+    ) -> MenuBarFloatingPresentation.FloatingWidgetLayoutMode {
+        if isCollapsed {
+            return .compact
+        }
+        return MenuBarFloatingPresentation.FloatingWidgetLayoutMode.mode(
+            width: Double(size.width),
+            height: Double(size.height)
+        )
+    }
+
+    private var compactView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            headerView(layoutMode: .compact)
+
+            Text(presentation.compactCurrentActivityText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if presentation.shouldShowDevTrackingInCompact {
+                DevTrackingCompactBadge(
+                    text: presentation.devTrackingDisplayText,
+                    state: presentation.devTrackingBadgeState
+                )
+            }
+
+            HStack(spacing: 8) {
+                RecordingControl(
+                    viewModel: viewModel.recording,
+                    style: .compact
+                )
+
+                Button {
+                    openWindow(id: "main")
+                    NSApplication.shared.activate()
+                } label: {
+                    Image(systemName: "macwindow")
+                }
+                .buttonStyle(.borderless)
+                .help(presentation.quickActions.openMainWindowTitle)
             }
         }
-        .background(.regularMaterial)
+        .padding(10)
+    }
+
+    private var normalView: some View {
+        widgetContent(
+            layoutMode: .normal,
+            rowSpacing: 6,
+            sectionSpacing: 12,
+            showsExpandedStatus: false
+        )
     }
 
     private var expandedView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            headerView
+        widgetContent(
+            layoutMode: .expanded,
+            rowSpacing: 10,
+            sectionSpacing: 16,
+            showsExpandedStatus: true
+        )
+    }
+
+    private func widgetContent(
+        layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode,
+        rowSpacing: CGFloat,
+        sectionSpacing: CGFloat,
+        showsExpandedStatus: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: sectionSpacing) {
+            headerView(layoutMode: layoutMode)
 
             if presentation.backendState.isError {
                 Text(presentation.backendDetail ?? "연결 실패")
@@ -41,7 +128,7 @@ struct FloatingWidgetView: View {
                     .truncationMode(.middle)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: rowSpacing) {
                 FloatingStatusRow(
                     title: "현재 앱",
                     value: presentation.currentAppText
@@ -55,6 +142,13 @@ struct FloatingWidgetView: View {
                     state: presentation.ocrState
                 )
                 FloatingDevTrackingRow(presentation: presentation)
+            }
+
+            if showsExpandedStatus {
+                FloatingStatusBadgeRow(
+                    title: presentation.activeWindowTrackingTitle,
+                    state: presentation.activeWindowTrackingState
+                )
             }
 
             Divider()
@@ -114,41 +208,12 @@ struct FloatingWidgetView: View {
                 }
             }
         }
-        .padding(14)
-        .frame(width: 330, height: 360, alignment: .topLeading)
+        .padding(layoutMode == .expanded ? 18 : 14)
     }
 
-    private var collapsedView: some View {
-        HStack(spacing: 8) {
-            StatusBadge(state: presentation.recordingState, compact: true)
-
-            Text(presentation.collapsedDetailText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: 4)
-
-            RecordingControl(
-                viewModel: viewModel.recording,
-                style: .compact
-            )
-
-            Button {
-                isCollapsed = false
-            } label: {
-                Image(systemName: "chevron.down")
-            }
-            .buttonStyle(.borderless)
-            .help("펼치기")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(width: 300, height: 38, alignment: .center)
-    }
-
-    private var headerView: some View {
+    private func headerView(
+        layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode
+    ) -> some View {
         HStack(spacing: 8) {
             StatusBadge(state: presentation.backendState, compact: true)
             StatusBadge(state: presentation.recordingState, compact: true)
@@ -160,28 +225,33 @@ struct FloatingWidgetView: View {
 
             Spacer()
 
-            Button {
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.borderless)
-            .disabled(true)
-            .help("\(presentation.widgetSettingsLabel) 준비 중")
-
-            Button {
-                Task {
-                    await viewModel.refresh()
+            if layoutMode != .compact {
+                Button {
+                } label: {
+                    Image(systemName: "gearshape")
                 }
-            } label: {
-                Image(systemName: "arrow.clockwise")
+                .buttonStyle(.borderless)
+                .disabled(true)
+                .help("\(presentation.widgetSettingsLabel) 준비 중")
+
+                Button {
+                    Task {
+                        await viewModel.refresh()
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!presentation.quickActions.canRefresh)
             }
-            .buttonStyle(.borderless)
-            .disabled(!presentation.quickActions.canRefresh)
 
             Button {
                 isCollapsed.toggle()
             } label: {
-                Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+                Image(
+                    systemName:
+                        layoutMode == .compact ? "arrow.up.left.and.arrow.down.right" : "chevron.up"
+                )
             }
             .buttonStyle(.borderless)
             .help(presentation.widgetCompactToggleLabel)

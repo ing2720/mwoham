@@ -1138,6 +1138,49 @@ git diff --check
 git diff --check
 ```
 
+## 17. Floating Widget 반응형 레이아웃 QA
+
+확인:
+
+1. 플로팅 위젯을 최소 크기로 줄여도 header, 기록 상태, 기록 시간, 핵심 제어가
+   깨지지 않는지 확인합니다.
+2. compact 크기에서는 backend badge, 기록 상태 badge, 기록 시간, 현재 활동 요약,
+   Dev Tracking badge, compact RecordingControl, 메인 창 열기 정도만 보이는지
+   확인합니다.
+3. compact 크기에서는 Dev Tracking 시작/중지, 회의모드 시작/중지, 대시보드 열기
+   같은 보조 action이 공간을 침범하지 않는지 확인합니다.
+4. 기본 크기에서는 기존 normal 위젯 구조가 유지되는지 확인합니다.
+5. normal 크기에서는 현재 앱, 현재 창, OCR 상태, Dev Tracking 상태, 기록 제어,
+   Dev Tracking 제어, 회의모드 제어, 메인 창/대시보드 열기가 표시되는지
+   확인합니다.
+6. expanded 크기에서는 상태 row 간격이 넓어지고 현재 앱/창, OCR, Dev Tracking,
+   활성 창 추적 상태가 숨겨지지 않는지 확인합니다.
+7. 현재 앱/현재 창 제목이 길어도 한 줄 ellipsis 또는 표시용 truncate로 처리되고
+   원본 상태 값은 변경되지 않는지 확인합니다.
+8. Dev Tracking badge가 compact/normal/expanded에서 잘리지 않고
+   `Dev Tracking:기록중`, `Dev Tracking:종료중`, `Dev Tracking:기록중지`,
+   `Dev Tracking:error...` 형태를 유지하는지 확인합니다.
+9. RecordingControl의 기록 시작/일시정지/재개/종료 동작이 크기별 레이아웃에서도
+   유지되는지 확인합니다.
+10. Dev Tracking 시작/중지, 회의모드 시작/중지, 메인 창 열기, 대시보드 열기,
+    새로고침, 간편보기 toggle 동작이 유지되는지 확인합니다.
+11. 플로팅 위젯 창이 resize 가능하고 최소 크기 이하로 UI가 무너지지 않는지
+    확인합니다.
+12. 메뉴바 구조, Launch at Login, backend lifecycle, report/timeline/settings 화면
+    동작이 기존과 동일한지 확인합니다.
+
+검증 명령:
+
+```bash
+./scripts/test_macos_floating_widget_responsive.sh
+./scripts/test_macos_menu_bar_floating_presentation.sh
+./scripts/test_macos_launch_at_login.sh
+./scripts/test_macos_timeline_presentation.sh
+./scripts/test_macos_report_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+```
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:

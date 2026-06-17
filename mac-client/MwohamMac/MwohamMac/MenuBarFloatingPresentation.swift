@@ -26,6 +26,27 @@ protocol AppStatusPresentationProviding: AnyObject {
 }
 
 struct MenuBarFloatingPresentation: Equatable {
+    enum FloatingWidgetLayoutMode: Equatable {
+        case compact
+        case normal
+        case expanded
+
+        static let compactThresholdWidth = 280.0
+        static let compactThresholdHeight = 260.0
+        static let expandedThresholdWidth = 380.0
+        static let expandedThresholdHeight = 420.0
+
+        static func mode(width: Double, height: Double) -> FloatingWidgetLayoutMode {
+            if width < compactThresholdWidth || height < compactThresholdHeight {
+                return .compact
+            }
+            if width >= expandedThresholdWidth || height >= expandedThresholdHeight {
+                return .expanded
+            }
+            return .normal
+        }
+    }
+
     enum MenuBarIconState: Equatable {
         case idle
         case recording
@@ -109,7 +130,12 @@ struct MenuBarFloatingPresentation: Equatable {
     let devTrackingDisplayText: String
     let currentAppText: String
     let currentWindowText: String
+    let compactCurrentActivityText: String
+    let compactRecordingSummary: String
     let collapsedDetailText: String
+    let shouldShowCurrentWindowInCompact = false
+    let shouldShowDevTrackingInCompact = true
+    let shouldShowMeetingModeInCompact = false
     let widgetSettingsLabel = "위젯 설정"
     let widgetCompactToggleLabel = "간편보기"
     let controlActions: ControlActions
@@ -194,6 +220,13 @@ struct MenuBarFloatingPresentation: Equatable {
             fallback: "현재 창 없음",
             maxLength: 90
         )
+        self.compactCurrentActivityText = Self.compactActivityText(
+            currentApp: currentApp,
+            currentWindow: currentWindow,
+            isPrivateAppActive: isPrivateAppActive
+        )
+        self.compactRecordingSummary =
+            "\(self.recordingState.label) · \(self.recordingElapsedTimeText)"
         self.quickActions = QuickActions(
             floatingWidgetTitle:
                 isFloatingWidgetVisible ? "플로팅 위젯 닫기" : "플로팅 위젯 열기",
@@ -286,6 +319,29 @@ struct MenuBarFloatingPresentation: Equatable {
             return ""
         }
         return String(label[range])
+    }
+
+    private static func compactActivityText(
+        currentApp: String,
+        currentWindow: String,
+        isPrivateAppActive: Bool
+    ) -> String {
+        if isPrivateAppActive {
+            return "비공개 앱"
+        }
+        let window = displayValue(
+            currentWindow,
+            fallback: "",
+            maxLength: 42
+        )
+        if !window.isEmpty {
+            return window
+        }
+        return displayValue(
+            currentApp,
+            fallback: "현재 활동 없음",
+            maxLength: 32
+        )
     }
 
     private static func displayValue(
