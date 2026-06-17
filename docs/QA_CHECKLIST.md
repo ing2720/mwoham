@@ -251,6 +251,31 @@ TCC 권한 확인:
 - 기존 ad-hoc 앱을 사용했다면 목록의 이전 MwohamMac 항목을 제거하고 서명된
   고정 경로 앱을 다시 추가한 뒤 앱을 재실행합니다.
 
+Launch at Login QA:
+
+1. signed 앱을 `~/Applications/MwohamMac.app`에서 실행합니다.
+2. 설정 > 자동 실행 카드에 `로그인 시 자동 실행` Toggle과 현재 상태 badge가
+   표시되는지 확인합니다.
+3. Toggle을 켜면 macOS 로그인 항목에 MwohamMac이 등록되고 상태가 `등록됨`으로
+   갱신되는지 확인합니다.
+4. Toggle을 끄면 로그인 항목 등록이 해제되고 상태가 `해제됨`으로 갱신되는지
+   확인합니다.
+5. `상태 새로고침`을 눌렀을 때 실제 ServiceManagement 상태와 badge가
+   일치하는지 확인합니다.
+6. 시스템 승인이 필요한 경우 `승인 필요` warning이 표시되는지 확인합니다.
+7. 등록/해제 실패 시 `자동 실행 설정 실패` ErrorBanner가 표시되는지
+   확인합니다.
+8. 로그인 자동 실행 후에도 recording이 자동 시작되지 않고 대기 상태로 남는지
+   확인합니다.
+9. Dev Tracking 자동화 정책, backend lifecycle, 메뉴바 상주 동작이 기존과
+   동일한지 확인합니다.
+10. harness를 실행해 ServiceManagement wrapper 상태 전환이 통과하는지
+    확인합니다.
+
+```bash
+./scripts/test_macos_launch_at_login.sh
+```
+
 권한 온보딩 확인:
 
 1. 첫 실행 상태로 확인하려면 다음 값을 초기화한 뒤 signed 앱을 실행합니다.

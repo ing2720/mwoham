@@ -76,6 +76,17 @@ strict codesign과 TeamIdentifier를 확인하고 LaunchServices에 다시 등�
 `--destination` 또는 `APP_PATH`를 명시하지 않으면 `/Applications`를 사용하지
 않습니다. signed 실패가 unsigned로 자동 전환되는 동작은 없습니다.
 
+## Launch at Login
+
+설정 화면의 `자동 실행` 카드에서 `로그인 시 자동 실행`을 켜고 끌 수 있습니다.
+이 기능은 macOS 로그인 시 `MwohamMac` 앱을 실행하는 것만 담당합니다.
+로그인 자동 실행 상태에서도 기록은 자동으로 시작되지 않으며, 사용자가 직접
+`기록 시작`을 눌러야 recording session이 시작됩니다.
+
+상태가 맞지 않으면 설정 화면의 `상태 새로고침`을 눌러 macOS 로그인 항목 등록
+상태를 다시 확인합니다. 권한/TCC 테스트와 마찬가지로 signed 앱
+`~/Applications/MwohamMac.app` 기준으로 확인하는 것을 권장합니다.
+
 현재 단계의 활성 창 추적은 화면 이미지나 마이크 입력을 저장하지 않습니다. 앱 이름과 창 제목 메타데이터를 사용해 `app_name + window_title` 기준 작업 구간을 만들고, 같은 앱/창이 유지되는 동안 duration을 누적합니다.
 
 권한이 없어도 앱은 화면 이미지를 캡처하지 않으며, 활성 창 제목은 빈 값으로 저장될 수 있습니다.

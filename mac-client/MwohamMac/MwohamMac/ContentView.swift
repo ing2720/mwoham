@@ -24,6 +24,7 @@ final class BackendStatusViewModel: ObservableObject {
     let timeline: TimelineViewModel
     let reports: ReportViewModel
     let backendLifecycle: BackendLifecycleManager
+    let launchAtLogin: LaunchAtLoginManager
 
     private let localApiClient: LocalApiClient
     private var childSubscriptions: Set<AnyCancellable> = []
@@ -122,6 +123,7 @@ final class BackendStatusViewModel: ObservableObject {
         self.quickMemo = QuickMemoViewModel(localApiClient: localApiClient)
         self.timeline = TimelineViewModel(localApiClient: localApiClient)
         self.reports = ReportViewModel(localApiClient: localApiClient)
+        self.launchAtLogin = LaunchAtLoginManager()
         configureMeetingTranscription(
             localApiClient: localApiClient,
             microphoneTranscriptionProvider: speechTranscriptionProvider ?? AppleSpeechTranscriptionProvider(),
@@ -257,6 +259,7 @@ final class BackendStatusViewModel: ObservableObject {
             timeline.objectWillChange,
             reports.objectWillChange,
             backendLifecycle.objectWillChange,
+            launchAtLogin.objectWillChange,
         ]
             .forEach { publisher in
                 publisher
@@ -368,6 +371,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 720, minHeight: 560)
         .task {
+            viewModel.launchAtLogin.refresh()
             viewModel.startActiveWindowTracking()
             viewModel.startOCRCollection()
             await viewModel.prepareBackend()
@@ -636,6 +640,7 @@ private struct SettingsView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
     @ObservedObject var meetingViewModel: MeetingTranscriptionViewModel
     @ObservedObject var activityViewModel: ActivityTrackingViewModel
+    @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
     let showPermissionOnboarding: () -> Void
 
     init(
@@ -645,6 +650,7 @@ private struct SettingsView: View {
         self.viewModel = viewModel
         self.meetingViewModel = viewModel.meetingTranscription
         self.activityViewModel = viewModel.activityTracking
+        self.launchAtLoginManager = viewModel.launchAtLogin
         self.showPermissionOnboarding = showPermissionOnboarding
     }
 
@@ -766,6 +772,62 @@ private struct SettingsView: View {
                         ) {
                             activityViewModel.stopDevTracking()
                         }
+                    }
+                }
+            }
+
+            StatusCard("자동 실행", systemImage: "power") {
+                VStack(alignment: .leading, spacing: 10) {
+                    LabeledContent("현재 상태") {
+                        StatusBadge(
+                            state: launchAtLoginManager.status,
+                            compact: true
+                        )
+                    }
+
+                    Toggle(
+                        "로그인 시 자동 실행",
+                        isOn: Binding(
+                            get: { launchAtLoginManager.isEnabled },
+                            set: { isEnabled in
+                                launchAtLoginManager.setEnabled(isEnabled)
+                            }
+                        )
+                    )
+                    .disabled(!launchAtLoginManager.canChangeRegistration)
+                    .accessibilityLabel("로그인 시 자동 실행")
+
+                    Text(
+                        "Mac에 로그인하면 MwohamMac을 자동으로 실행합니다. "
+                            + "기록은 자동으로 시작되지 않습니다."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                    HStack {
+                        PrimaryActionButton(
+                            title: "상태 새로고침",
+                            systemImage: "arrow.clockwise",
+                            isDisabled: launchAtLoginManager.isUpdating
+                        ) {
+                            launchAtLoginManager.refresh()
+                        }
+                    }
+
+                    if launchAtLoginManager.status == .requiresApproval {
+                        WarningBanner(
+                            message:
+                                "시스템 설정 > 일반 > 로그인 항목에서 MwohamMac 자동 실행을 승인해 주세요.",
+                            title: "사용자 승인 필요"
+                        )
+                    }
+
+                    if let errorMessage =
+                        launchAtLoginManager.lastErrorMessage {
+                        ErrorBanner(
+                            message: errorMessage,
+                            title: "자동 실행 설정 실패"
+                        )
                     }
                 }
             }
