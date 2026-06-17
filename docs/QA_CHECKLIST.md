@@ -1094,6 +1094,50 @@ git diff --check
 git diff --check
 ```
 
+## 16. 메뉴바/플로팅 위젯 역할 분리 QA
+
+확인:
+
+1. 메뉴바에서 backend, 기록 상태, 기록 시간, Dev Tracking 같은 상태 요약 row가
+   제거됐는지 확인합니다.
+2. 메뉴바 아이콘이 대기, 회의모드, 기록 중, 일시정지, backend 오류 상태를
+   구분하는지 확인합니다.
+3. 메뉴바의 기록 제어 섹션에 기록 시작, 일시정지/재개, 기록 종료가 있고 현재
+   상태에 맞게 disabled 처리되는지 확인합니다.
+4. 메뉴바에서 Dev Tracking 시작/종료와 회의모드 시작/종료가 동작하는지
+   확인합니다.
+5. 메뉴바 열기 섹션에는 메인 창 열기, 플로팅 위젯 열기/닫기, 대시보드 열기만
+   남아 있는지 확인합니다.
+6. 메뉴바 시스템 섹션에 앱 다시시작과 앱 종료가 있는지 확인합니다.
+7. 플로팅 위젯 header에 backend badge, 기록 상태 badge, 기록 시간, disabled
+   설정 placeholder, 새로고침, 간편보기 toggle이 표시되는지 확인합니다.
+8. 플로팅 위젯 상태 요약에 현재 앱, 현재 창, OCR 상태, Dev Tracking 상태가
+   표시되는지 확인합니다.
+9. Dev Tracking row가 detail text와 badge를 중복 표시하지 않고 하나의 badge로
+   표시되는지 확인합니다.
+10. Dev Tracking 상태별 badge가 `Dev Tracking:기록중`, `Dev Tracking:종료중`,
+    `Dev Tracking:기록중지`, `Dev Tracking:error...` 형태로 구분되는지
+    확인합니다.
+11. 플로팅 위젯 하단에 RecordingControl, Dev Tracking 시작/중지, 회의모드
+    시작/중지, 메인 창 열기, 대시보드 열기가 표시되는지 확인합니다.
+12. 회의모드 시작은 기존 회의 전체 전사 흐름을 사용하고 STT provider/Whisper
+    처리 방식이 변경되지 않았는지 확인합니다.
+13. 앱 다시시작 후 signed app이 다시 열리고 recording이 자동 시작되지 않는지
+    확인합니다.
+14. Launch at Login, backend lifecycle, report/timeline/settings 화면 동작이 기존과
+    동일한지 확인합니다.
+
+검증 명령:
+
+```bash
+./scripts/test_macos_menu_bar_floating_presentation.sh
+./scripts/test_macos_launch_at_login.sh
+./scripts/test_macos_timeline_presentation.sh
+./scripts/test_macos_report_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+```
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:

@@ -19,20 +19,53 @@ struct MenuBarStatusView: View {
         )
 
         VStack(alignment: .leading) {
-            StatusBadge(state: presentation.backendState, compact: true)
-            if let backendDetail = presentation.backendDetail {
-                Text(backendDetail)
+            Button(presentation.controlActions.recordingStartLabel) {
+                Task {
+                    await viewModel.recording.start()
+                }
             }
-            StatusBadge(state: presentation.recordingState, compact: true)
-            Text("기록 시간: \(presentation.recordingElapsedTimeText)")
-            StatusBadge(state: presentation.devTrackingState, compact: true)
+            .disabled(presentation.controlActions.isRecordingStartDisabled)
+
+            Button(presentation.controlActions.recordingPauseResumeLabel) {
+                Task {
+                    if viewModel.recording.state == .paused {
+                        await viewModel.recording.resume()
+                    } else {
+                        await viewModel.recording.pause()
+                    }
+                }
+            }
+            .disabled(
+                presentation.controlActions.isRecordingPauseResumeDisabled
+            )
+
+            Button(
+                presentation.controlActions.recordingStopLabel,
+                role: .destructive
+            ) {
+                Task {
+                    await viewModel.recording.stop()
+                }
+            }
+            .disabled(presentation.controlActions.isRecordingStopDisabled)
 
             Divider()
 
-            RecordingControl(
-                viewModel: viewModel.recording,
-                style: .menu
-            )
+            Button(presentation.controlActions.devTrackingToggleLabel) {
+                if viewModel.activityTracking.isDevTrackingRunning {
+                    viewModel.activityTracking.stopDevTracking()
+                } else {
+                    viewModel.activityTracking.startDevTracking()
+                }
+            }
+            .disabled(presentation.controlActions.isDevTrackingToggleDisabled)
+
+            Button(presentation.controlActions.meetingModeToggleLabel) {
+                Task {
+                    await toggleMeetingMode()
+                }
+            }
+            .disabled(presentation.controlActions.isMeetingModeToggleDisabled)
 
             Divider()
 
@@ -49,14 +82,11 @@ struct MenuBarStatusView: View {
                 viewModel.openDashboard()
             }
 
-            Button(presentation.quickActions.refreshTitle) {
-                Task {
-                    await viewModel.refresh()
-                }
-            }
-            .disabled(!presentation.quickActions.canRefresh)
-
             Divider()
+
+            Button(presentation.controlActions.restartLabel) {
+                restartApp()
+            }
 
             Button(presentation.quickActions.quitTitle) {
                 NSApplication.shared.terminate(nil)
@@ -69,6 +99,27 @@ struct MenuBarStatusView: View {
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             viewModel.updateElapsedTime()
+        }
+    }
+
+    private func toggleMeetingMode() async {
+        if viewModel.meetingTranscription.state.isRunning {
+            await viewModel.meetingTranscription.stop()
+            return
+        }
+        if viewModel.meetingTranscription.canChangeAudioSource {
+            viewModel.meetingTranscription.selectedAudioSource = .fullMeeting
+        }
+        await viewModel.meetingTranscription.start()
+    }
+
+    private func restartApp() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        ) { _, _ in
+            NSApplication.shared.terminate(nil)
         }
     }
 
