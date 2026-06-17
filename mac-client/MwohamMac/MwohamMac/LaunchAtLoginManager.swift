@@ -14,6 +14,7 @@ enum LaunchAtLoginStatus: Equatable, StatusPresentable {
     case enabled
     case disabled
     case requiresApproval
+    case bundleNotFound
     case unavailable
     case unknown
     case error(String)
@@ -26,6 +27,8 @@ enum LaunchAtLoginStatus: Equatable, StatusPresentable {
             return "해제됨"
         case .requiresApproval:
             return "승인 필요"
+        case .bundleNotFound:
+            return "앱 번들 확인 필요"
         case .unavailable:
             return "지원 안 됨"
         case .unknown:
@@ -54,6 +57,8 @@ enum LaunchAtLoginStatus: Equatable, StatusPresentable {
             return "circle"
         case .requiresApproval:
             return "person.crop.circle.badge.exclamationmark"
+        case .bundleNotFound:
+            return "app.badge.checkmark"
         case .unavailable:
             return "nosign"
         case .unknown:
@@ -64,8 +69,32 @@ enum LaunchAtLoginStatus: Equatable, StatusPresentable {
     }
 }
 
+struct LaunchAtLoginDiagnostics: Equatable {
+    let rawStatus: String
+    let bundleIdentifier: String
+    let appPath: String
+    let isStableAppPath: Bool
+
+    static func current(rawStatus: String) -> LaunchAtLoginDiagnostics {
+        let bundle = Bundle.main
+        let appURL = bundle.bundleURL.standardizedFileURL
+        let expectedStableURL = FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications/MwohamMac.app")
+            .standardizedFileURL
+
+        return LaunchAtLoginDiagnostics(
+            rawStatus: rawStatus,
+            bundleIdentifier: bundle.bundleIdentifier ?? "unknown",
+            appPath: appURL.path,
+            isStableAppPath: appURL.path == expectedStableURL.path
+        )
+    }
+}
+
 protocol LoginItemServicing {
     func currentStatus() throws -> LaunchAtLoginStatus
+    func diagnostics() -> LaunchAtLoginDiagnostics
     func register() throws
     func unregister() throws
 }
@@ -82,10 +111,14 @@ struct ServiceManagementLoginItemService: LoginItemServicing {
         case .requiresApproval:
             return .requiresApproval
         case .notFound:
-            return .unavailable
+            return .bundleNotFound
         @unknown default:
-            return .unknown
+            return .unavailable
         }
+    }
+
+    func diagnostics() -> LaunchAtLoginDiagnostics {
+        LaunchAtLoginDiagnostics.current(rawStatus: rawStatus)
     }
 
     func register() throws {
@@ -95,12 +128,31 @@ struct ServiceManagementLoginItemService: LoginItemServicing {
     func unregister() throws {
         try SMAppService.mainApp.unregister()
     }
+
+    private var rawStatus: String {
+        switch SMAppService.mainApp.status {
+        case .enabled:
+            return "enabled"
+        case .notRegistered:
+            return "notRegistered"
+        case .requiresApproval:
+            return "requiresApproval"
+        case .notFound:
+            return "notFound"
+        @unknown default:
+            return "unknown"
+        }
+    }
 }
 #endif
 
 struct UnsupportedLoginItemService: LoginItemServicing {
     func currentStatus() throws -> LaunchAtLoginStatus {
         .unavailable
+    }
+
+    func diagnostics() -> LaunchAtLoginDiagnostics {
+        LaunchAtLoginDiagnostics.current(rawStatus: "apiUnavailable")
     }
 
     func register() throws {
@@ -128,6 +180,8 @@ final class LaunchAtLoginManager: ObservableObject {
     @Published private(set) var status: LaunchAtLoginStatus = .unknown
     @Published private(set) var isUpdating = false
     @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var diagnostics =
+        LaunchAtLoginDiagnostics.current(rawStatus: "unknown")
 
     private let service: LoginItemServicing
 
@@ -156,6 +210,16 @@ final class LaunchAtLoginManager: ObservableObject {
         status != .unavailable && !isUpdating
     }
 
+    var diagnosticSummary: String {
+        [
+            "raw status: \(diagnostics.rawStatus)",
+            "Bundle ID: \(diagnostics.bundleIdentifier)",
+            "app path: \(diagnostics.appPath)",
+            "stable path: \(diagnostics.isStableAppPath ? "yes" : "no")",
+        ]
+            .joined(separator: "\n")
+    }
+
     func refresh() {
         guard !isUpdating else {
             return
@@ -165,9 +229,11 @@ final class LaunchAtLoginManager: ObservableObject {
 
         do {
             status = try service.currentStatus()
+            diagnostics = service.diagnostics()
             lastErrorMessage = nil
         } catch {
             status = .error(error.localizedDescription)
+            diagnostics = service.diagnostics()
             lastErrorMessage =
                 "자동 실행 상태 확인 실패: \(error.localizedDescription)"
         }
@@ -191,9 +257,11 @@ final class LaunchAtLoginManager: ObservableObject {
         do {
             try service.register()
             status = try service.currentStatus()
+            diagnostics = service.diagnostics()
             lastErrorMessage = nil
         } catch {
             status = .error(error.localizedDescription)
+            diagnostics = service.diagnostics()
             lastErrorMessage =
                 "자동 실행 등록 실패: \(error.localizedDescription)"
         }
@@ -209,9 +277,11 @@ final class LaunchAtLoginManager: ObservableObject {
         do {
             try service.unregister()
             status = try service.currentStatus()
+            diagnostics = service.diagnostics()
             lastErrorMessage = nil
         } catch {
             status = .error(error.localizedDescription)
+            diagnostics = service.diagnostics()
             lastErrorMessage =
                 "자동 실행 해제 실패: \(error.localizedDescription)"
         }

@@ -822,12 +822,28 @@ private struct SettingsView: View {
                         )
                     }
 
+                    if launchAtLoginManager.status == .bundleNotFound {
+                        WarningBanner(
+                            message:
+                                "signed 앱 경로에서 다시 실행해 주세요. 기본 안정 경로는 ~/Applications/MwohamMac.app입니다.",
+                            title: "앱 번들 확인 필요"
+                        )
+                    }
+
                     if let errorMessage =
                         launchAtLoginManager.lastErrorMessage {
                         ErrorBanner(
                             message: errorMessage,
                             title: "자동 실행 설정 실패"
                         )
+                    }
+
+                    DisclosureGroup("자동 실행 진단") {
+                        Text(launchAtLoginManager.diagnosticSummary)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 6)
                     }
                 }
             }
