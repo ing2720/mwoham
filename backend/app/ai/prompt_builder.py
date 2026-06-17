@@ -76,7 +76,7 @@ class PromptBuilder:
             [
                 "다음은 개인 로컬 작업 기록 에이전트가 만든 일일 압축 타임라인입니다.",
                 "원본 화면, 음성, 스크린샷, 오디오 파일은 포함하지 않았습니다.",
-                "API key, token, password, secret 패턴은 마스킹되었습니다.",
+                "secret/token 패턴은 마스킹되었습니다.",
                 "",
                 "요청:",
                 "- 한국어 Markdown 리포트를 작성하고, 타임라인의 사실만 쓰세요.",
@@ -135,11 +135,12 @@ class PromptBuilder:
                 "- 주요 트러블슈팅 섹션에는 DEV_EVENT나 diff context에 오류, 실패, 해결 흔적이 "
                 "있을 때만 요약하세요.",
                 "- source=terminal인 command_result는 사용자가 zsh에서 실행한 개발 명령입니다. "
-                "command, exit_code, duration_ms, cwd, branch를 작업 흐름 근거로 사용하세요.",
+                "검증 command는 테스트/검증 결과 근거로만 사용하고, checkout/status/diff/log "
+                "같은 git inspection command는 본문에 쓰지 마세요.",
                 "- zsh hook/preexec/precmd, command_result, record_command_result.py, "
                 "install_command_tracking_hook.py, uninstall_command_tracking_hook.py, "
                 "mwoham_zsh_tracking.zsh, mwoham_command_tracking_status, "
-                "mwoham_command_tracking_disable, exit_code, duration_ms, failed/success command, "
+                "mwoham_command_tracking_disable, failed/success command, "
                 "inspection command priority가 보이면 command tracking 근거로 해석하세요.",
                 "- 실패한 terminal command는 성공한 명령보다 우선적으로 트러블슈팅 후보로 "
                 "검토하세요. 같은 계열 명령이 실패 후 성공했다면 하나의 해결 흐름으로 "
@@ -151,7 +152,8 @@ class PromptBuilder:
                 "아니라 보조 검증 근거입니다. development_validation/failed_to_success flow는 "
                 "구현 검증 흐름으로 요약하세요.",
                 "- echo, sqlite3, curl, source, mwoham_command_tracking_status, "
-                "mwoham_command_tracking_disable, git switch, git pull 같은 inspection/setup "
+                "mwoham_command_tracking_disable, git checkout, git branch, git status, "
+                "git diff, git log, git switch, git pull 같은 inspection/setup "
                 "command는 직접 나열하지 말고 보조 근거로만 참고하세요. 필요하면 'DB 조회와 "
                 "report 생성으로 저장 결과를 확인했다'처럼 묶으세요.",
                 "- uv run pytest, uv run python scripts/run_dev_checks.py, uv run alembic check, "
@@ -160,7 +162,7 @@ class PromptBuilder:
                 "- rm -rf 같은 destructive command는 command 문자열을 필요 이상으로 자세히 "
                 "나열하지 말고, 근거가 있으면 불필요한 앱/빌드 산출물 정리 정도로 짧게 "
                 "요약하세요.",
-                "- 터미널 출력 전문은 입력에 포함되지 않습니다. 실패 원인은 command, exit_code, "
+                "- 터미널 출력 전문은 입력에 포함되지 않습니다. 실패 원인은 command family와 "
                 "주변 DevEvent, diff context 근거가 있을 때만 보수적으로 판단하세요.",
                 "- failed command가 의도적 QA인지 실제 장애인지 주변 context로 구분하세요. "
                 "tests/not_exists.py처럼 존재하지 않는 파일 실행은 failed command 기록 검증용일 "
@@ -174,6 +176,9 @@ class PromptBuilder:
                 "- 버전명은 DevEvent, git tag, branch, memo, command context 등 입력에 명확한 "
                 "근거가 있을 때만 사용하세요. 특정 버전 번호를 추측해서 쓰지 마세요.",
                 "- 다음 작업 후보에는 이미 오늘 완료된 기능을 다시 구현 과제로 제안하지 마세요.",
+                "- 다음 작업 후보는 명시된 로드맵, 실패한 QA, TODO 메모, 미완료 항목 기준으로만 "
+                "작성하세요. 현재 로드맵은 13차 Launch at Login, 14차 메뉴바/플로팅 위젯 "
+                "리팩토링, 15차 Release 패키징입니다.",
                 "- 입력에 구현/검증 완료로 보이는 항목이 있으면 다음 작업 후보에서 반복 제안하지 "
                 "마세요. 예: persistent state, TTL dedupe, debounce, repo path 설정, "
                 "stdout/stderr 상태 표시, report input 20분 압축, CURRENT_GIT_DIFF_CONTEXT, "
@@ -188,7 +193,8 @@ class PromptBuilder:
                 "- 다음 작업 후보에는 이미 구현한 기능의 추가 테스트만 반복하지 말고, "
                 "현재 작업의 후속 리팩토링 점검, 문서 정리, 최종 검증, 다음 태그 준비처럼 "
                 "근거 있는 다음 단계 후보를 제안하세요.",
-                "- 다음 작업 후보는 3~5개로 제한하고, 현재 입력에서 자연스럽게 이어지는 단계만 "
+                "- 다음 작업 후보는 3~5개로 제한하고, 완료한 구현 파일명이나 테스트 파일명을 "
+                "다음 작업으로 제안하지 마세요. 현재 입력에서 자연스럽게 이어지는 단계만 "
                 "제안하세요.",
                 "- terminal command 자동 기록이 이미 입력에 있으면 다음 작업 후보로 반복 제안하지 "
                 "마세요. timeline filtering 구현/검증이 이미 입력에 있으면 반복 제안하지 "
@@ -217,6 +223,8 @@ class PromptBuilder:
                 "## 시간대별 작업 흐름",
                 "## 주요 트러블슈팅",
                 "## 회의/메모에서 나온 결정사항",
+                "## 테스트/검증 결과",
+                "## 영향 없는 범위",
                 "## 다음 작업 후보",
                 "",
                 "압축 타임라인:",
@@ -231,16 +239,20 @@ class PromptBuilder:
             [
                 "다음은 개인 로컬 작업 기록 에이전트가 만든 일일 압축 타임라인입니다.",
                 "원본 화면, 음성, 스크린샷, 오디오 파일은 포함하지 않았습니다.",
-                "API key, token, password, secret 패턴은 마스킹되었습니다.",
+                "secret/token 패턴은 마스킹되었습니다.",
                 "",
                 "요청:",
                 "- 한국어 Markdown 간단 리포트를 작성하고, 타임라인의 사실만 쓰세요.",
                 "- 전체 내용을 짧고 실행 가능한 요약으로 압축하세요.",
+                "- simple 리포트는 5~10줄 수준을 유지하고 파일 경로/브랜치/명령 로그를 숨기세요.",
                 "- 오늘 한 일 요약은 3~5개 bullet로 작성하세요.",
                 "- 완료한 작업은 입력에서 완료/구현/검증 근거가 있는 항목만 쓰세요.",
                 "- 다음 작업은 이미 완료된 항목을 반복하지 말고 1~3개만 제안하세요.",
                 "- 테스트/검증 결과는 pytest, run_dev_checks.py, git diff --check, ruff, "
                 "alembic, xcodebuild 같은 검증 근거가 있을 때만 쓰세요.",
+                "- 다음 작업은 로드맵/TODO/실패 QA/미완료 항목 기준으로만 쓰세요. 현재 로드맵은 "
+                "13차 Launch at Login, 14차 메뉴바/플로팅 위젯 리팩토링, "
+                "15차 Release 패키징입니다.",
                 "- 회의 전사는 결정사항, 논의사항, 후속작업 후보로 짧게 반영하되, 잡담이나 "
                 "휴식 대화를 작업 완료/결정사항으로 과장하지 마세요.",
                 "- source=local_whisper_full_meeting의 timestamp와 microphone/system_audio "
@@ -300,6 +312,14 @@ class PromptBuilder:
         if pruned_context_lines:
             lines.append("PRUNED_REPORT_CONTEXT:")
             lines.extend(pruned_context_lines)
+        report_evidence_blocks = self._format_report_evidence_blocks(
+            report_items,
+            activity_segments,
+            current_focus_lines=current_focus_lines,
+        )
+        if report_evidence_blocks:
+            lines.append("REPORT_EVIDENCE_BLOCKS:")
+            lines.extend(report_evidence_blocks)
 
         meeting_memo_context_lines = self._format_meeting_memo_context(report_items)
         if meeting_memo_context_lines:
@@ -403,13 +423,7 @@ class PromptBuilder:
                 f"ocr_excerpt={ocr_excerpt}"
             )
         if item.type == "dev_event":
-            return (
-                f"- DEV_EVENT | time={timestamp} | event_type={item.event_type or '-'} | "
-                f"source={item.source or '-'} | status={item.status or '-'} | "
-                f"repo={item.repo_path or '-'} | branch={item.branch or '-'} | "
-                f"command={item.command or '-'} | summary={item.content} | "
-                f"details={self._format_dev_event_details(item.details_json)}"
-            )
+            return self._format_dev_event_for_report_input(item)
         if item.type == "meeting":
             return (
                 f"- MEETING | time={timestamp} | meeting_id={item.meeting_id or item.id} | "
@@ -478,6 +492,15 @@ class PromptBuilder:
                 return f"화면 단서: {snippet}{keyword_text}"
             return ""
         if item.type == "dev_event":
+            if item.event_type == "git_snapshot":
+                changed_files = self._details_list(item.details_json, "changed_files")
+                if not changed_files:
+                    return ""
+                return (
+                    f"개발 근거: {self._infer_work_title_from_files(changed_files)} "
+                    f"({self._summarize_file_groups(changed_files) or '일반 코드'}, "
+                    f"{len(changed_files)}개 파일)"
+                )
             if item.event_type == "command_result":
                 command = item.command or item.content
                 if (
@@ -521,20 +544,18 @@ class PromptBuilder:
             changed_files = self._collect_changed_files(group_items)
             diff_summary = self._collect_diff_summary(group_items)
             file_groups = self._summarize_file_groups(changed_files)
-            group_text = (
-                f"{file_groups} 중심으로 " if file_groups else ""
-            )
-            changed_file_text = self._format_diff_summary_list(diff_summary) or (
-                self._format_changed_file_list(changed_files)
-            )
-            file_suffix = f" | changed_files={changed_file_text}" if changed_file_text else ""
+            work_title = self._infer_work_title_from_files(changed_files)
+            diff_evidence = self._format_diff_summary_list(diff_summary)
+            diff_suffix = f" | diff_evidence={diff_evidence}" if diff_evidence else ""
             lines.append(
                 "- DEV_EVENT_GROUP | "
                 f"time_range={time_range} | event_type=git_snapshot | "
-                f"source=watch | branch={branch} | "
-                f"summary=자동 Dev Tracking: {branch} 브랜치에서 "
-                f"{group_text}Git 변경 {len(group_items)}회 감지"
-                f"{file_suffix}"
+                f"source=watch | evidence_type=code_change_evidence | "
+                f"branch_hint={self._branch_hint(branch)} | "
+                f"title={work_title} | work_area={file_groups or '일반 코드'} | "
+                f"related_files_count={len(changed_files)} | "
+                f"source_event_ids={self._source_event_ids(group_items)}"
+                f"{diff_suffix}"
             )
         return lines
 
@@ -554,7 +575,107 @@ class PromptBuilder:
             )
         ]
         manual_events.sort(key=self._dev_event_priority_key)
-        return grouped_lines + [self._format_timeline_item(item) for item in manual_events]
+        return grouped_lines + [
+            self._format_dev_event_for_report_input(item) for item in manual_events
+        ]
+
+    def _format_report_evidence_blocks(
+        self,
+        items,
+        activity_segments,
+        *,
+        current_focus_lines: list[str],
+    ) -> list[str]:
+        lines: list[str] = []
+        git_evidence_blocks = self._format_git_evidence_blocks(
+            items,
+            current_focus_lines=current_focus_lines,
+        )
+        for line in git_evidence_blocks:
+            lines.append(line)
+        validation_summary = self._summarize_validation_commands(items)
+        if validation_summary:
+            lines.append(
+                "- REPORT_EVIDENCE_BLOCK | evidence_type=validation | "
+                f"title=테스트/검증 결과 | validation_evidence={validation_summary} | "
+                "signal_level=high_signal"
+            )
+        for item in activity_segments:
+            if getattr(item, "hidden_by_default", False) or getattr(item, "noise_reason", None):
+                continue
+            signal_level = getattr(item, "signal_level", None) or "medium_signal"
+            if signal_level not in {"high_signal", "medium_signal"}:
+                continue
+            display_title = getattr(item, "display_title", None) or self._activity_display_title(
+                item
+            )
+            lines.append(
+                "- REPORT_EVIDENCE_BLOCK | evidence_type=activity_context | "
+                f"time_range={self._format_activity_range(item)} | title={display_title} | "
+                f"signal_level={signal_level} | duration_seconds={item.duration_seconds or 0} | "
+                f"source_event_ids={item.id}"
+            )
+        return lines[:16]
+
+    def _format_git_evidence_blocks(self, items, *, current_focus_lines: list[str]) -> list[str]:
+        grouped: dict[str, list] = defaultdict(list)
+        for item in items:
+            if item.type != "dev_event" or item.event_type != "git_snapshot":
+                continue
+            if self._is_background_event(item, current_focus_lines):
+                continue
+            changed_files = self._details_list(item.details_json, "changed_files")
+            if not changed_files:
+                continue
+            title = self._infer_work_title_from_files(changed_files)
+            grouped[title].append(item)
+
+        lines: list[str] = []
+        for title, group_items in grouped.items():
+            sorted_items = sorted(group_items, key=lambda item: item.timestamp)
+            changed_files = self._collect_changed_files(sorted_items)
+            file_groups = self._summarize_file_groups(changed_files)
+            lines.append(
+                "- REPORT_EVIDENCE_BLOCK | evidence_type=code_change_evidence | "
+                f"time_range={self._format_kst_time(sorted_items[0].timestamp)}~"
+                f"{self._format_kst_time(sorted_items[-1].timestamp)} | "
+                f"title={title} | work_area={file_groups or '일반 코드'} | "
+                f"related_files_count={len(changed_files)} | "
+                f"source_event_ids={self._source_event_ids(sorted_items)}"
+            )
+        return lines
+
+    def _format_dev_event_for_report_input(self, item) -> str:
+        timestamp = self._format_kst_time(item.timestamp)
+        if item.event_type == "git_snapshot":
+            changed_files = self._details_list(item.details_json, "changed_files")
+            return (
+                "- DEV_EVENT | "
+                f"time={timestamp} | event_type=git_snapshot | "
+                "evidence_type=code_change_evidence | "
+                f"title={self._infer_work_title_from_files(changed_files)} | "
+                f"work_area={self._summarize_file_groups(changed_files) or '일반 코드'} | "
+                f"related_files_count={len(changed_files)} | source_event_ids={item.id}"
+            )
+        if item.event_type == "command_result":
+            command = item.command or item.content
+            return (
+                "- DEV_EVENT | "
+                f"time={timestamp} | event_type=command_result | source={item.source or '-'} | "
+                f"status={item.status or '-'} | command_family={self._command_family(command)} | "
+                f"summary={self._summarize_command_event(item)}"
+            )
+        if item.event_type in {"test_result", "build_result"}:
+            return (
+                "- DEV_EVENT | "
+                f"time={timestamp} | event_type={item.event_type} | "
+                f"status={item.status or '-'} | summary={self._truncate(item.content, 160)}"
+            )
+        return (
+            "- DEV_EVENT | "
+            f"time={timestamp} | event_type={item.event_type or '-'} | "
+            f"status={item.status or '-'} | summary={self._truncate(item.content, 180)}"
+        )
 
     def _format_current_work_focus(
         self,
@@ -581,7 +702,10 @@ class PromptBuilder:
             f"- current_focus={current_focus or 'latest timeline evidence review'}",
         ]
         if evidence_files:
-            lines.append(f"- evidence={', '.join(evidence_files[:6])}")
+            lines.append(
+                f"- evidence_work_area={self._summarize_file_groups(evidence_files)} | "
+                f"related_files_count={len(evidence_files)}"
+            )
         if focus_keywords:
             lines.append(f"- focus_keywords={', '.join(focus_keywords[:10])}")
         lines.append(
@@ -949,11 +1073,6 @@ class PromptBuilder:
                 for item in sorted_items
             ]
         statuses = "->".join(str(item.status or "unknown") for item in sorted_items)
-        exit_codes = [
-            str((item.details_json or {}).get("exit_code"))
-            for item in sorted_items
-            if (item.details_json or {}).get("exit_code") is not None
-        ]
         command_families = []
         for item in sorted_items:
             family = self._command_family(item.command or item.content)
@@ -969,7 +1088,6 @@ class PromptBuilder:
             f"flow_type={flow_type} | "
             f"command_family={', '.join(command_families) or '-'} | "
             f"statuses={statuses} | "
-            f"exit_codes={','.join(exit_codes) or '-'} | "
             f"commands={'; '.join(commands)} | "
             f"hint={hint}"
         )
@@ -1026,12 +1144,28 @@ class PromptBuilder:
             return "uv run python scripts/run_dev_checks.py"
         if normalized.startswith("uv run alembic check"):
             return "uv run alembic check"
+        if normalized.startswith("./scripts/build_macos_app.sh"):
+            return "./scripts/build_macos_app.sh"
+        if normalized.startswith("./scripts/test_macos_timeline_presentation.sh"):
+            return "./scripts/test_macos_timeline_presentation.sh"
+        if normalized.startswith("./scripts/test_macos_report_presentation.sh"):
+            return "./scripts/test_macos_report_presentation.sh"
         if normalized.startswith(("uv run ruff", "ruff")):
             return "ruff"
         if normalized.startswith("xcodebuild"):
             return "xcodebuild"
         if normalized.startswith("git diff --check"):
             return "git diff --check"
+        if normalized.startswith("git checkout"):
+            return "git checkout"
+        if normalized.startswith("git branch"):
+            return "git branch"
+        if normalized.startswith("git status"):
+            return "git status"
+        if normalized.startswith("git diff"):
+            return "git diff"
+        if normalized.startswith("git log"):
+            return "git log"
         if normalized.startswith(("bash -n", "zsh -n")):
             return "shell syntax check"
         if normalized.startswith("curl"):
@@ -1069,6 +1203,9 @@ class PromptBuilder:
                 "uv run pytest",
                 "uv run python scripts/run_dev_checks.py",
                 "uv run alembic check",
+                "./scripts/build_macos_app.sh",
+                "./scripts/test_macos_timeline_presentation.sh",
+                "./scripts/test_macos_report_presentation.sh",
                 "git diff --check",
                 "ruff",
                 "uv run ruff",
@@ -1088,6 +1225,11 @@ class PromptBuilder:
                 "source .zshrc",
                 "mwoham_command_tracking_status",
                 "mwoham_command_tracking_disable",
+                "git checkout",
+                "git branch",
+                "git status",
+                "git diff",
+                "git log",
                 "git switch",
                 "git pull",
             )
@@ -1215,7 +1357,7 @@ class PromptBuilder:
         parts = [part for part in file_path.split("/") if part]
         if len(parts) >= 2:
             return "/".join(parts[:2])
-        return parts[0] if parts else ""
+        return "root files" if parts else ""
 
     def _format_changed_file_list(self, changed_files: list[str], limit: int = 8) -> str:
         if not changed_files:
@@ -1227,12 +1369,26 @@ class PromptBuilder:
     def _format_diff_summary_list(self, diff_summary: list[dict], limit: int = 8) -> str:
         if not diff_summary:
             return ""
-        formatted_items = [
-            self._format_diff_summary_item(item)
-            for item in diff_summary[:limit]
-        ]
-        suffix = f" 외 {len(diff_summary) - limit}개" if len(diff_summary) > limit else ""
-        return ", ".join(item for item in formatted_items if item) + suffix
+        visible = diff_summary[:limit]
+        binary_count = sum(1 for item in diff_summary if item.get("binary"))
+        untracked_count = sum(1 for item in diff_summary if item.get("untracked"))
+        insertions = sum(
+            item.get("insertions") for item in visible if isinstance(item.get("insertions"), int)
+        )
+        deletions = sum(
+            item.get("deletions") for item in visible if isinstance(item.get("deletions"), int)
+        )
+        parts = [f"files={len(diff_summary)}"]
+        if insertions or deletions:
+            parts.append(f"insertions={insertions}")
+            parts.append(f"deletions={deletions}")
+        if binary_count:
+            parts.append(f"binary={binary_count}")
+        if untracked_count:
+            parts.append(f"added={untracked_count}")
+        if len(diff_summary) > limit:
+            parts.append(f"limited={limit}")
+        return ", ".join(parts)
 
     def _format_diff_summary_item(self, item: dict) -> str:
         file_path = item.get("file")
@@ -1247,6 +1403,74 @@ class PromptBuilder:
         if isinstance(insertions, int) and isinstance(deletions, int):
             return f"{file_path}(+{insertions}/-{deletions})"
         return file_path
+
+    def _infer_work_title_from_files(self, changed_files: list[str]) -> str:
+        lowered = " ".join(path.lower() for path in changed_files)
+        if "timeline_builder" in lowered or "activity_event_refiner" in lowered:
+            return "타임라인 작업 근거 품질 개선"
+        if "prompt_builder" in lowered or "report_fallback_builder" in lowered:
+            return "리포트 입력 품질 개선"
+        if "reportpageview" in lowered or "/reports.html" in lowered or "report_" in lowered:
+            return "리포트 편집 UX 개선"
+        if "timeline" in lowered and "mac-client" in lowered:
+            return "macOS 타임라인 UX 개선"
+        if "meeting" in lowered or "transcript" in lowered or "whisper" in lowered:
+            return "회의 전사 품질 개선"
+        if "dev_tracking" in lowered or "record_command_result" in lowered:
+            return "개발 이벤트 추적 개선"
+        if "permission" in lowered or "signing" in lowered:
+            return "macOS 권한/서명 안정화"
+        if "test" in lowered:
+            return "테스트 보강"
+        if any(path.startswith("docs/") for path in changed_files):
+            return "문서 및 QA 정리"
+        if changed_files:
+            return "구현 변경 정리"
+        return "개발 작업 근거 정리"
+
+    def _branch_hint(self, branch: str) -> str:
+        if not branch or branch == "-":
+            return "-"
+        normalized = branch.replace("_", "-")
+        tail = normalized.split("/")[-1]
+        return " ".join(part for part in tail.split("-") if part) or "-"
+
+    def _source_event_ids(self, items) -> str:
+        return ",".join(str(item.id) for item in items)
+
+    def _summarize_command_event(self, item) -> str:
+        command = item.command or item.content
+        family = self._command_family(command)
+        status = (
+            "성공"
+            if item.status == "success"
+            else "실패"
+            if item.status == "failed"
+            else "확인"
+        )
+        if self._is_development_command(command):
+            return f"{family} 검증 {status}"
+        if self._is_inspection_command(command):
+            return "상태 확인용 명령"
+        if self._is_destructive_cleanup_command(command):
+            return "불필요한 산출물 정리"
+        return self._truncate(item.content, 140)
+
+    def _activity_display_title(self, item) -> str:
+        title = getattr(item, "display_title", None)
+        if title:
+            return title
+        values = [
+            value
+            for value in [getattr(item, "app_name", None), getattr(item, "window_title", None)]
+            if value
+        ]
+        return " / ".join(values) if values else "작업 환경"
+
+    def _format_activity_range(self, item) -> str:
+        start = self._format_kst_time(item.timestamp)
+        end = self._format_kst_time(item.ended_at) if item.ended_at else start
+        return f"{start}~{end}"
 
     def _details_list(self, details: dict | None, key: str) -> list[str]:
         if not details:
@@ -1647,28 +1871,13 @@ class PromptBuilder:
         if not details:
             return "-"
         parts: list[str] = []
-        changed_files = details.get("changed_files")
         recent_commits = details.get("recent_commits")
-        diff_stat = details.get("diff_stat")
         exit_code = details.get("exit_code")
-        duration_ms = details.get("duration_ms")
-        duration_seconds = details.get("duration_seconds")
-        cwd = details.get("cwd")
         tracking_mode = details.get("tracking_mode")
-        if isinstance(changed_files, list) and changed_files:
-            parts.append(f"changed_files={', '.join(str(item) for item in changed_files[:8])}")
-        if diff_stat:
-            parts.append(f"diff_stat={self._truncate(str(diff_stat), 160)}")
         if isinstance(recent_commits, list) and recent_commits:
             parts.append(f"recent_commits={'; '.join(str(item) for item in recent_commits[:3])}")
         if exit_code is not None:
             parts.append(f"exit_code={exit_code}")
-        if duration_ms is not None:
-            parts.append(f"duration_ms={duration_ms}")
-        if duration_seconds is not None:
-            parts.append(f"duration_seconds={duration_seconds}")
-        if cwd:
-            parts.append(f"cwd={self._truncate(str(cwd), 120)}")
         if tracking_mode:
             parts.append(f"tracking_mode={tracking_mode}")
         return " | ".join(parts) if parts else "-"
@@ -1705,7 +1914,12 @@ class PromptBuilder:
 
         duration_by_environment: dict[str, int] = {}
         for item in items:
-            environment = " / ".join(
+            if getattr(item, "hidden_by_default", False) or getattr(item, "noise_reason", None):
+                continue
+            signal_level = getattr(item, "signal_level", None)
+            if signal_level == "low_signal":
+                continue
+            environment = getattr(item, "display_title", None) or " / ".join(
                 value
                 for value in [item.app_name or "알 수 없는 앱", item.window_title]
                 if value

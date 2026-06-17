@@ -945,6 +945,99 @@ uv run python scripts/run_dev_checks.py --no-record
 uv run pytest -q
 ```
 
+## 13. TimelineBuilder 리포트 입력 품질 QA
+
+확인:
+
+1. Dev Tracking이 켜진 상태에서 리포트를 생성합니다.
+2. “Git 변경 사항을 확인했습니다”, “브랜치에서 Git 변경 감지” 같은 문장이 오늘 한 일
+   요약이나 시간대별 작업 흐름에 과하게 나오지 않는지 확인합니다.
+3. `changed_files=`, `duration_ms=`, `cwd=`, `exit_code=` 같은 raw metadata가 리포트
+   본문에 노출되지 않는지 확인합니다.
+4. 파일 경로가 길게 나열되지 않고, `타임라인 작업 근거 품질 개선`, `리포트 입력 품질
+   개선`처럼 작업 단위로 요약되는지 확인합니다.
+5. `pytest`, `run_dev_checks.py`, `ruff`, `alembic`, `xcodebuild`, `git diff --check`는
+   작업 흐름이 아니라 테스트/검증 결과 쪽에 반영되는지 확인합니다.
+6. manual memo가 있으면 자동 Git evidence보다 우선적으로 작업 요약 근거에 반영되는지
+   확인합니다.
+7. 11차 Activity Event 정제 결과 중 `hidden_by_default` 또는 `low_signal` activity가
+   핵심 작업 요약으로 승격되지 않는지 확인합니다.
+8. `high_signal` 또는 `medium_signal` activity는 작업 환경 근거로만 보조 반영되는지
+   확인합니다.
+9. Gemini 호출 실패 fallback 리포트에서도 Git 파일 나열 대신 작업 후보와 검증 결과가
+   분리되는지 확인합니다.
+10. 타임라인 화면, 리포트 편집 화면, 웹 reports 화면이 기존처럼 동작하는지 확인합니다.
+
+정상 기대 결과:
+
+- TimelineBuilder/report prompt 입력은 raw event 나열보다 `REPORT_EVIDENCE_BLOCKS`와
+  검증 evidence 중심으로 압축됩니다.
+- Git snapshot, changed files, branch switch는 작업 결과의 근거로만 사용됩니다.
+- 테스트/빌드/check 결과는 검증 결과로 분리됩니다.
+- DB/schema, backend API, report 생성 API 계약, macOS UI 구조는 변경하지 않습니다.
+
+검증 명령:
+
+```bash
+cd backend
+uv run pytest -q
+uv run python scripts/run_dev_checks.py --no-record
+
+cd ..
+./scripts/test_macos_timeline_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+```
+
+## 14. TimelineBuilder/report evidence 보완 QA
+
+확인:
+
+1. detailed 리포트를 생성하고 시간대별 작업 흐름에 `git checkout`, `git branch`,
+   `git status`, `git diff`, `git log` 계열 명령이 직접 나오지 않는지 확인합니다.
+2. “브랜치로 전환했습니다”, “checkout 명령이 성공적으로 실행되었습니다”,
+   “Git 변경 사항을 확인했습니다” 같은 문장이 본문에 남지 않는지 확인합니다.
+3. 브랜치명은 작업명 추론에만 쓰이고 본문에는 과하게 노출되지 않는지 확인합니다.
+4. 같은 작업이 점 이벤트와 구간 이벤트로 중복 표시되지 않고, 작업 구간 중심으로
+   정리되는지 확인합니다.
+5. 파일 경로가 길게 나열되지 않고 `리포트 입력 품질 개선`, `macOS 타임라인 표시 정책`,
+   `fallback report 구성` 같은 도메인 단위로 설명되는지 확인합니다.
+6. `changed_files=`, `cwd=`, `duration_ms=`, `exit_code=` 같은 raw metadata가 simple/detailed
+   리포트 본문에 노출되지 않는지 확인합니다.
+7. `pytest`, `run_dev_checks.py`, `build_macos_app.sh`, `test_macos_timeline_presentation.sh`,
+   `test_macos_report_presentation.sh`, `git diff --check`는 테스트/검증 결과 섹션으로
+   분리되는지 확인합니다.
+8. 다음 작업 후보가 완료한 파일명/테스트명 대신 로드맵 중심으로 제안되는지 확인합니다.
+   - 13차 Launch at Login
+   - 14차 메뉴바/플로팅 위젯 리팩토링
+   - 15차 Release 패키징
+9. simple 리포트는 짧은 업무 보고 형태로 유지되는지 확인합니다.
+10. detailed 리포트는 변경 이유, 변경 전 문제, 변경 후 동작, 관련 영역, 검증 결과,
+    영향 없는 범위, 다음 작업 연결을 충분히 설명하는지 확인합니다.
+11. Gemini 호출 실패 fallback에서도 동일한 노출 제한과 검증 분리 정책이 적용되는지
+    확인합니다.
+
+정상 기대 결과:
+
+- 리포트는 raw dev log가 아니라 실제 작업 단위 중심으로 작성됩니다.
+- Git checkout/status/diff/log/branch 계열은 inspection 근거로만 사용됩니다.
+- validation command는 작업 흐름이 아니라 테스트/검증 결과로 분리됩니다.
+- detailed 리포트는 상세하지만 raw log가 길게 나열되지 않습니다.
+- simple 리포트는 짧고 빠르게 읽히는 요약을 유지합니다.
+
+검증 명령:
+
+```bash
+cd backend
+uv run pytest -q
+uv run python scripts/run_dev_checks.py --no-record
+
+cd ..
+./scripts/test_macos_timeline_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+```
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:

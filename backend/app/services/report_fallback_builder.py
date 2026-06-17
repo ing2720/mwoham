@@ -50,15 +50,30 @@ class ReportFallbackBuilder:
         ]
         activity_segments = [item for item in timeline.items if item.type == "activity_segment"]
         events = [item for item in timeline.items if item.type == "event"]
+        dev_events = [item for item in timeline.items if item.type == "dev_event"]
         if mode == "simple":
             return self._build_simple(timeline)
-        work_candidates = self._build_work_candidates(memos, screen_observations, events)
+        work_candidates = self._build_work_candidates(
+            memos,
+            screen_observations,
+            events,
+            dev_events,
+            activity_segments,
+        )
+        validation_candidates = self._build_simple_validation_candidates(dev_events)
         lines = [
             f"# {timeline.date.isoformat()} 일일 작업 리포트",
             "",
             "## 요약",
             f"- 오늘 수집된 타임라인 항목은 총 {timeline.total}개입니다.",
-            "- Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다.",
+            (
+                "- Gemini 응답을 사용할 수 없어 정제된 작업 evidence와 "
+                "검증 결과 중심으로 정리했습니다."
+            ),
+            (
+                "- Git 상태 확인, 브랜치 전환, 파일 목록은 작업 요약이 아니라 "
+                "내부 근거로만 사용했습니다."
+            ),
             "",
             "## 작업 후보",
         ]
@@ -66,6 +81,36 @@ class ReportFallbackBuilder:
             lines.extend(f"- {candidate}" for candidate in work_candidates[:8])
         else:
             lines.append("- 확인된 작업 단서가 부족합니다.")
+        lines.extend(["", "## 테스트/검증 결과"])
+        if validation_candidates:
+            lines.extend(f"- {candidate}" for candidate in validation_candidates[:5])
+        else:
+            lines.append("- 확인된 내용 없음.")
+        lines.extend(
+            [
+                "",
+                "## 변경 전 문제",
+                "- raw Git 로그와 파일 변경 목록이 실제 작업 요약처럼 보일 수 있었습니다.",
+                "",
+                "## 변경 후 동작",
+                (
+                    "- 작업 후보는 메모, 의미 있는 개발 이벤트, high/medium signal 활동을 "
+                    "중심으로 정리됩니다."
+                ),
+                "- 검증 명령은 작업 흐름이 아니라 테스트/검증 결과로 분리됩니다.",
+                "",
+                "## 영향 없는 범위",
+                (
+                    "- DB/schema, backend API 계약, STT, recording, Dev Tracking, "
+                    "signing 정책은 변경하지 않았습니다."
+                ),
+                "",
+                "## 다음 작업 후보",
+                "- 13차 Launch at Login",
+                "- 14차 메뉴바/플로팅 위젯 리팩토링",
+                "- 15차 Release 패키징",
+            ]
+        )
 
         lines.extend(["", "## 주요 메모"])
         if not timeline.items:
@@ -187,6 +232,8 @@ class ReportFallbackBuilder:
     ) -> list[str]:
         environment_counts: dict[str, int] = {}
         for item in activity_segments:
+            if getattr(item, "hidden_by_default", False) or getattr(item, "noise_reason", None):
+                continue
             app_name = item.app_name or "알 수 없는 앱"
             environment_counts[app_name] = environment_counts.get(app_name, 0) + (
                 item.duration_seconds or 0
@@ -203,7 +250,14 @@ class ReportFallbackBuilder:
 
         return self._format_placeholder_items(events, empty_text=empty_text, limit=limit)
 
-    def _build_work_candidates(self, memos, screen_observations, events) -> list[str]:
+    def _build_work_candidates(
+        self,
+        memos,
+        screen_observations,
+        events,
+        dev_events,
+        activity_segments,
+    ) -> list[str]:
         candidates: list[str] = []
         for item in memos:
             candidates.append(f"{self._format_kst_clock(item.timestamp)} 메모: {item.content}")
@@ -222,6 +276,22 @@ class ReportFallbackBuilder:
                 candidates.append(
                     f"{self._format_kst_clock(item.timestamp)} 이벤트: {item.content}"
                 )
+        for item in dev_events:
+            if self._is_validation_event(item):
+                continue
+            if not self._is_high_confidence_dev_event(item):
+                continue
+            summary = self._summarize_simple_dev_event(item)
+            if summary:
+                candidates.append(f"{self._format_kst_clock(item.timestamp)} {summary}")
+        for item in activity_segments:
+            if getattr(item, "hidden_by_default", False) or getattr(item, "noise_reason", None):
+                continue
+            signal_level = getattr(item, "signal_level", None)
+            if signal_level not in {"high_signal", "medium_signal"}:
+                continue
+            title = getattr(item, "display_title", None) or item.app_name or "작업 환경"
+            candidates.append(f"{self._format_kst_clock(item.timestamp)} 작업 환경: {title}")
 
         return self._deduplicate(candidates)
 
@@ -246,8 +316,26 @@ class ReportFallbackBuilder:
             "run_dev_checks.py",
             "git diff --check",
             "xcodebuild",
+            "build_macos_app.sh",
+            "test_macos_timeline_presentation.sh",
+            "test_macos_report_presentation.sh",
         )
         return any(marker in command or marker in content for marker in validation_markers)
+
+    def _is_git_inspection_event(self, item) -> bool:
+        if item.event_type != "command_result":
+            return False
+        command = " ".join((item.command or item.content or "").lower().split())
+        return command.startswith(
+            (
+                "git checkout",
+                "git branch",
+                "git status",
+                "git diff",
+                "git log",
+                "git switch",
+            )
+        ) and not command.startswith("git diff --check")
 
     def _is_report_related_path(self, path: str) -> bool:
         lowered = path.lower()
@@ -291,6 +379,8 @@ class ReportFallbackBuilder:
             changed_files = (item.details_json or {}).get("changed_files") or []
             return self._summarize_changed_files(changed_files, item.content)
         if item.event_type == "command_result":
+            if self._is_git_inspection_event(item):
+                return ""
             command = (item.command or "").lower()
             content = item.content or ""
             if "reports/daily" in command or "reports/today" in command:
@@ -323,6 +413,12 @@ class ReportFallbackBuilder:
             return f"git diff whitespace 검사 {status}"
         if "xcodebuild" in lowered:
             return f"macOS 빌드 검증 {status}"
+        if "build_macos_app.sh" in lowered:
+            return f"macOS 앱 패키징/실행 검증 {status}"
+        if "test_macos_timeline_presentation.sh" in lowered:
+            return f"macOS 타임라인 표시 정책 harness {status}"
+        if "test_macos_report_presentation.sh" in lowered:
+            return f"macOS 리포트 표시 정책 harness {status}"
         return f"검증 명령 {status}"
 
     def _summarize_changed_files(self, changed_files: list[str], fallback_text: str | None) -> str:

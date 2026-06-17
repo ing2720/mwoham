@@ -646,7 +646,10 @@ def test_prompt_builder_prioritizes_dev_events_before_screen_observations() -> N
     assert "PRIORITY_DEV_EVENTS:" in prompt
     assert prompt.index("PRIORITY_DEV_EVENTS:") < prompt.index("WORK_EVIDENCE_BY_TIME:")
     assert "DEV_EVENT |" in prompt
-    assert "changed_files=reset_dev_data.py, report_service.py" in prompt
+    assert "REPORT_EVIDENCE_BLOCKS:" in prompt
+    assert "evidence_type=code_change_evidence" in prompt
+    assert "related_files_count=2" in prompt
+    assert "changed_files=reset_dev_data.py, report_service.py" not in prompt
 
 
 def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
@@ -741,13 +744,13 @@ def test_prompt_builder_groups_auto_git_snapshots_for_report_input() -> None:
 
     assert prompt.count("DEV_EVENT_GROUP |") == 1
     assert "time_range=09:00~09:20" in prompt
-    assert "자동 Dev Tracking: feat/auto-dev-tracking 브랜치에서" in prompt
-    assert "backend/scripts, backend/tests 중심으로 Git 변경 3회 감지" in prompt
-    assert "backend/scripts/dev_tracking.py(+120/-20)" in prompt
-    assert "backend/tests/test_dev_event_scripts.py(+80/-5)" in prompt
+    assert "branch_hint=auto dev tracking" in prompt
+    assert "work_area=backend/scripts, backend/tests" in prompt
+    assert "related_files_count=3" in prompt
+    assert "diff_evidence=files=3, insertions=215, deletions=28" in prompt
     assert prompt.count("Git 변경 파일 확인: backend/scripts/dev_tracking.py") == 0
     assert "DEV_EVENT |" in prompt
-    assert "manual_snapshot.py" in prompt
+    assert "manual_snapshot.py" not in prompt
 
 
 def test_prompt_builder_splits_auto_git_snapshot_groups_by_twenty_minute_bucket() -> None:
@@ -836,8 +839,10 @@ def test_prompt_builder_splits_auto_git_snapshot_groups_by_branch() -> None:
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
     assert prompt.count("DEV_EVENT_GROUP |") == 2
-    assert "branch=feat/a" in prompt
-    assert "branch=feat/b" in prompt
+    assert "branch_hint=a" in prompt
+    assert "branch_hint=b" in prompt
+    assert "branch=feat/a" not in prompt
+    assert "branch=feat/b" not in prompt
 
 
 def test_prompt_builder_limits_auto_git_snapshot_changed_files_and_omits_diff_body() -> None:
@@ -876,8 +881,9 @@ def test_prompt_builder_limits_auto_git_snapshot_changed_files_and_omits_diff_bo
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
-    assert "외 2개" in prompt
-    assert "backend/scripts/file_7.py(+8/-7)" in prompt
+    assert "related_files_count=10" in prompt
+    assert "diff_evidence=files=10, insertions=36, deletions=28, limited=8" in prompt
+    assert "backend/scripts/file_7.py(+8/-7)" not in prompt
     assert "backend/scripts/file_8.py(+9/-8)" not in prompt
     assert "diff --git" not in prompt
 
@@ -911,8 +917,99 @@ def test_prompt_builder_formats_binary_and_untracked_auto_git_diff_summary() -> 
 
     prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
 
-    assert "asset.bin(binary)" in prompt
-    assert "new_file.py(added)" in prompt
+    assert "diff_evidence=files=2, binary=1, added=1" in prompt
+    assert "asset.bin(binary)" not in prompt
+    assert "new_file.py(added)" not in prompt
+    assert "work_area=root files" in prompt
+
+
+def test_prompt_builder_builds_report_evidence_blocks_without_raw_git_noise() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=5,
+        items=[
+            TimelineItem(
+                type="memo",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 9, 0, tzinfo=UTC),
+                content="TimelineBuilder 입력을 작업 단위 evidence block으로 압축하기",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 9, 5, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="feat/timeline-builder-quality",
+                content="Git 변경 감지: backend/app/services/timeline_builder.py",
+                details_json={
+                    "tracking_mode": "watch",
+                    "tracking_signature": "sig-quality",
+                    "changed_files": [
+                        "backend/app/services/timeline_builder.py",
+                        "backend/app/ai/prompt_builder.py",
+                        "backend/tests/test_ai_components.py",
+                    ],
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 9, 10, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run pytest -q",
+                content="명령 성공: uv run pytest -q",
+                details_json={"exit_code": 0, "duration_ms": 1200, "cwd": "/repo"},
+            ),
+            TimelineItem(
+                type="activity_segment",
+                id=4,
+                timestamp=datetime(2026, 5, 26, 9, 12, tzinfo=UTC),
+                content="Safari / Search",
+                display_title="Safari / Search",
+                duration_seconds=12,
+                signal_level="low_signal",
+                hidden_by_default=True,
+                noise_reason="short_app_switch",
+            ),
+            TimelineItem(
+                type="activity_segment",
+                id=5,
+                timestamp=datetime(2026, 5, 26, 9, 30, tzinfo=UTC),
+                ended_at=datetime(2026, 5, 26, 10, 10, tzinfo=UTC),
+                content="PyCharm / TimelineBuilder",
+                display_title="PyCharm / TimelineBuilder",
+                duration_seconds=2400,
+                signal_level="high_signal",
+                hidden_by_default=False,
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    compressed_timeline = prompt.split("압축 타임라인:", 1)[1]
+    evidence_section = _prompt_section(
+        prompt,
+        "REPORT_EVIDENCE_BLOCKS:",
+        "MEETING_MEMO_CONTEXT:",
+    )
+
+    assert "REPORT_EVIDENCE_BLOCK | evidence_type=code_change_evidence" in evidence_section
+    assert "title=타임라인 작업 근거 품질 개선" in evidence_section
+    assert "related_files_count=3" in evidence_section
+    assert "validation_evidence=uv run pytest" in evidence_section
+    assert "PyCharm / TimelineBuilder" in evidence_section
+    assert "Safari / Search" not in evidence_section
+    assert "Git 변경 감지" not in compressed_timeline
+    assert "changed_files=" not in compressed_timeline
+    assert "duration_ms" not in compressed_timeline
+    assert "cwd=/repo" not in compressed_timeline
+    assert "branch=feat/timeline-builder-quality" not in compressed_timeline
+    assert "backend/app/services/timeline_builder.py" not in evidence_section
+    assert "backend/app/ai/prompt_builder.py" not in evidence_section
+    assert "uv run pytest -q" not in evidence_section
 
 
 def test_prompt_builder_includes_current_git_diff_context(tmp_path: Path) -> None:
@@ -1061,8 +1158,8 @@ def test_prompt_builder_adds_current_work_focus_before_priority_sections() -> No
     )
     assert prompt.index("CURRENT_WORK_FOCUS:") < prompt.index("PRIORITY_COMMAND_FLOWS:")
     assert "current_focus=report quality 개선" in focus_section
-    assert "backend/app/ai/prompt_builder.py" in focus_section
-    assert "backend/tests/test_ai_components.py" in focus_section
+    assert "evidence_work_area=backend/app, backend/tests" in focus_section
+    assert "related_files_count=2" in focus_section
     assert "PRIORITY_COMMAND_FLOWS" in focus_section
     assert "failed_to_success" in focus_section
     assert "inspection command" in focus_section
@@ -1285,8 +1382,11 @@ def test_prompt_builder_adds_pruned_report_context_near_top() -> None:
     assert "timeline filtering 문서 정리 완료" not in prompt
     assert "feat/timeline-filtering" not in prompt
     assert "backend/app/web/templates/timeline.html" not in prompt
-    assert "branch=feature/report-quality" in dev_event_section
-    assert "backend/app/ai/prompt_builder.py" in dev_event_section
+    assert "branch_hint=report quality" in dev_event_section
+    assert "branch=feature/report-quality" not in dev_event_section
+    assert "title=리포트 입력 품질 개선" in dev_event_section
+    assert "work_area=backend/app" in dev_event_section
+    assert "backend/app/ai/prompt_builder.py" not in dev_event_section
     assert "command_talled" not in prompt
     assert "mianation" not in prompt
 
@@ -1492,7 +1592,9 @@ def test_prompt_builder_prioritizes_failed_terminal_commands() -> None:
     assert "failed command 기록 검증을 위해 의도적 실패 명령을 실행했고" in prompt
     assert "정상 테스트 명령으로 success 저장도 확인한 흐름으로 묶으세요." in prompt
     assert dev_event_section.index("status=failed") < dev_event_section.index("status=success")
-    assert "duration_ms=1000" in dev_event_section
+    assert "command_family=uv run pytest" in dev_event_section
+    assert "duration_ms=1000" not in dev_event_section
+    assert "cwd=/repo" not in dev_event_section
     assert "tracking_mode=command_hook" not in dev_event_section
 
 
@@ -1671,7 +1773,8 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     assert "inspection/setup command는 직접 나열하지 말고" in prompt
     assert "git switch" in prompt
     assert "git pull" in prompt
-    assert "uv run pytest tests/test_health.py" in dev_event_section
+    assert "command_family=uv run pytest" in dev_event_section
+    assert "uv run pytest tests/test_health.py" not in dev_event_section
     assert "sqlite3 data/mwoham.sqlite3" not in dev_event_section
     assert "echo ok" not in dev_event_section
     assert "curl http://127.0.0.1:8765/reports/daily" not in dev_event_section
@@ -1683,6 +1786,91 @@ def test_prompt_builder_demotes_inspection_terminal_commands() -> None:
     assert builder._is_inspection_command("git tag --list")
     assert not builder._is_inspection_command("git tag -a v1.0.0 -m release")
     assert not builder._is_inspection_command("git tag -d v1.0.0")
+
+
+def test_prompt_builder_removes_git_checkout_status_diff_log_from_report_input() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=6,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 9, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git checkout feat/timeline-ux",
+                content="checkout 명령이 성공적으로 실행되었습니다.",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 9, 1, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git status",
+                content="Git 변경 사항을 확인했습니다.",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 9, 2, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git diff",
+                content="Git diff 확인",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=4,
+                timestamp=datetime(2026, 5, 26, 9, 3, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git log --oneline",
+                content="Git log 확인",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=5,
+                timestamp=datetime(2026, 5, 26, 9, 4, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="git diff --check",
+                content="git diff --check 통과",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=6,
+                timestamp=datetime(2026, 5, 26, 9, 5, tzinfo=UTC),
+                event_type="git_snapshot",
+                source="script",
+                branch="fix/timeline-builder-quality",
+                content="Git 변경 감지",
+                details_json={"changed_files": ["backend/app/ai/prompt_builder.py"]},
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    compressed_timeline = prompt.split("압축 타임라인:", 1)[1]
+    command_flow_section = _prompt_section(
+        prompt,
+        "PRIORITY_COMMAND_FLOWS:",
+        "WORK_EVIDENCE_BY_TIME:",
+    )
+
+    assert "git checkout feat/timeline-ux" not in compressed_timeline
+    assert "checkout 명령이 성공적으로 실행" not in compressed_timeline
+    assert "Git 변경 사항을 확인했습니다" not in compressed_timeline
+    assert "command_family=git diff --check" in command_flow_section
+    assert "title=리포트 입력 품질 개선" in compressed_timeline
+    assert "branch=fix/timeline-builder-quality" not in compressed_timeline
+    assert "branch_hint=timeline builder quality" not in compressed_timeline
 
 
 def test_prompt_builder_instructs_destructive_commands_to_stay_concise() -> None:
@@ -1859,7 +2047,7 @@ def test_prompt_builder_limits_large_git_diff_context(tmp_path: Path) -> None:
 
     assert "PRIORITY_CURRENT_GIT_DIFF_CONTEXT:" in prompt
     assert "... diff 일부 생략 ..." in prompt
-    assert len(prompt) < 7500
+    assert len(prompt) < 7900
 
 
 def test_prompt_builder_omits_current_git_diff_context_when_clean(tmp_path: Path) -> None:

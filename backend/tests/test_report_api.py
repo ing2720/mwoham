@@ -17,6 +17,10 @@ from app.services.report_fallback_builder import get_report_fallback_builder
 from app.services.report_service import ReportService, get_report_service
 from app.services.timeline_builder import get_timeline_builder
 
+FALLBACK_EVIDENCE_MESSAGE = (
+    "Gemini 응답을 사용할 수 없어 정제된 작업 evidence와 검증 결과 중심으로 정리했습니다."
+)
+
 
 class StubSummarizer:
     def __init__(self, content: str | None) -> None:
@@ -73,7 +77,7 @@ def test_daily_report_api_uses_timeline_placeholder_content(client: TestClient) 
     created = create_response.json()
     assert created["date"] == "2026-05-26"
     assert created["created_by"] == "system"
-    assert "Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다." in created["content"]
+    assert FALLBACK_EVIDENCE_MESSAGE in created["content"]
     assert "리포트 서비스 뼈대 구현" in created["content"]
     assert "Gemini는 아직 호출하지 않음" in created["content"]
     assert "## 주요 메모" in created["content"]
@@ -447,6 +451,132 @@ def test_simple_fallback_limits_completed_work_and_deduplicates_git_events() -> 
     assert "simple report fallback 품질 보강" in completed_section
 
 
+def test_detailed_fallback_summarizes_dev_evidence_without_raw_git_metadata() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=4,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 9, 0, tzinfo=UTC),
+                event_type="git_snapshot",
+                content="Git 변경 감지: backend/app/ai/prompt_builder.py",
+                branch="feat/timeline-builder-quality",
+                details_json={
+                    "changed_files": [
+                        "backend/app/ai/prompt_builder.py",
+                        "backend/tests/test_ai_components.py",
+                    ],
+                    "duration_ms": 1000,
+                    "cwd": "/repo",
+                },
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 9, 10, tzinfo=UTC),
+                event_type="command_result",
+                status="success",
+                command="uv run python scripts/run_dev_checks.py --no-record",
+                content="명령 성공: uv run python scripts/run_dev_checks.py --no-record",
+            ),
+            TimelineItem(
+                type="activity_segment",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 9, 15, tzinfo=UTC),
+                content="Safari / Search",
+                display_title="Safari / Search",
+                duration_seconds=12,
+                signal_level="low_signal",
+                hidden_by_default=True,
+                noise_reason="short_app_switch",
+            ),
+            TimelineItem(
+                type="activity_segment",
+                id=4,
+                timestamp=datetime(2026, 5, 26, 9, 30, tzinfo=UTC),
+                content="PyCharm / Report Quality",
+                display_title="PyCharm / Report Quality",
+                duration_seconds=1800,
+                signal_level="high_signal",
+            ),
+        ],
+    )
+
+    content = get_report_fallback_builder().build(timeline, mode="detailed")
+
+    assert "report prompt/context 로직 수정" in content
+    assert "backend dev checks 통과" in content
+    assert "PyCharm" in content
+    assert "Safari / Search" not in content
+    assert "Git 변경 감지" not in content
+    assert "prompt_builder.py" not in content
+    assert "changed_files" not in content
+    assert "duration_ms" not in content
+    assert "feat/timeline-builder-quality" not in content
+
+
+def test_fallback_report_hides_git_inspection_and_keeps_validation_separate() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=4,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 9, 0, tzinfo=UTC),
+                event_type="command_result",
+                status="success",
+                command="git checkout feat/timeline-ux",
+                content="feat/timeline-ux 브랜치로 전환 후 checkout 명령 성공",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 9, 1, tzinfo=UTC),
+                event_type="command_result",
+                status="success",
+                command="git status",
+                content="Git 변경 사항을 확인했습니다.",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 9, 2, tzinfo=UTC),
+                event_type="command_result",
+                status="success",
+                command="./scripts/test_macos_timeline_presentation.sh",
+                content="macOS timeline harness 통과",
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=4,
+                timestamp=datetime(2026, 5, 26, 9, 3, tzinfo=UTC),
+                event_type="git_snapshot",
+                status="unknown",
+                content="Git 변경 감지: backend/app/ai/prompt_builder.py",
+                details_json={"changed_files": ["backend/app/ai/prompt_builder.py"]},
+            ),
+        ],
+    )
+
+    detailed = get_report_fallback_builder().build(timeline, mode="detailed")
+    simple = get_report_fallback_builder().build(timeline, mode="simple")
+
+    for content in (detailed, simple):
+        assert "브랜치로 전환" not in content
+        assert "checkout 명령" not in content
+        assert "git checkout" not in content
+        assert "git status" not in content
+        assert "Git 변경 사항을 확인했습니다" not in content
+        assert "prompt_builder.py" not in content
+    assert "macOS 타임라인 표시 정책 harness 통과" in detailed
+    assert "macOS 타임라인 표시 정책 harness 통과" in simple
+    assert "13차 Launch at Login" in detailed
+    assert len([line for line in simple.splitlines() if line.startswith("- ")]) <= 10
+
+
 def test_daily_report_api_keeps_detailed_and_simple_modes_separate(
     client: TestClient,
 ) -> None:
@@ -653,7 +783,7 @@ def test_daily_report_falls_back_when_mocked_gemini_returns_none(client: TestCli
     assert response.status_code == 201
     body = response.json()
     assert body["created_by"] == "system"
-    assert "Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다." in body["content"]
+    assert FALLBACK_EVIDENCE_MESSAGE in body["content"]
 
 
 def test_daily_report_falls_back_when_gemini_quota_is_exceeded(client: TestClient) -> None:
@@ -676,7 +806,7 @@ def test_daily_report_falls_back_when_gemini_quota_is_exceeded(client: TestClien
     assert response.status_code == 201
     body = response.json()
     assert body["created_by"] == "system"
-    assert "Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다." in body["content"]
+    assert FALLBACK_EVIDENCE_MESSAGE in body["content"]
     assert summarizer.calls == 1
 
 
