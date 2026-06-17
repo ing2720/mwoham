@@ -30,7 +30,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
         }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 250),
+            contentRect: NSRect(x: 0, y: 0, width: 330, height: 360),
             styleMask: [.titled, .closable, .fullSizeContentView, .utilityWindow],
             backing: .buffered,
             defer: false

@@ -13,48 +13,82 @@ struct MenuBarStatusView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        let presentation = MenuBarFloatingPresentation(
+            provider: viewModel,
+            isFloatingWidgetVisible: floatingWidgetController.isVisible
+        )
+
         VStack(alignment: .leading) {
-            StatusBadge(state: viewModel.connectionState, compact: true)
-            if viewModel.connectionState.isError {
-                Text("로컬 서버가 실행 중인지 확인해 주세요.")
-                Text("주소: \(viewModel.backendAddressText)")
+            Button(presentation.controlActions.recordingStartLabel) {
+                Task {
+                    await viewModel.recording.start()
+                }
             }
-            StatusBadge(state: viewModel.recordingState, compact: true)
-            Text("기록 시간: \(viewModel.recordingElapsedTime)")
-            StatusBadge(state: viewModel.devTrackingState, compact: true)
+            .disabled(presentation.controlActions.isRecordingStartDisabled)
 
-            Divider()
-
-            RecordingControl(
-                viewModel: viewModel.recording,
-                style: .menu
+            Button(presentation.controlActions.recordingPauseResumeLabel) {
+                Task {
+                    if viewModel.recording.state == .paused {
+                        await viewModel.recording.resume()
+                    } else {
+                        await viewModel.recording.pause()
+                    }
+                }
+            }
+            .disabled(
+                presentation.controlActions.isRecordingPauseResumeDisabled
             )
 
+            Button(
+                presentation.controlActions.recordingStopLabel,
+                role: .destructive
+            ) {
+                Task {
+                    await viewModel.recording.stop()
+                }
+            }
+            .disabled(presentation.controlActions.isRecordingStopDisabled)
+
             Divider()
 
-            Button("메인 창 열기") {
+            Button(presentation.controlActions.devTrackingToggleLabel) {
+                if viewModel.activityTracking.isDevTrackingRunning {
+                    viewModel.activityTracking.stopDevTracking()
+                } else {
+                    viewModel.activityTracking.startDevTracking()
+                }
+            }
+            .disabled(presentation.controlActions.isDevTrackingToggleDisabled)
+
+            Button(presentation.controlActions.meetingModeToggleLabel) {
+                Task {
+                    await toggleMeetingMode()
+                }
+            }
+            .disabled(presentation.controlActions.isMeetingModeToggleDisabled)
+
+            Divider()
+
+            Button(presentation.quickActions.openMainWindowTitle) {
                 openWindow(id: "main")
                 NSApplication.shared.activate()
             }
 
-            Button(floatingWidgetController.isVisible ? "플로팅 위젯 닫기" : "플로팅 위젯 열기") {
+            Button(presentation.quickActions.floatingWidgetTitle) {
                 floatingWidgetController.toggle(viewModel: viewModel)
             }
 
-            Button("대시보드 열기") {
+            Button(presentation.quickActions.openDashboardTitle) {
                 viewModel.openDashboard()
             }
 
-            Button("새로고침") {
-                Task {
-                    await viewModel.refresh()
-                }
-            }
-            .disabled(viewModel.isLoading)
-
             Divider()
 
-            Button("앱 종료") {
+            Button(presentation.controlActions.restartLabel) {
+                restartApp()
+            }
+
+            Button(presentation.quickActions.quitTitle) {
                 NSApplication.shared.terminate(nil)
             }
         }
@@ -65,6 +99,27 @@ struct MenuBarStatusView: View {
         }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             viewModel.updateElapsedTime()
+        }
+    }
+
+    private func toggleMeetingMode() async {
+        if viewModel.meetingTranscription.state.isRunning {
+            await viewModel.meetingTranscription.stop()
+            return
+        }
+        if viewModel.meetingTranscription.canChangeAudioSource {
+            viewModel.meetingTranscription.selectedAudioSource = .fullMeeting
+        }
+        await viewModel.meetingTranscription.start()
+    }
+
+    private func restartApp() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        ) { _, _ in
+            NSApplication.shared.terminate(nil)
         }
     }
 

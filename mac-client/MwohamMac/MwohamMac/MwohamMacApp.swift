@@ -23,7 +23,13 @@ struct MwohamMacApp: App {
                 floatingWidgetController: floatingWidgetController
             )
         } label: {
-            Label("Mwoham", systemImage: "record.circle")
+            Label(
+                "Mwoham",
+                systemImage: MenuBarFloatingPresentation(
+                    provider: viewModel,
+                    isFloatingWidgetVisible: floatingWidgetController.isVisible
+                ).menuBarIconName
+            )
         }
     }
 }

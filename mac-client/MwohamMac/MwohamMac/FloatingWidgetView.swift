@@ -3,11 +3,20 @@
 //  MwohamMac
 //
 
+import AppKit
 import SwiftUI
 
 struct FloatingWidgetView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
     @State private var isCollapsed = false
+    @Environment(\.openWindow) private var openWindow
+
+    private var presentation: MenuBarFloatingPresentation {
+        MenuBarFloatingPresentation(
+            provider: viewModel,
+            isFloatingWidgetVisible: true
+        )
+    }
 
     var body: some View {
         Group {
@@ -24,8 +33,8 @@ struct FloatingWidgetView: View {
         VStack(alignment: .leading, spacing: 12) {
             headerView
 
-            if viewModel.connectionState.isError {
-                Text("로컬 서버 확인: \(viewModel.backendAddressText)")
+            if presentation.backendState.isError {
+                Text(presentation.backendDetail ?? "연결 실패")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -33,22 +42,19 @@ struct FloatingWidgetView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                FloatingStatusBadgeRow(
-                    title: "현재 기록 상태",
-                    state: viewModel.recordingState
+                FloatingStatusRow(
+                    title: "현재 앱",
+                    value: presentation.currentAppText
                 )
-                FloatingStatusRow(title: "기록 시간", value: viewModel.recordingElapsedTime)
-                FloatingStatusBadgeRow(
-                    title: "활성 창 추적",
-                    state: viewModel.activeWindowTrackingState
+                FloatingStatusRow(
+                    title: "현재 창",
+                    value: presentation.currentWindowText
                 )
-                FloatingStatusBadgeRow(title: "OCR 상태", state: viewModel.ocrState)
                 FloatingStatusBadgeRow(
-                    title: "Dev Tracking",
-                    state: viewModel.devTrackingState
+                    title: presentation.ocrTitle,
+                    state: presentation.ocrState
                 )
-                FloatingStatusRow(title: "현재 앱", value: viewModel.currentApp)
-                FloatingStatusRow(title: "현재 창", value: viewModel.currentWindow)
+                FloatingDevTrackingRow(presentation: presentation)
             }
 
             Divider()
@@ -56,16 +62,67 @@ struct FloatingWidgetView: View {
                 viewModel: viewModel.recording,
                 fillsWidth: true
             )
+
+            HStack(spacing: 8) {
+                PrimaryActionButton(
+                    title: presentation.controlActions.devTrackingToggleLabel,
+                    systemImage: "point.3.connected.trianglepath.dotted",
+                    isDisabled:
+                        presentation.controlActions
+                            .isDevTrackingToggleDisabled,
+                    fillsWidth: true
+                ) {
+                    if viewModel.activityTracking.isDevTrackingRunning {
+                        viewModel.activityTracking.stopDevTracking()
+                    } else {
+                        viewModel.activityTracking.startDevTracking()
+                    }
+                }
+
+                PrimaryActionButton(
+                    title: presentation.controlActions.meetingModeToggleLabel,
+                    systemImage: "waveform.circle",
+                    isDisabled:
+                        presentation.controlActions
+                            .isMeetingModeToggleDisabled,
+                    fillsWidth: true
+                ) {
+                    await toggleMeetingMode()
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    openWindow(id: "main")
+                    NSApplication.shared.activate()
+                } label: {
+                    Label(
+                        presentation.quickActions.openMainWindowTitle,
+                        systemImage: "macwindow"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+
+                Button {
+                    viewModel.openDashboard()
+                } label: {
+                    Label(
+                        presentation.quickActions.openDashboardTitle,
+                        systemImage: "safari"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            }
         }
         .padding(14)
-        .frame(width: 300, height: 290, alignment: .topLeading)
+        .frame(width: 330, height: 360, alignment: .topLeading)
     }
 
     private var collapsedView: some View {
         HStack(spacing: 8) {
-            StatusBadge(state: viewModel.recordingState, compact: true)
+            StatusBadge(state: presentation.recordingState, compact: true)
 
-            Text(collapsedDetailText)
+            Text(presentation.collapsedDetailText)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -92,10 +149,24 @@ struct FloatingWidgetView: View {
     }
 
     private var headerView: some View {
-        HStack {
-            StatusBadge(state: viewModel.connectionState, compact: true)
+        HStack(spacing: 8) {
+            StatusBadge(state: presentation.backendState, compact: true)
+            StatusBadge(state: presentation.recordingState, compact: true)
+
+            Text(presentation.recordingElapsedTimeText)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
             Spacer()
+
+            Button {
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .disabled(true)
+            .help("\(presentation.widgetSettingsLabel) 준비 중")
 
             Button {
                 Task {
@@ -105,7 +176,7 @@ struct FloatingWidgetView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .disabled(viewModel.isLoading)
+            .disabled(!presentation.quickActions.canRefresh)
 
             Button {
                 isCollapsed.toggle()
@@ -113,20 +184,19 @@ struct FloatingWidgetView: View {
                 Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
             }
             .buttonStyle(.borderless)
-            .help(isCollapsed ? "펼치기" : "접기")
+            .help(presentation.widgetCompactToggleLabel)
         }
     }
 
-    private var collapsedDetailText: String {
-        if viewModel.connectionState.isError {
-            return "연결 실패"
+    private func toggleMeetingMode() async {
+        if viewModel.meetingTranscription.state.isRunning {
+            await viewModel.meetingTranscription.stop()
+            return
         }
-
-        if viewModel.isPrivateAppActive {
-            return "비공개"
+        if viewModel.meetingTranscription.canChangeAudioSource {
+            viewModel.meetingTranscription.selectedAudioSource = .fullMeeting
         }
-
-        return "\(viewModel.recordingElapsedTime) · \(viewModel.shortDevTrackingStatus)"
+        await viewModel.meetingTranscription.start()
     }
 
 }
@@ -146,6 +216,53 @@ private struct FloatingStatusRow: View {
                 .truncationMode(.middle)
         }
         .font(.footnote)
+    }
+}
+
+private struct FloatingDevTrackingRow: View {
+    let presentation: MenuBarFloatingPresentation
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(presentation.devTrackingTitle)
+                .foregroundStyle(.secondary)
+            Spacer()
+            DevTrackingCompactBadge(
+                text: presentation.devTrackingDisplayText,
+                state: presentation.devTrackingBadgeState
+            )
+        }
+        .font(.footnote)
+    }
+}
+
+private struct DevTrackingCompactBadge: View {
+    let text: String
+    let state: MenuBarFloatingPresentation.DevTrackingBadgeState
+
+    var body: some View {
+        Text(text)
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
+            .lineLimit(1)
+            .accessibilityLabel(text)
+    }
+
+    private var color: Color {
+        switch state {
+        case .running:
+            return .green
+        case .stopping:
+            return .orange
+        case .stopped:
+            return .secondary
+        case .error:
+            return .red
+        }
     }
 }
 
