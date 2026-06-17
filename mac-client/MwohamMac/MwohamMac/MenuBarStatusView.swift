@@ -13,15 +13,19 @@ struct MenuBarStatusView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        let presentation = MenuBarFloatingPresentation(
+            provider: viewModel,
+            isFloatingWidgetVisible: floatingWidgetController.isVisible
+        )
+
         VStack(alignment: .leading) {
-            StatusBadge(state: viewModel.connectionState, compact: true)
-            if viewModel.connectionState.isError {
-                Text("로컬 서버가 실행 중인지 확인해 주세요.")
-                Text("주소: \(viewModel.backendAddressText)")
+            StatusBadge(state: presentation.backendState, compact: true)
+            if let backendDetail = presentation.backendDetail {
+                Text(backendDetail)
             }
-            StatusBadge(state: viewModel.recordingState, compact: true)
-            Text("기록 시간: \(viewModel.recordingElapsedTime)")
-            StatusBadge(state: viewModel.devTrackingState, compact: true)
+            StatusBadge(state: presentation.recordingState, compact: true)
+            Text("기록 시간: \(presentation.recordingElapsedTimeText)")
+            StatusBadge(state: presentation.devTrackingState, compact: true)
 
             Divider()
 
@@ -32,29 +36,29 @@ struct MenuBarStatusView: View {
 
             Divider()
 
-            Button("메인 창 열기") {
+            Button(presentation.quickActions.openMainWindowTitle) {
                 openWindow(id: "main")
                 NSApplication.shared.activate()
             }
 
-            Button(floatingWidgetController.isVisible ? "플로팅 위젯 닫기" : "플로팅 위젯 열기") {
+            Button(presentation.quickActions.floatingWidgetTitle) {
                 floatingWidgetController.toggle(viewModel: viewModel)
             }
 
-            Button("대시보드 열기") {
+            Button(presentation.quickActions.openDashboardTitle) {
                 viewModel.openDashboard()
             }
 
-            Button("새로고침") {
+            Button(presentation.quickActions.refreshTitle) {
                 Task {
                     await viewModel.refresh()
                 }
             }
-            .disabled(viewModel.isLoading)
+            .disabled(!presentation.quickActions.canRefresh)
 
             Divider()
 
-            Button("앱 종료") {
+            Button(presentation.quickActions.quitTitle) {
                 NSApplication.shared.terminate(nil)
             }
         }

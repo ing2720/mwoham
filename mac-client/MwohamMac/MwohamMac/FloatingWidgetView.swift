@@ -9,6 +9,13 @@ struct FloatingWidgetView: View {
     @ObservedObject var viewModel: BackendStatusViewModel
     @State private var isCollapsed = false
 
+    private var presentation: MenuBarFloatingPresentation {
+        MenuBarFloatingPresentation(
+            provider: viewModel,
+            isFloatingWidgetVisible: true
+        )
+    }
+
     var body: some View {
         Group {
             if isCollapsed {
@@ -24,8 +31,8 @@ struct FloatingWidgetView: View {
         VStack(alignment: .leading, spacing: 12) {
             headerView
 
-            if viewModel.connectionState.isError {
-                Text("로컬 서버 확인: \(viewModel.backendAddressText)")
+            if presentation.backendState.isError {
+                Text(presentation.backendDetail ?? "연결 실패")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -35,20 +42,32 @@ struct FloatingWidgetView: View {
             VStack(alignment: .leading, spacing: 6) {
                 FloatingStatusBadgeRow(
                     title: "현재 기록 상태",
-                    state: viewModel.recordingState
+                    state: presentation.recordingState
                 )
-                FloatingStatusRow(title: "기록 시간", value: viewModel.recordingElapsedTime)
+                FloatingStatusRow(
+                    title: "기록 시간",
+                    value: presentation.recordingElapsedTimeText
+                )
                 FloatingStatusBadgeRow(
-                    title: "활성 창 추적",
-                    state: viewModel.activeWindowTrackingState
+                    title: presentation.activeWindowTrackingTitle,
+                    state: presentation.activeWindowTrackingState
                 )
-                FloatingStatusBadgeRow(title: "OCR 상태", state: viewModel.ocrState)
                 FloatingStatusBadgeRow(
-                    title: "Dev Tracking",
-                    state: viewModel.devTrackingState
+                    title: presentation.ocrTitle,
+                    state: presentation.ocrState
                 )
-                FloatingStatusRow(title: "현재 앱", value: viewModel.currentApp)
-                FloatingStatusRow(title: "현재 창", value: viewModel.currentWindow)
+                FloatingStatusBadgeRow(
+                    title: presentation.devTrackingTitle,
+                    state: presentation.devTrackingState
+                )
+                FloatingStatusRow(
+                    title: "현재 앱",
+                    value: presentation.currentAppText
+                )
+                FloatingStatusRow(
+                    title: "현재 창",
+                    value: presentation.currentWindowText
+                )
             }
 
             Divider()
@@ -63,9 +82,9 @@ struct FloatingWidgetView: View {
 
     private var collapsedView: some View {
         HStack(spacing: 8) {
-            StatusBadge(state: viewModel.recordingState, compact: true)
+            StatusBadge(state: presentation.recordingState, compact: true)
 
-            Text(collapsedDetailText)
+            Text(presentation.collapsedDetailText)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -93,7 +112,7 @@ struct FloatingWidgetView: View {
 
     private var headerView: some View {
         HStack {
-            StatusBadge(state: viewModel.connectionState, compact: true)
+            StatusBadge(state: presentation.backendState, compact: true)
 
             Spacer()
 
@@ -105,7 +124,7 @@ struct FloatingWidgetView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .disabled(viewModel.isLoading)
+            .disabled(!presentation.quickActions.canRefresh)
 
             Button {
                 isCollapsed.toggle()
@@ -115,18 +134,6 @@ struct FloatingWidgetView: View {
             .buttonStyle(.borderless)
             .help(isCollapsed ? "펼치기" : "접기")
         }
-    }
-
-    private var collapsedDetailText: String {
-        if viewModel.connectionState.isError {
-            return "연결 실패"
-        }
-
-        if viewModel.isPrivateAppActive {
-            return "비공개"
-        }
-
-        return "\(viewModel.recordingElapsedTime) · \(viewModel.shortDevTrackingStatus)"
     }
 
 }
