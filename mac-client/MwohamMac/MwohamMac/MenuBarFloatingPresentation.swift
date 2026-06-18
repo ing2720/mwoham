@@ -5,6 +5,11 @@
 
 import Foundation
 
+enum FloatingWidgetResizeTarget: Equatable {
+    case compact
+    case standard
+}
+
 @MainActor
 protocol AppStatusPresentationProviding: AnyObject {
     var connectionState: ConnectionState { get }
@@ -26,6 +31,51 @@ protocol AppStatusPresentationProviding: AnyObject {
 }
 
 struct MenuBarFloatingPresentation: Equatable {
+    enum FloatingWidgetLayoutMode: Equatable {
+        case veryCompact
+        case compact
+        case regular
+        case spacious
+
+        static let veryCompactThresholdWidth = 220.0
+        static let veryCompactThresholdHeight = 90.0
+        static let compactThresholdHeight = 280.0
+        static let spaciousThresholdWidth = 390.0
+        static let spaciousThresholdHeight = 460.0
+
+        static func mode(width: Double, height: Double) -> FloatingWidgetLayoutMode {
+            if height < veryCompactThresholdHeight {
+                return .veryCompact
+            }
+
+            if height < compactThresholdHeight {
+                return .compact
+            }
+
+            if height >= spaciousThresholdHeight || width >= spaciousThresholdWidth {
+                return .spacious
+            }
+
+            return .regular
+        }
+
+        static func preferredCompact(width: Double, height: Double) -> FloatingWidgetLayoutMode {
+            if height < veryCompactThresholdHeight {
+                return .veryCompact
+            }
+
+            return .compact
+        }
+
+        var usesCompactControls: Bool {
+            self == .veryCompact || self == .compact
+        }
+
+        var isSpacious: Bool {
+            self == .spacious
+        }
+    }
+
     enum MenuBarIconState: Equatable {
         case idle
         case recording
@@ -109,9 +159,16 @@ struct MenuBarFloatingPresentation: Equatable {
     let devTrackingDisplayText: String
     let currentAppText: String
     let currentWindowText: String
+    let compactCurrentActivityText: String
+    let compactRecordingSummary: String
+    let widgetPrimaryStatusText: String
+    let widgetVeryCompactSummary: String
+    let widgetCompactSummary: String
     let collapsedDetailText: String
+    let shouldShowCurrentWindowInCompact = false
+    let shouldShowDevTrackingInCompact = true
+    let shouldShowMeetingModeInCompact = false
     let widgetSettingsLabel = "위젯 설정"
-    let widgetCompactToggleLabel = "간편보기"
     let controlActions: ControlActions
     let quickActions: QuickActions
 
@@ -194,6 +251,16 @@ struct MenuBarFloatingPresentation: Equatable {
             fallback: "현재 창 없음",
             maxLength: 90
         )
+        self.compactCurrentActivityText = Self.compactActivityText(
+            currentApp: currentApp,
+            currentWindow: currentWindow,
+            isPrivateAppActive: isPrivateAppActive
+        )
+        self.compactRecordingSummary =
+            "\(self.recordingState.label) · \(self.recordingElapsedTimeText)"
+        self.widgetPrimaryStatusText = self.compactRecordingSummary
+        self.widgetVeryCompactSummary = self.compactRecordingSummary
+        self.widgetCompactSummary = "\(self.compactRecordingSummary) · \(self.compactCurrentActivityText)"
         self.quickActions = QuickActions(
             floatingWidgetTitle:
                 isFloatingWidgetVisible ? "플로팅 위젯 닫기" : "플로팅 위젯 열기",
@@ -225,6 +292,46 @@ struct MenuBarFloatingPresentation: Equatable {
             collapsedDetailText =
                 "\(self.recordingElapsedTimeText) · \(shortDevTrackingStatus)"
         }
+    }
+
+    func shouldShowBackendBadge(for mode: FloatingWidgetLayoutMode) -> Bool {
+        false
+    }
+
+    func shouldShowCurrentApp(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode != .veryCompact
+    }
+
+    func shouldShowCurrentWindow(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode == .regular || mode == .spacious
+    }
+
+    func shouldShowOCR(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode == .regular || mode == .spacious
+    }
+
+    func shouldShowDevTracking(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode != .veryCompact
+    }
+
+    func shouldShowSecondaryActions(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode == .regular || mode == .spacious
+    }
+
+    func shouldUseSingleColumnActions(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode.usesCompactControls
+    }
+
+    func widgetSizeToggleLabel(for mode: FloatingWidgetLayoutMode) -> String {
+        mode.usesCompactControls ? "표준 크기" : "간편보기"
+    }
+
+    func widgetSizeToggleIconName(for mode: FloatingWidgetLayoutMode) -> String {
+        mode.usesCompactControls ? "chevron.down" : "chevron.up"
+    }
+
+    func widgetSizeToggleTarget(for mode: FloatingWidgetLayoutMode) -> FloatingWidgetResizeTarget {
+        mode.usesCompactControls ? .standard : .compact
     }
 
     private static func iconState(
@@ -286,6 +393,29 @@ struct MenuBarFloatingPresentation: Equatable {
             return ""
         }
         return String(label[range])
+    }
+
+    private static func compactActivityText(
+        currentApp: String,
+        currentWindow: String,
+        isPrivateAppActive: Bool
+    ) -> String {
+        if isPrivateAppActive {
+            return "비공개 앱"
+        }
+        let window = displayValue(
+            currentWindow,
+            fallback: "",
+            maxLength: 42
+        )
+        if !window.isEmpty {
+            return window
+        }
+        return displayValue(
+            currentApp,
+            fallback: "현재 활동 없음",
+            maxLength: 32
+        )
     }
 
     private static func displayValue(

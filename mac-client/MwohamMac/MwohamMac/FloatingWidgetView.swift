@@ -7,8 +7,10 @@ import AppKit
 import SwiftUI
 
 struct FloatingWidgetView: View {
+    static let minimumContentSize = CGSize(width: 214, height: 80)
+
     @ObservedObject var viewModel: BackendStatusViewModel
-    @State private var isCollapsed = false
+    var onResizeRequest: (FloatingWidgetResizeTarget) -> Void = { _ in }
     @Environment(\.openWindow) private var openWindow
 
     private var presentation: MenuBarFloatingPresentation {
@@ -19,172 +21,340 @@ struct FloatingWidgetView: View {
     }
 
     var body: some View {
-        Group {
-            if isCollapsed {
-                collapsedView
-            } else {
-                expandedView
-            }
+        GeometryReader { proxy in
+            let layoutMode = resolvedLayoutMode(for: proxy.size)
+            content(for: layoutMode, size: proxy.size)
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .topLeading
+                )
+                .background(.regularMaterial)
         }
-        .background(.regularMaterial)
+        .frame(
+            minWidth: Self.minimumContentSize.width,
+            minHeight: Self.minimumContentSize.height
+        )
     }
 
-    private var expandedView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            headerView
+    @ViewBuilder
+    private func content(
+        for layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode,
+        size: CGSize
+    ) -> some View {
+        if size.width <= 240 && size.height <= 140 {
+            narrowWidthView
+        } else {
+            switch layoutMode {
+            case .veryCompact:
+                veryCompactView
 
-            if presentation.backendState.isError {
-                Text(presentation.backendDetail ?? "연결 실패")
-                    .font(.caption)
+            case .compact:
+                adaptiveWidgetContent(
+                    layoutMode: .compact,
+                    visibility: WidgetVisibility(size: size),
+                    rowSpacing: 5,
+                    sectionSpacing: 8,
+                    usesRelaxedSpacing: false
+                )
+            case .regular:
+                adaptiveWidgetContent(
+                    layoutMode: .regular,
+                    visibility: WidgetVisibility(size: size),
+                    rowSpacing: 6,
+                    sectionSpacing: 10,
+                    usesRelaxedSpacing: false
+                )
+            case .spacious:
+                adaptiveWidgetContent(
+                    layoutMode: .spacious,
+                    visibility: WidgetVisibility(size: size),
+                    rowSpacing: 6,
+                    sectionSpacing: 8,
+                    usesRelaxedSpacing: true
+                )
+            }
+        }
+    }
+
+    private func resolvedLayoutMode(
+        for size: CGSize
+    ) -> MenuBarFloatingPresentation.FloatingWidgetLayoutMode {
+        return MenuBarFloatingPresentation.FloatingWidgetLayoutMode.mode(
+            width: Double(size.width),
+            height: Double(size.height)
+        )
+    }
+
+    private var veryCompactView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            headerView(layoutMode: .veryCompact, isNarrowWidth: true)
+
+            RecordingControl(
+                viewModel: viewModel.recording,
+                style: .condensed,
+                fillsWidth: true
+            )
+        }
+        .padding(8)
+    }
+
+    private var narrowWidthView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                StatusBadge(state: presentation.recordingState, compact: true)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
+
+                Text(presentation.recordingElapsedTimeText)
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
+
+                Spacer(minLength: 2)
+
+                Button {
+                    onResizeRequest(.standard)
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .help("표준 크기")
+                .accessibilityLabel("표준 크기")
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                FloatingStatusRow(
-                    title: "현재 앱",
-                    value: presentation.currentAppText
-                )
-                FloatingStatusRow(
-                    title: "현재 창",
-                    value: presentation.currentWindowText
-                )
+            RecordingControl(
+                viewModel: viewModel.recording,
+                style: .condensed,
+                fillsWidth: true
+            )
+        }
+        .padding(8)
+    }
+
+    private func adaptiveWidgetContent(
+        layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode,
+        visibility: WidgetVisibility,
+        rowSpacing: CGFloat,
+        sectionSpacing: CGFloat,
+        usesRelaxedSpacing: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: sectionSpacing) {
+            headerView(layoutMode: layoutMode,
+                       isNarrowWidth: visibility.usesNarrowHeader
+                   )
+
+            VStack(alignment: .leading, spacing: rowSpacing) {
+                if visibility.showsCompactActivity {
+                    Text(presentation.compactCurrentActivityText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                if visibility.showsCurrentApp {
+                    FloatingStatusRow(
+                        title: "현재 앱",
+                        value: presentation.currentAppText
+                    )
+                }
+                if visibility.showsCurrentWindow {
+                    FloatingStatusRow(
+                        title: "현재 창",
+                        value: presentation.currentWindowText
+                    )
+                }
+                if visibility.showsOCR {
+                    FloatingStatusBadgeRow(
+                        title: presentation.ocrTitle,
+                        state: presentation.ocrState
+                    )
+                }
+                if visibility.showsDevTrackingRow {
+                    FloatingDevTrackingRow(presentation: presentation)
+                } else if visibility.showsDevTrackingBadge {
+                    DevTrackingCompactBadge(
+                        text: presentation.devTrackingDisplayText,
+                        state: presentation.devTrackingBadgeState
+                    )
+                }
+            }
+
+            if visibility.showsActiveWindowTracking {
                 FloatingStatusBadgeRow(
-                    title: presentation.ocrTitle,
-                    state: presentation.ocrState
+                    title: presentation.activeWindowTrackingTitle,
+                    state: presentation.activeWindowTrackingState
                 )
-                FloatingDevTrackingRow(presentation: presentation)
+            }
+
+            if visibility.pushesRecordingControlToBottom {
+                Spacer(minLength: 0)
             }
 
             Divider()
             RecordingControl(
                 viewModel: viewModel.recording,
+                style: visibility.usesCondensedRecordingControl
+                    ? .condensed
+                    : .standard,
                 fillsWidth: true
             )
 
-            HStack(spacing: 8) {
-                PrimaryActionButton(
-                    title: presentation.controlActions.devTrackingToggleLabel,
-                    systemImage: "point.3.connected.trianglepath.dotted",
-                    isDisabled:
-                        presentation.controlActions
-                            .isDevTrackingToggleDisabled,
-                    fillsWidth: true
-                ) {
-                    if viewModel.activityTracking.isDevTrackingRunning {
-                        viewModel.activityTracking.stopDevTracking()
-                    } else {
-                        viewModel.activityTracking.startDevTracking()
+            actionControls(visibility: visibility)
+        }
+        .padding(visibility.contentPadding(defaultPadding: usesRelaxedSpacing ? 18 : 14))
+    }
+
+    @ViewBuilder
+    private func actionControls(visibility: WidgetVisibility) -> some View {
+        if visibility.usesSingleColumnActions {
+            VStack(spacing: 8) {
+                if visibility.showsDevTrackingAction {
+                    devTrackingToggleButton
+                }
+
+                if visibility.showsMeetingModeAction {
+                    meetingModeToggleButton
+                }
+
+                if visibility.showsOpenMainWindowAction {
+                    openMainWindowButton
+                }
+
+                if visibility.showsOpenDashboardAction {
+                    openDashboardButton
+                }
+            }
+        } else {
+            VStack(spacing: 8) {
+                if visibility.showsSecondaryActionRow {
+                    HStack(spacing: 8) {
+                        devTrackingToggleButton
+                        meetingModeToggleButton
                     }
                 }
 
-                PrimaryActionButton(
-                    title: presentation.controlActions.meetingModeToggleLabel,
-                    systemImage: "waveform.circle",
-                    isDisabled:
-                        presentation.controlActions
-                            .isMeetingModeToggleDisabled,
-                    fillsWidth: true
-                ) {
-                    await toggleMeetingMode()
-                }
-            }
-
-            HStack(spacing: 8) {
-                Button {
-                    openWindow(id: "main")
-                    NSApplication.shared.activate()
-                } label: {
-                    Label(
-                        presentation.quickActions.openMainWindowTitle,
-                        systemImage: "macwindow"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-
-                Button {
-                    viewModel.openDashboard()
-                } label: {
-                    Label(
-                        presentation.quickActions.openDashboardTitle,
-                        systemImage: "safari"
-                    )
-                    .frame(maxWidth: .infinity)
+                if visibility.showsQuickActionRow {
+                    HStack(spacing: 8) {
+                        openMainWindowButton
+                        openDashboardButton
+                    }
                 }
             }
         }
-        .padding(14)
-        .frame(width: 330, height: 360, alignment: .topLeading)
     }
 
-    private var collapsedView: some View {
-        HStack(spacing: 8) {
-            StatusBadge(state: presentation.recordingState, compact: true)
+    private var devTrackingToggleButton: some View {
+        PrimaryActionButton(
+            title: presentation.controlActions.devTrackingToggleLabel,
+            systemImage: "point.3.connected.trianglepath.dotted",
+            isDisabled:
+                presentation.controlActions
+                    .isDevTrackingToggleDisabled,
+            fillsWidth: true
+        ) {
+            if viewModel.activityTracking.isDevTrackingRunning {
+                viewModel.activityTracking.stopDevTracking()
+            } else {
+                viewModel.activityTracking.startDevTracking()
+            }
+        }
+    }
 
-            Text(presentation.collapsedDetailText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+    private var meetingModeToggleButton: some View {
+        PrimaryActionButton(
+            title: presentation.controlActions.meetingModeToggleLabel,
+            systemImage: "waveform.circle",
+            isDisabled:
+                presentation.controlActions
+                    .isMeetingModeToggleDisabled,
+            fillsWidth: true
+        ) {
+            await toggleMeetingMode()
+        }
+    }
 
-            Spacer(minLength: 4)
-
-            RecordingControl(
-                viewModel: viewModel.recording,
-                style: .compact
+    private var openMainWindowButton: some View {
+        Button {
+            openWindow(id: "main")
+            NSApplication.shared.activate()
+        } label: {
+            Label(
+                presentation.quickActions.openMainWindowTitle,
+                systemImage: "macwindow"
             )
-
-            Button {
-                isCollapsed = false
-            } label: {
-                Image(systemName: "chevron.down")
-            }
-            .buttonStyle(.borderless)
-            .help("펼치기")
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(width: 300, height: 38, alignment: .center)
     }
 
-    private var headerView: some View {
-        HStack(spacing: 8) {
-            StatusBadge(state: presentation.backendState, compact: true)
+    private var openDashboardButton: some View {
+        Button {
+            viewModel.openDashboard()
+        } label: {
+            Label(
+                presentation.quickActions.openDashboardTitle,
+                systemImage: "safari"
+            )
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func headerView(
+        layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode,
+        isNarrowWidth: Bool = false
+    ) -> some View {
+        HStack(spacing: 6) {
             StatusBadge(state: presentation.recordingState, compact: true)
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(2)
 
             Text(presentation.recordingElapsedTimeText)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.7)
+                .layoutPriority(1)
 
-            Spacer()
+            Spacer(minLength: 2)
 
-            Button {
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.borderless)
-            .disabled(true)
-            .help("\(presentation.widgetSettingsLabel) 준비 중")
-
-            Button {
-                Task {
-                    await viewModel.refresh()
+            if !isNarrowWidth {
+                Button {
+                } label: {
+                    Image(systemName: "gearshape")
                 }
-            } label: {
-                Image(systemName: "arrow.clockwise")
+                .buttonStyle(.borderless)
+                .disabled(true)
+                .help("\(presentation.widgetSettingsLabel) 준비 중")
+
+                Button {
+                    Task {
+                        await viewModel.refresh()
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!presentation.quickActions.canRefresh)
             }
-            .buttonStyle(.borderless)
-            .disabled(!presentation.quickActions.canRefresh)
 
             Button {
-                isCollapsed.toggle()
+                onResizeRequest(
+                    presentation.widgetSizeToggleTarget(for: layoutMode)
+                )
             } label: {
-                Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+                Image(
+                    systemName: presentation.widgetSizeToggleIconName(
+                        for: layoutMode
+                    )
+                )
             }
             .buttonStyle(.borderless)
-            .help(presentation.widgetCompactToggleLabel)
+            .help(presentation.widgetSizeToggleLabel(for: layoutMode))
+            .accessibilityLabel(presentation.widgetSizeToggleLabel(for: layoutMode))
         }
     }
 
@@ -216,6 +386,97 @@ private struct FloatingStatusRow: View {
                 .truncationMode(.middle)
         }
         .font(.footnote)
+    }
+}
+
+private struct WidgetVisibility {
+    let width: CGFloat
+    let height: CGFloat
+
+    init(size: CGSize) {
+        self.width = size.width
+        self.height = size.height
+    }
+
+    var showsCompactActivity: Bool {
+        height >= 108 && height < 190
+    }
+
+    var showsDevTrackingBadge: Bool {
+        height >= 135 && height < 238
+    }
+
+    var showsCurrentApp: Bool {
+        height >= 190
+    }
+
+    var showsCurrentWindow: Bool {
+        height >= 190
+    }
+
+    var showsOCR: Bool {
+        height >= 200
+    }
+
+    var showsDevTrackingRow: Bool {
+        height >= 205
+    }
+
+    var showsActiveWindowTracking: Bool {
+        height >= 210
+    }
+
+    var showsDevTrackingAction: Bool {
+        height >= 220
+    }
+
+    var showsMeetingModeAction: Bool {
+        height >= 230
+    }
+
+    var showsOpenMainWindowAction: Bool {
+        height >= 240
+    }
+
+    var showsOpenDashboardAction: Bool {
+        height >= 270
+    }
+
+    var showsSecondaryActionRow: Bool {
+        height >= 220
+    }
+
+    var showsQuickActionRow: Bool {
+        height >= 230
+    }
+
+    var usesCondensedRecordingControl: Bool {
+        width < 280 || height < 252
+    }
+
+    var usesSingleColumnActions: Bool {
+        width < 360
+    }
+
+    var usesNarrowHeader: Bool {
+        width <= 260
+    }
+
+    var pushesRecordingControlToBottom: Bool {
+        height < 180
+    }
+
+    func contentPadding(defaultPadding: CGFloat) -> CGFloat {
+        if height < 120 {
+            return 6
+        }
+        if height < 150 {
+            return 8
+        }
+        if height < 190 {
+            return 10
+        }
+        return defaultPadding
     }
 }
 

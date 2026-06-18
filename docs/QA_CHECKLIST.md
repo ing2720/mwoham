@@ -1138,6 +1138,68 @@ git diff --check
 git diff --check
 ```
 
+## 17. Floating Widget 자유 리사이즈/adaptive layout QA
+
+확인:
+
+1. 플로팅 위젯 창을 특정 크기로 강제 snap하지 않고 사용자가 자유롭게 resize할 수
+   있는지 확인합니다.
+2. macOS 창 제어 버튼만 남는 `61x22` 수준까지 줄어들지 않고, 최소 크기가
+   간편보기 기준인 약 `214x80` 근처에서 멈추는지 확인합니다.
+3. 최소 크기에서도 첫 줄 `기록 상태 + 기록 시간`, 둘째 줄
+   `일시정지/재개 + 종료/시작` 핵심 제어가 깨지지 않고 보이는지 확인합니다.
+4. veryCompact 크기에서는 backend, 현재 앱/창, OCR, Dev Tracking detail,
+   보조 action이 숨겨지고 recording 핵심 상태/제어만 남는지 확인합니다.
+5. compact 크기에서는 기록 상태 badge, 기록 시간, 현재 활동 요약, Dev Tracking
+   badge가 공간을 침범하지 않는지 확인합니다.
+6. compact 크기에서는 Dev Tracking 시작/중지, 회의모드 시작/중지, 대시보드 열기
+   같은 secondary action이 과하게 표시되지 않는지 확인합니다.
+7. compact/veryCompact에서 기록 상태와 기록 시간이 header와 본문에 중복 표시되지
+   않는지 확인합니다.
+8. 플로팅 위젯 header에 backend 연결 badge가 표시되지 않는지 확인합니다.
+9. 기본 크기에서는 기존 regular 위젯 구조가 유지되는지 확인합니다.
+10. 중간 크기에서는 너무 빨리 veryCompact/minimal UI로 전환되지 않고 regular 또는
+   compact 수준의 상태 정보가 유지되는지 확인합니다.
+11. regular 크기에서는 현재 앱, 현재 창, OCR 상태, Dev Tracking 상태, 기록 제어,
+   Dev Tracking 제어, 회의모드 제어, 메인 창/대시보드 열기가 표시되는지
+   확인합니다.
+12. spacious 크기에서는 상태 row 간격이 넓어지고 현재 앱/창, OCR, Dev Tracking,
+   활성 창 추적 상태가 숨겨지지 않는지 확인합니다.
+13. spacious 크기에서 메인 창 열기/대시보드 열기 버튼이 창 하단으로 멀리
+   밀려나지 않고 기록 제어 바로 아래 흐름에 붙어 있는지 확인합니다.
+14. normal/regular 크기에서 하단 공백이 과하게 남지 않는지 확인합니다.
+15. 현재 앱/현재 창 제목이 길어도 한 줄 ellipsis 또는 표시용 truncate로 처리되고
+   원본 상태 값은 변경되지 않는지 확인합니다.
+16. Dev Tracking badge가 veryCompact/compact/regular/spacious 정책에 맞게 숨김
+   또는 표시되고, 표시될 때
+   `Dev Tracking:기록중`, `Dev Tracking:종료중`, `Dev Tracking:기록중지`,
+   `Dev Tracking:error...` 형태를 유지하는지 확인합니다.
+17. RecordingControl의 기록 시작/일시정지/재개/종료 동작이 크기별 레이아웃에서도
+   유지되는지 확인합니다.
+18. compact/veryCompact에서 기록 제어가 짧은 라벨로 표시되고 버튼들이 여러 줄로
+    흩어지지 않는지 확인합니다.
+19. compact 상태의 크기 버튼은 `표준 크기` 역할을 하고 클릭 시 default size로
+    돌아가는지 확인합니다.
+20. regular/spacious 상태의 크기 버튼은 `간편보기` 역할을 하고 클릭 시 compact에
+    가까운 크기로 줄어드는지 확인합니다.
+21. 크기 버튼을 누른 뒤에도 사용자가 다시 자유롭게 resize할 수 있는지 확인합니다.
+22. Dev Tracking 시작/중지, 회의모드 시작/중지, 메인 창 열기, 대시보드 열기,
+    새로고침, 간편보기 toggle 동작이 유지되는지 확인합니다.
+23. 메뉴바 구조, Launch at Login, backend lifecycle, report/timeline/settings 화면
+    동작이 기존과 동일한지 확인합니다.
+
+검증 명령:
+
+```bash
+./scripts/test_macos_floating_widget_responsive.sh
+./scripts/test_macos_menu_bar_floating_presentation.sh
+./scripts/test_macos_launch_at_login.sh
+./scripts/test_macos_timeline_presentation.sh
+./scripts/test_macos_report_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+```
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:
