@@ -10,8 +10,10 @@ struct FloatingWidgetView: View {
     static let minimumContentSize = CGSize(width: 214, height: 80)
 
     @ObservedObject var viewModel: BackendStatusViewModel
+    @ObservedObject var settingsStore: FloatingWidgetSettingsStore
     var onResizeRequest: (FloatingWidgetResizeTarget) -> Void = { _ in }
     @Environment(\.openWindow) private var openWindow
+    @State private var isSettingsPresented = false
 
     private var presentation: MenuBarFloatingPresentation {
         MenuBarFloatingPresentation(
@@ -29,12 +31,16 @@ struct FloatingWidgetView: View {
                     maxHeight: .infinity,
                     alignment: .topLeading
                 )
-                .background(.regularMaterial)
+                .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(
             minWidth: Self.minimumContentSize.width,
             minHeight: Self.minimumContentSize.height
         )
+        .tint(settingsStore.settings.accentColor.color)
+        .sheet(isPresented: $isSettingsPresented) {
+            FloatingWidgetSettingsView(store: settingsStore)
+        }
     }
 
     @ViewBuilder
@@ -95,6 +101,11 @@ struct FloatingWidgetView: View {
                 style: .condensed,
                 fillsWidth: true
             )
+            .buttonStyle(
+                FloatingWidgetActionButtonStyle(
+                    accentColor: settingsStore.settings.accentColor.color
+                )
+            )
         }
         .padding(8)
     }
@@ -130,6 +141,11 @@ struct FloatingWidgetView: View {
                 viewModel: viewModel.recording,
                 style: .condensed,
                 fillsWidth: true
+            )
+            .buttonStyle(
+                FloatingWidgetActionButtonStyle(
+                    accentColor: settingsStore.settings.accentColor.color
+                )
             )
         }
         .padding(8)
@@ -202,6 +218,11 @@ struct FloatingWidgetView: View {
                     : .standard,
                 fillsWidth: true
             )
+            .buttonStyle(
+                FloatingWidgetActionButtonStyle(
+                    accentColor: settingsStore.settings.accentColor.color
+                )
+            )
 
             actionControls(visibility: visibility)
         }
@@ -228,6 +249,11 @@ struct FloatingWidgetView: View {
                     openDashboardButton
                 }
             }
+            .buttonStyle(
+                FloatingWidgetActionButtonStyle(
+                    accentColor: settingsStore.settings.accentColor.color
+                )
+            )
         } else {
             VStack(spacing: 8) {
                 if visibility.showsSecondaryActionRow {
@@ -244,6 +270,11 @@ struct FloatingWidgetView: View {
                     }
                 }
             }
+            .buttonStyle(
+                FloatingWidgetActionButtonStyle(
+                    accentColor: settingsStore.settings.accentColor.color
+                )
+            )
         }
     }
 
@@ -323,12 +354,14 @@ struct FloatingWidgetView: View {
 
             if !isNarrowWidth {
                 Button {
+                    isSettingsPresented = true
                 } label: {
                     Image(systemName: "gearshape")
                 }
                 .buttonStyle(.borderless)
-                .disabled(true)
-                .help("\(presentation.widgetSettingsLabel) 준비 중")
+                .foregroundStyle(settingsStore.settings.accentColor.color)
+                .help(presentation.widgetSettingsLabel)
+                .accessibilityLabel(presentation.widgetSettingsLabel)
 
                 Button {
                     Task {
@@ -386,6 +419,57 @@ private struct FloatingStatusRow: View {
                 .truncationMode(.middle)
         }
         .font(.footnote)
+    }
+}
+
+private struct FloatingWidgetActionButtonStyle: ButtonStyle {
+    let accentColor: Color
+    @Environment(\.controlSize) private var controlSize
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let color = configuration.role == .destructive ? Color.red : accentColor
+        configuration.label
+            .font(font)
+            .fontWeight(.medium)
+            .foregroundStyle(isEnabled ? color : Color.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .frame(minHeight: minHeight)
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(color.opacity(backgroundOpacity(configuration)))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(color.opacity(isEnabled ? 0.28 : 0.14), lineWidth: 1)
+            }
+    }
+
+    private var font: Font {
+        controlSize == .small || controlSize == .mini ? .caption : .callout
+    }
+
+    private var horizontalPadding: CGFloat {
+        controlSize == .small || controlSize == .mini ? 8 : 10
+    }
+
+    private var verticalPadding: CGFloat {
+        controlSize == .small || controlSize == .mini ? 4 : 6
+    }
+
+    private var minHeight: CGFloat {
+        controlSize == .small || controlSize == .mini ? 24 : 30
+    }
+
+    private func backgroundOpacity(_ configuration: Configuration) -> Double {
+        if !isEnabled {
+            return 0.06
+        }
+        return configuration.isPressed ? 0.22 : 0.12
     }
 }
 

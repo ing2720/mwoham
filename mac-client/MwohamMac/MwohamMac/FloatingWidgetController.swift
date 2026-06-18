@@ -11,10 +11,22 @@ import SwiftUI
 final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var isVisible = false
 
-    private static let defaultSize = NSSize(width: 330, height: 360)
+    private static let defaultSize = NSSize(width: 330, height: 390)
     private static let minimumContentSize = NSSize(width: 214, height: 80)
     private static let compactSize = minimumContentSize
+    private let settingsStore: FloatingWidgetSettingsStore
+    private var settingsCancellable: AnyCancellable?
     private var panel: NSPanel?
+
+    init(settingsStore: FloatingWidgetSettingsStore) {
+        self.settingsStore = settingsStore
+        super.init()
+        settingsCancellable = settingsStore.$settings.sink { [weak self] settings in
+            Task { @MainActor in
+                self?.applyPanelOpacity(settings.opacity)
+            }
+        }
+    }
 
     func toggle(viewModel: BackendStatusViewModel) {
         if isVisible {
@@ -29,6 +41,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             panel.contentView = NSHostingView(
                 rootView: makeFloatingWidgetView(viewModel: viewModel)
             )
+            applyPanelOpacity(settingsStore.settings.opacity)
             panel.orderFrontRegardless()
             isVisible = true
             return
@@ -64,6 +77,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             forContentRect: NSRect(origin: .zero, size: Self.minimumContentSize)
         ).size
         panel.delegate = self
+        panel.alphaValue = settingsStore.settings.opacity
         panel.contentView = NSHostingView(
             rootView: makeFloatingWidgetView(viewModel: viewModel)
         )
@@ -93,6 +107,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
     ) -> FloatingWidgetView {
         FloatingWidgetView(
             viewModel: viewModel,
+            settingsStore: settingsStore,
             onResizeRequest: { [weak self] target in
                 Task { @MainActor in
                     self?.resize(to: target)
@@ -119,6 +134,10 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             display: true,
             animate: true
         )
+    }
+
+    private func applyPanelOpacity(_ opacity: Double) {
+        panel?.alphaValue = FloatingWidgetSettings.clampedOpacity(opacity)
     }
 
     nonisolated func windowWillClose(_ notification: Notification) {
