@@ -38,14 +38,18 @@ struct FloatingWidgetSettingsView: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("색상")
-                        Picker("색상", selection: $store.settings.accentColor) {
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.flexible(), spacing: 8),
+                                GridItem(.flexible(), spacing: 8),
+                                GridItem(.flexible(), spacing: 8),
+                            ],
+                            spacing: 8
+                        ) {
                             ForEach(FloatingWidgetAccentColor.allCases) { preset in
-                                Text(preset.title)
-                                    .tag(preset)
+                                accentPresetButton(preset)
                             }
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
                     }
                 }
                 .padding(.vertical, 4)
@@ -102,32 +106,80 @@ struct FloatingWidgetSettingsView: View {
         }
         .padding(20)
         .frame(width: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .background(
-            WindowOpacityApplier(opacity: store.settings.opacity)
-                .frame(width: 0, height: 0)
-        )
-        .tint(store.settings.accentColor.color)
+        .background(settingsBackground)
+        .background(WindowBackgroundConfigurator())
+        .tint(store.settings.accentColor.accentColor)
+    }
+
+    private var settingsBackground: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+                .opacity(store.settings.opacity)
+            store.settings.accentColor.subtleBackgroundColor
+        }
+    }
+
+    private func accentPresetButton(
+        _ preset: FloatingWidgetAccentColor
+    ) -> some View {
+        let isSelected = store.settings.accentColor == preset
+        return Button {
+            store.settings.accentColor = preset
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(preset.accentColor)
+                    .frame(width: 9, height: 9)
+                Text(preset.title)
+                    .lineLimit(1)
+                Spacer(minLength: 2)
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption)
+                        .frame(width: 10)
+                } else {
+                    Color.clear
+                        .frame(width: 10, height: 10)
+                }
+            }
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(isSelected ? preset.subtleBackgroundColor : Color.clear)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(
+                        isSelected ? preset.borderColor : Color.secondary.opacity(0.18),
+                        lineWidth: 1
+                    )
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(preset.title)
     }
 }
 
-private struct WindowOpacityApplier: NSViewRepresentable {
-    let opacity: Double
-
+private struct WindowBackgroundConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        applyOpacity(from: view)
+        configure(from: view)
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        applyOpacity(from: nsView)
+        configure(from: nsView)
     }
 
-    private func applyOpacity(from view: NSView) {
-        let clampedOpacity = FloatingWidgetSettings.clampedOpacity(opacity)
+    private func configure(from view: NSView) {
         DispatchQueue.main.async {
-            view.window?.alphaValue = clampedOpacity
+            view.window?.isOpaque = false
+            view.window?.backgroundColor = .clear
+            view.window?.alphaValue = 1.0
         }
     }
 }

@@ -31,7 +31,7 @@ struct FloatingWidgetView: View {
                     maxHeight: .infinity,
                     alignment: .topLeading
                 )
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(widgetBackground)
         }
         .frame(
             minWidth: Self.minimumContentSize.width,
@@ -40,6 +40,14 @@ struct FloatingWidgetView: View {
         .tint(settingsStore.settings.accentColor.color)
         .sheet(isPresented: $isSettingsPresented) {
             FloatingWidgetSettingsView(store: settingsStore)
+        }
+    }
+
+    private var widgetBackground: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+                .opacity(settingsStore.settings.opacity)
+            settingsStore.settings.accentColor.subtleBackgroundColor
         }
     }
 
@@ -660,13 +668,13 @@ private struct DevTrackingCompactBadge: View {
     private var color: Color {
         switch state {
         case .running:
-            return .green
+            return FloatingWidgetSemanticPalette.devTrackingRunning
         case .stopping:
-            return .orange
+            return FloatingWidgetSemanticPalette.devTrackingStopping
         case .stopped:
-            return .secondary
+            return FloatingWidgetSemanticPalette.devTrackingStopped
         case .error:
-            return .red
+            return FloatingWidgetSemanticPalette.devTrackingError
         }
     }
 }

@@ -1280,6 +1280,40 @@ git diff --check
 git diff --check
 ```
 
+## 20. Floating Widget 색상/테마 polish QA
+
+확인:
+
+1. 투명도 `60%`에서도 플로팅 위젯의 텍스트와 버튼을 읽을 수 있는지 확인합니다.
+2. 투명도 `80%`, `100%`에서 기존 위젯 시각과 사용성이 유지되는지 확인합니다.
+3. 색상 preset `시스템`, `초록`, `파랑`, `보라`, `주황`, `회색`을 선택할 때 일반
+   accent와 설정 UI 선택 상태가 자연스럽게 바뀌는지 확인합니다.
+4. 색상 preset 변경이 recording 상태 badge 색상을 덮어쓰지 않는지 확인합니다.
+5. 색상 preset 변경이 OCR 상태 badge 색상을 덮어쓰지 않는지 확인합니다.
+6. 색상 preset 변경이 Dev Tracking 상태 의미 색상을 덮어쓰지 않는지 확인합니다.
+   - 기록중: green
+   - 종료중: orange
+   - 기록중지: gray 또는 secondary
+   - error: red
+7. `기본값으로 초기화` 클릭 시 opacity와 accent color가 기본값으로 복구되는지
+   확인합니다.
+8. 표시 항목 ON/OFF와 빠른 액션 ON/OFF 설정이 기존대로 유지되는지 확인합니다.
+9. adaptive layout, 메뉴바, Launch at Login, report/timeline/settings 화면 동작이
+   기존과 동일한지 확인합니다.
+
+검증 명령:
+
+```bash
+./scripts/test_macos_floating_widget_settings.sh
+./scripts/test_macos_floating_widget_responsive.sh
+./scripts/test_macos_menu_bar_floating_presentation.sh
+./scripts/test_macos_launch_at_login.sh
+./scripts/test_macos_timeline_presentation.sh
+./scripts/test_macos_report_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+```
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:

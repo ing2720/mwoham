@@ -63,7 +63,7 @@ enum FloatingWidgetAccentColor: String, CaseIterable, Codable, Equatable, Identi
         }
     }
 
-    var color: Color {
+    var accentColor: Color {
         switch self {
         case .system:
             return .accentColor
@@ -79,6 +79,34 @@ enum FloatingWidgetAccentColor: String, CaseIterable, Codable, Equatable, Identi
             return .gray
         }
     }
+
+    var color: Color {
+        accentColor
+    }
+
+    var textAccentColor: Color {
+        switch self {
+        case .gray:
+            return .secondary
+        default:
+            return accentColor
+        }
+    }
+
+    var subtleBackgroundColor: Color {
+        accentColor.opacity(self == .gray ? 0.08 : 0.10)
+    }
+
+    var borderColor: Color {
+        accentColor.opacity(self == .gray ? 0.18 : 0.24)
+    }
+}
+
+enum FloatingWidgetSemanticPalette {
+    static let devTrackingRunning: Color = .green
+    static let devTrackingStopping: Color = .orange
+    static let devTrackingStopped: Color = .secondary
+    static let devTrackingError: Color = .red
 }
 
 struct FloatingWidgetLayoutAvailability: Equatable {

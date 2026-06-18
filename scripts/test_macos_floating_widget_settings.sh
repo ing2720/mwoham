@@ -64,6 +64,18 @@ enum FloatingWidgetSettingsHarness {
         store.settings.opacity = 1.4
         expect(store.settings.opacity == 1.0, "opacity should clamp to upper bound")
 
+        for preset in FloatingWidgetAccentColor.allCases {
+            _ = preset.accentColor
+            _ = preset.textAccentColor
+            _ = preset.subtleBackgroundColor
+            _ = preset.borderColor
+            expect(!preset.title.isEmpty, "preset title should not be empty")
+        }
+        _ = FloatingWidgetSemanticPalette.devTrackingRunning
+        _ = FloatingWidgetSemanticPalette.devTrackingStopping
+        _ = FloatingWidgetSemanticPalette.devTrackingStopped
+        _ = FloatingWidgetSemanticPalette.devTrackingError
+
         store.settings.opacity = 0.72
         store.settings.accentColor = .purple
         store.settings.showsCurrentApp = false

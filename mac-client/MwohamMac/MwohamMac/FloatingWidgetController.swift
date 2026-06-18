@@ -15,17 +15,11 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
     private static let minimumContentSize = NSSize(width: 214, height: 80)
     private static let compactSize = minimumContentSize
     private let settingsStore: FloatingWidgetSettingsStore
-    private var settingsCancellable: AnyCancellable?
     private var panel: NSPanel?
 
     init(settingsStore: FloatingWidgetSettingsStore) {
         self.settingsStore = settingsStore
         super.init()
-        settingsCancellable = settingsStore.$settings.sink { [weak self] settings in
-            Task { @MainActor in
-                self?.applyPanelOpacity(settings.opacity)
-            }
-        }
     }
 
     func toggle(viewModel: BackendStatusViewModel) {
@@ -41,7 +35,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             panel.contentView = NSHostingView(
                 rootView: makeFloatingWidgetView(viewModel: viewModel)
             )
-            applyPanelOpacity(settingsStore.settings.opacity)
+            panel.alphaValue = 1.0
             panel.orderFrontRegardless()
             isVisible = true
             return
@@ -67,6 +61,8 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
         panel.title = "Mwoham"
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         panel.isMovableByWindowBackground = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -77,7 +73,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             forContentRect: NSRect(origin: .zero, size: Self.minimumContentSize)
         ).size
         panel.delegate = self
-        panel.alphaValue = settingsStore.settings.opacity
+        panel.alphaValue = 1.0
         panel.contentView = NSHostingView(
             rootView: makeFloatingWidgetView(viewModel: viewModel)
         )
@@ -134,10 +130,6 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             display: true,
             animate: true
         )
-    }
-
-    private func applyPanelOpacity(_ opacity: Double) {
-        panel?.alphaValue = FloatingWidgetSettings.clampedOpacity(opacity)
     }
 
     nonisolated func windowWillClose(_ notification: Notification) {
