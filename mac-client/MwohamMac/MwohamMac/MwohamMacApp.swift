@@ -10,7 +10,16 @@ import SwiftUI
 @main
 struct MwohamMacApp: App {
     @StateObject private var viewModel = BackendStatusViewModel()
-    @StateObject private var floatingWidgetController = FloatingWidgetController()
+    @StateObject private var floatingWidgetSettingsStore: FloatingWidgetSettingsStore
+    @StateObject private var floatingWidgetController: FloatingWidgetController
+
+    init() {
+        let settingsStore = FloatingWidgetSettingsStore()
+        _floatingWidgetSettingsStore = StateObject(wrappedValue: settingsStore)
+        _floatingWidgetController = StateObject(
+            wrappedValue: FloatingWidgetController(settingsStore: settingsStore)
+        )
+    }
 
     var body: some Scene {
         WindowGroup("MwohamMac", id: "main") {

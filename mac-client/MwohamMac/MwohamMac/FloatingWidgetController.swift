@@ -11,10 +11,16 @@ import SwiftUI
 final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var isVisible = false
 
-    private static let defaultSize = NSSize(width: 330, height: 360)
+    private static let defaultSize = NSSize(width: 330, height: 390)
     private static let minimumContentSize = NSSize(width: 214, height: 80)
     private static let compactSize = minimumContentSize
+    private let settingsStore: FloatingWidgetSettingsStore
     private var panel: NSPanel?
+
+    init(settingsStore: FloatingWidgetSettingsStore) {
+        self.settingsStore = settingsStore
+        super.init()
+    }
 
     func toggle(viewModel: BackendStatusViewModel) {
         if isVisible {
@@ -29,6 +35,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             panel.contentView = NSHostingView(
                 rootView: makeFloatingWidgetView(viewModel: viewModel)
             )
+            panel.alphaValue = 1.0
             panel.orderFrontRegardless()
             isVisible = true
             return
@@ -54,6 +61,8 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
         panel.title = "Mwoham"
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         panel.isMovableByWindowBackground = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -64,6 +73,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             forContentRect: NSRect(origin: .zero, size: Self.minimumContentSize)
         ).size
         panel.delegate = self
+        panel.alphaValue = 1.0
         panel.contentView = NSHostingView(
             rootView: makeFloatingWidgetView(viewModel: viewModel)
         )
@@ -93,6 +103,7 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
     ) -> FloatingWidgetView {
         FloatingWidgetView(
             viewModel: viewModel,
+            settingsStore: settingsStore,
             onResizeRequest: { [weak self] target in
                 Task { @MainActor in
                     self?.resize(to: target)
