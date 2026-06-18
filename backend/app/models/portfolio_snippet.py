@@ -1,1 +1,0 @@
-"""PortfolioSnippet model placeholder."""

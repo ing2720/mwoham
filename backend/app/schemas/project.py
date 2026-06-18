@@ -1,1 +1,0 @@
-"""Project schemas placeholder."""

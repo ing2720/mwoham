@@ -1,1 +1,0 @@
-"""TimelineBlock model placeholder."""
