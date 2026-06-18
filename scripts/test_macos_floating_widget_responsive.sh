@@ -41,20 +41,56 @@ func runHarness() {
     typealias LayoutMode = MenuBarFloatingPresentation.FloatingWidgetLayoutMode
 
     expect(
-        LayoutMode.mode(width: 250, height: 360) == .compact,
-        "narrow width should select compact"
+        LayoutMode.mode(width: 214, height: 80) == .veryCompact,
+        "minimum widget size should select veryCompact"
     )
     expect(
-        LayoutMode.mode(width: 330, height: 360) == .normal,
-        "default widget size should select normal"
+        LayoutMode.mode(width: 330, height: 89) == .veryCompact,
+        "near-minimum height should select veryCompact"
     )
     expect(
-        LayoutMode.mode(width: 390, height: 360) == .expanded,
-        "wide widget should select expanded"
+        LayoutMode.mode(width: 330, height: 220) == .compact,
+        "usable short widget should keep compact layout instead of collapsing too early"
     )
     expect(
-        LayoutMode.mode(width: 330, height: 430) == .expanded,
-        "tall widget should select expanded"
+        LayoutMode.mode(width: 290, height: 260) == .compact,
+        "narrow compact widget should select compact"
+    )
+    expect(
+        LayoutMode.mode(width: 330, height: 279) == .compact,
+        "widget should stay compact just below the 280pt adaptive threshold"
+    )
+    expect(
+        LayoutMode.mode(width: 330, height: 280) == .regular,
+        "widget should start regular responsive layout at 280pt height"
+    )
+    expect(
+        LayoutMode.mode(width: 330, height: 300) == .regular,
+        "medium resized widget should stay regular after the 280pt threshold"
+    )
+    expect(
+        LayoutMode.mode(width: 330, height: 360) == .regular,
+        "default widget size should select regular"
+    )
+    expect(
+        LayoutMode.mode(width: 330, height: 330) == .regular,
+        "default polished widget size should stay regular"
+    )
+    expect(
+        LayoutMode.mode(width: 390, height: 360) == .spacious,
+        "wide widget should select spacious"
+    )
+    expect(
+        LayoutMode.mode(width: 330, height: 460) == .spacious,
+        "tall widget should select spacious"
+    )
+    expect(
+        LayoutMode.preferredCompact(width: 330, height: 360) == .compact,
+        "compact preference should not force a snap size"
+    )
+    expect(
+        LayoutMode.preferredCompact(width: 214, height: 80) == .veryCompact,
+        "compact preference should still respect very small sizes"
     )
 
     let provider = FakePresentationProvider()
@@ -72,6 +108,18 @@ func runHarness() {
         "compact recording summary should combine state and elapsed time"
     )
     expect(
+        presentation.widgetVeryCompactSummary == "기록중 · 01:02:03",
+        "veryCompact summary should keep only primary recording status"
+    )
+    expect(
+        presentation.widgetCompactSummary.contains("기록중 · 01:02:03"),
+        "compact summary should include primary recording status"
+    )
+    expect(
+        presentation.compactCurrentActivityText != presentation.compactRecordingSummary,
+        "compact body should be able to avoid duplicated recording summary"
+    )
+    expect(
         !presentation.shouldShowCurrentWindowInCompact,
         "compact mode should not show full current window row"
     )
@@ -86,6 +134,62 @@ func runHarness() {
     expect(
         presentation.devTrackingDisplayText == "Dev Tracking:기록중",
         "Dev Tracking compact badge text should be single display value"
+    )
+    expect(
+        !presentation.shouldShowBackendBadge(for: .veryCompact),
+        "veryCompact should hide backend badge"
+    )
+    expect(
+        !presentation.shouldShowBackendBadge(for: .compact),
+        "floating widget should hide backend badge in compact"
+    )
+    expect(
+        !presentation.shouldShowBackendBadge(for: .regular),
+        "floating widget should hide backend badge in regular"
+    )
+    expect(
+        !presentation.shouldShowSecondaryActions(for: .compact),
+        "compact should hide secondary actions"
+    )
+    expect(
+        presentation.shouldShowSecondaryActions(for: .regular),
+        "regular should show secondary actions"
+    )
+    expect(
+        !presentation.shouldUseSingleColumnActions(for: .spacious),
+        "spacious should allow two-column action layout"
+    )
+    expect(
+        !presentation.shouldUseSingleColumnActions(for: .regular),
+        "regular should keep secondary actions together instead of splitting vertically"
+    )
+    expect(
+        presentation.shouldShowCurrentWindow(for: .spacious),
+        "spacious should keep current window visible"
+    )
+    expect(
+        presentation.widgetSizeToggleLabel(for: .compact) == "표준 크기",
+        "compact toggle should clearly return to standard size"
+    )
+    expect(
+        presentation.widgetSizeToggleIconName(for: .compact) == "chevron.down",
+        "compact toggle should use the original expand arrow"
+    )
+    expect(
+        presentation.widgetSizeToggleTarget(for: .compact) == .standard,
+        "compact toggle should request standard size"
+    )
+    expect(
+        presentation.widgetSizeToggleLabel(for: .regular) == "간편보기",
+        "regular toggle should offer compact view"
+    )
+    expect(
+        presentation.widgetSizeToggleIconName(for: .regular) == "chevron.up",
+        "regular toggle should use the original collapse arrow"
+    )
+    expect(
+        presentation.widgetSizeToggleTarget(for: .regular) == .compact,
+        "regular toggle should request compact size"
     )
 
     provider.isPrivateAppActive = true

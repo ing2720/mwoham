@@ -90,6 +90,7 @@ struct PrimaryActionButton: View {
 enum RecordingControlStyle: Equatable {
     case standard
     case compact
+    case condensed
     case menu
 }
 
@@ -106,6 +107,11 @@ struct RecordingControl: View {
             case .active:
                 if style == .compact {
                     actionButton(.pause)
+                } else if style == .condensed {
+                    HStack(spacing: 6) {
+                        actionButton(.pause)
+                        actionButton(.stop)
+                    }
                 } else if style == .menu {
                     actionButton(.pause)
                     actionButton(.stop)
@@ -118,6 +124,11 @@ struct RecordingControl: View {
             case .paused:
                 if style == .compact {
                     actionButton(.resume)
+                } else if style == .condensed {
+                    HStack(spacing: 6) {
+                        actionButton(.resume)
+                        actionButton(.stop)
+                    }
                 } else if style == .menu {
                     actionButton(.resume)
                     actionButton(.stop)
@@ -131,7 +142,7 @@ struct RecordingControl: View {
                 EmptyView()
             }
         }
-        .controlSize(style == .compact ? .small : .regular)
+        .controlSize(style == .compact || style == .condensed ? .small : .regular)
     }
 
     @ViewBuilder
@@ -146,7 +157,7 @@ struct RecordingControl: View {
             .accessibilityLabel(action.title)
         } else {
             PrimaryActionButton(
-                title: action.title,
+                title: action.title(for: style),
                 systemImage: action.systemImage,
                 role: action.role,
                 isDisabled: !isEnabled(action),
@@ -191,6 +202,22 @@ private enum RecordingControlAction {
     case stop
 
     var title: String {
+        title(for: .standard)
+    }
+
+    func title(for style: RecordingControlStyle) -> String {
+        if style == .condensed {
+            switch self {
+            case .start:
+                return "시작"
+            case .pause:
+                return "일시정지"
+            case .resume:
+                return "재개"
+            case .stop:
+                return "종료"
+            }
+        }
         switch self {
         case .start:
             return "기록 시작"

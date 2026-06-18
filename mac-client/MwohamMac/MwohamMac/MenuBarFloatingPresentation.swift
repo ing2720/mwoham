@@ -5,6 +5,11 @@
 
 import Foundation
 
+enum FloatingWidgetResizeTarget: Equatable {
+    case compact
+    case standard
+}
+
 @MainActor
 protocol AppStatusPresentationProviding: AnyObject {
     var connectionState: ConnectionState { get }
@@ -27,23 +32,47 @@ protocol AppStatusPresentationProviding: AnyObject {
 
 struct MenuBarFloatingPresentation: Equatable {
     enum FloatingWidgetLayoutMode: Equatable {
+        case veryCompact
         case compact
-        case normal
-        case expanded
+        case regular
+        case spacious
 
-        static let compactThresholdWidth = 280.0
-        static let compactThresholdHeight = 260.0
-        static let expandedThresholdWidth = 380.0
-        static let expandedThresholdHeight = 420.0
+        static let veryCompactThresholdWidth = 220.0
+        static let veryCompactThresholdHeight = 90.0
+        static let compactThresholdHeight = 280.0
+        static let spaciousThresholdWidth = 390.0
+        static let spaciousThresholdHeight = 460.0
 
         static func mode(width: Double, height: Double) -> FloatingWidgetLayoutMode {
-            if width < compactThresholdWidth || height < compactThresholdHeight {
+            if height < veryCompactThresholdHeight {
+                return .veryCompact
+            }
+
+            if height < compactThresholdHeight {
                 return .compact
             }
-            if width >= expandedThresholdWidth || height >= expandedThresholdHeight {
-                return .expanded
+
+            if height >= spaciousThresholdHeight || width >= spaciousThresholdWidth {
+                return .spacious
             }
-            return .normal
+
+            return .regular
+        }
+
+        static func preferredCompact(width: Double, height: Double) -> FloatingWidgetLayoutMode {
+            if height < veryCompactThresholdHeight {
+                return .veryCompact
+            }
+
+            return .compact
+        }
+
+        var usesCompactControls: Bool {
+            self == .veryCompact || self == .compact
+        }
+
+        var isSpacious: Bool {
+            self == .spacious
         }
     }
 
@@ -132,12 +161,14 @@ struct MenuBarFloatingPresentation: Equatable {
     let currentWindowText: String
     let compactCurrentActivityText: String
     let compactRecordingSummary: String
+    let widgetPrimaryStatusText: String
+    let widgetVeryCompactSummary: String
+    let widgetCompactSummary: String
     let collapsedDetailText: String
     let shouldShowCurrentWindowInCompact = false
     let shouldShowDevTrackingInCompact = true
     let shouldShowMeetingModeInCompact = false
     let widgetSettingsLabel = "위젯 설정"
-    let widgetCompactToggleLabel = "간편보기"
     let controlActions: ControlActions
     let quickActions: QuickActions
 
@@ -227,6 +258,9 @@ struct MenuBarFloatingPresentation: Equatable {
         )
         self.compactRecordingSummary =
             "\(self.recordingState.label) · \(self.recordingElapsedTimeText)"
+        self.widgetPrimaryStatusText = self.compactRecordingSummary
+        self.widgetVeryCompactSummary = self.compactRecordingSummary
+        self.widgetCompactSummary = "\(self.compactRecordingSummary) · \(self.compactCurrentActivityText)"
         self.quickActions = QuickActions(
             floatingWidgetTitle:
                 isFloatingWidgetVisible ? "플로팅 위젯 닫기" : "플로팅 위젯 열기",
@@ -258,6 +292,46 @@ struct MenuBarFloatingPresentation: Equatable {
             collapsedDetailText =
                 "\(self.recordingElapsedTimeText) · \(shortDevTrackingStatus)"
         }
+    }
+
+    func shouldShowBackendBadge(for mode: FloatingWidgetLayoutMode) -> Bool {
+        false
+    }
+
+    func shouldShowCurrentApp(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode != .veryCompact
+    }
+
+    func shouldShowCurrentWindow(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode == .regular || mode == .spacious
+    }
+
+    func shouldShowOCR(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode == .regular || mode == .spacious
+    }
+
+    func shouldShowDevTracking(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode != .veryCompact
+    }
+
+    func shouldShowSecondaryActions(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode == .regular || mode == .spacious
+    }
+
+    func shouldUseSingleColumnActions(for mode: FloatingWidgetLayoutMode) -> Bool {
+        mode.usesCompactControls
+    }
+
+    func widgetSizeToggleLabel(for mode: FloatingWidgetLayoutMode) -> String {
+        mode.usesCompactControls ? "표준 크기" : "간편보기"
+    }
+
+    func widgetSizeToggleIconName(for mode: FloatingWidgetLayoutMode) -> String {
+        mode.usesCompactControls ? "chevron.down" : "chevron.up"
+    }
+
+    func widgetSizeToggleTarget(for mode: FloatingWidgetLayoutMode) -> FloatingWidgetResizeTarget {
+        mode.usesCompactControls ? .standard : .compact
     }
 
     private static func iconState(
