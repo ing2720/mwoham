@@ -4,6 +4,10 @@ Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 �
 
 현재 구현은 macOS SwiftUI 클라이언트와 FastAPI 로컬 서버 기반입니다. 일반 창, 메뉴바, 플로팅 위젯, Daily Review Dashboard, 기본/상세 타임라인, Markdown/PDF 리포트 export를 제공합니다.
 
+현재 단계는 Release packaging 직전 정리 단계입니다. 앱 기능, backend API, DB schema,
+recording/STT/Dev Tracking 정책은 고정하고, 다음 작업에서 Developer ID 서명,
+notarization, DMG/ZIP 같은 배포 패키징을 다룹니다.
+
 ## 현재 기능
 
 - 기록 세션 제어: 시작, 일시정지, 재개, 종료
@@ -29,6 +33,14 @@ Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 �
   - 최근 개발 이벤트 요약
   - 회의/메모 요약
 - Markdown/PDF export와 브라우저 다운로드
+- macOS 메뉴바와 플로팅 위젯
+  - 반응형 compact/regular/spacious layout
+  - opacity와 색상 preset
+  - 표시 항목 ON/OFF
+  - 빠른 액션 ON/OFF
+- Launch at Login
+  - 로그인 시 앱 자동 실행
+  - recording 자동 시작은 하지 않음
 - 개발/테스트 데이터 초기화
 - Local API Bearer 토큰 인증
 
@@ -119,6 +131,13 @@ Apple Development 앱은 Developer ID 배포 및 notarization 산출물이 아�
 macOS 접근성, 화면 기록, 마이크 권한은 앱이 자동 허용할 수 없습니다. 최초 설치
 또는 기존 ad-hoc 앱에서 서명된 앱으로 전환한 뒤 시스템 설정에서 고정 경로의
 앱을 다시 허용해야 합니다.
+
+필요 권한:
+
+- 접근성: 활성 창 제목 수집과 상태 표시 품질 향상
+- 화면 기록: OCR과 시스템 오디오/회의 전체 전사
+- 마이크: 마이크 전사와 회의 전체 전사
+- 음성 인식: Apple Speech 기반 전사
 
 ## 환경 설정
 
@@ -234,6 +253,25 @@ inspection/setup/cleanup terminal command는 dashboard에서 과하게 직접 �
 검증 흐름이나 최근 타임라인의 보조 맥락으로만 다룹니다. 기존 timeline과 reports 화면은
 dashboard에서 이어서 확인할 수 있습니다.
 
+## Floating Widget / Menu Bar
+
+메뉴바와 플로팅 위젯은 같은 presentation 값을 공유해 recording, backend, OCR,
+Dev Tracking, meeting mode 상태를 표시합니다. 플로팅 위젯은 창 크기에 따라
+compact/regular/spacious layout을 선택하고, 매우 작은 크기에서는 기록 상태와
+핵심 버튼만 남깁니다.
+
+위젯 설정은 `UserDefaults`에 저장됩니다.
+
+- 투명도: 60%~100%
+- 색상 preset: 시스템, 초록, 파랑, 보라, 주황, 회색
+- 표시 항목: 현재 앱, 현재 창, OCR 상태, Dev Tracking 상태, 기록 시간
+- 빠른 액션: 메인 창, 대시보드, Dev Tracking, 회의모드
+- 기본값 초기화
+
+Launch at Login은 macOS 로그인 시 `MwohamMac` 앱을 자동 실행하는 기능입니다.
+앱이 실행되어도 recording session은 자동 시작되지 않으며, 사용자가 직접
+`기록 시작`을 눌러야 합니다.
+
 ## Command Tracking
 
 v0.7 기준으로 zsh hook 기반 터미널 명령 자동 기록을 지원합니다. 설치하면 `preexec`와
@@ -291,8 +329,9 @@ report 작성 정책:
 - raw diff는 저장하지 않고 report 생성 시 prompt context에만 제한적으로 사용
 - stdout/stderr 전체, shell history, 키 입력 내용은 저장하지 않음
 
-남은 후속 후보는 report input pruning, event relevance scoring, QA/noise event tagging,
-meeting transcript report quality, daily review dashboard refinement입니다.
+Release packaging 전 남은 후속 후보는 signed Release 최종 QA, Developer ID
+notarization 정책 확정, DMG/ZIP 산출물 구성, tester install guide 최종 확인입니다.
+이 작업들은 현재 정리 단계가 아니라 다음 packaging 단계에서 다룹니다.
 
 ## Privacy / Safety
 

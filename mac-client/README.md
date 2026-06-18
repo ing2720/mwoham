@@ -4,6 +4,10 @@ MwohamMac은 로컬 backend와 연결되는 macOS SwiftUI 앱입니다. 일반 �
 
 backend 기본 주소는 `http://127.0.0.1:8765`입니다. backend가 실행 중이지 않으면 앱은 연결 실패 안내와 대시보드 열기/새로고침 동작을 제공합니다.
 
+현재 macOS client는 Release packaging 직전 QA 대상입니다. Apple Development
+signed 앱은 내부 개발/권한 QA용이고, Developer ID notarization과 DMG/ZIP
+배포 산출물은 다음 packaging 단계에서 다룹니다.
+
 ## 주요 역할
 
 - backend `/health`, `/status` 연결 상태 표시
@@ -14,6 +18,8 @@ backend 기본 주소는 `http://127.0.0.1:8765`입니다. backend가 실행 중
 - Apple Speech 기반 회의 전사
 - 자동 Dev Tracking watcher process 실행과 상태 표시
 - 메뉴바와 플로팅 위젯 상태 표시
+- 플로팅 위젯 설정 저장/로드/reset
+- Launch at Login 설정
 
 ## macOS 권한 안내
 
@@ -61,7 +67,7 @@ Team ID는 인증서 Common Name의 괄호 값이 아니라 certificate subject�
 unsigned 앱은 접근성, 화면 기록, 마이크 등 TCC 권한이 빌드마다 유지되는 것을
 보장하지 않습니다. 권한 QA에는 signed 고정 경로 앱만 사용합니다.
 
-## 앱 패키징 기준
+## 앱 빌드 기준
 
 - 기본 configuration: `Debug`
 - 설치 앱 최종 확인: signed `Release`
@@ -75,6 +81,24 @@ unsigned 앱은 접근성, 화면 기록, 마이크 등 TCC 권한이 빌드마�
 strict codesign과 TeamIdentifier를 확인하고 LaunchServices에 다시 등록합니다.
 `--destination` 또는 `APP_PATH`를 명시하지 않으면 `/Applications`를 사용하지
 않습니다. signed 실패가 unsigned로 자동 전환되는 동작은 없습니다.
+
+## Floating Widget
+
+플로팅 위젯은 메뉴바 presentation 값을 공유해 recording, 현재 앱/창, OCR,
+Dev Tracking, 회의모드 상태를 표시합니다. 위젯 창 크기에 따라 표시 항목과
+빠른 액션을 줄이는 responsive layout을 사용합니다.
+
+지원 설정:
+
+- 투명도: 60%~100%
+- 색상 preset: 시스템, 초록, 파랑, 보라, 주황, 회색
+- 표시 항목: 현재 앱, 현재 창, OCR 상태, Dev Tracking 상태, 기록 시간
+- 빠른 액션: 메인 창 열기, 대시보드 열기, Dev Tracking 시작/중지, 회의모드 시작/중지
+- 기본값 초기화
+
+설정은 `UserDefaults`의 `floatingWidgetSettings`에 저장됩니다. 위젯 크기/위치
+저장, custom color picker, recording 자동 시작 정책 변경은 현재 범위에
+포함하지 않습니다.
 
 ## Launch at Login
 
@@ -201,3 +225,5 @@ DB schema, migration, API endpoint는 변경하지 않았고, 기존 source vali
 - backend로 audio data 전송 없음
 - transcript text만 `/meeting-transcripts` API로 저장
 - Dev Tracking은 Git diff 본문이나 파일 내용을 저장하지 않음
+- debug audio WAV는 사용자가 명시적으로 QA/debug 보관을 켠 경우에만
+  `~/Library/Application Support/Mwoham/debug_audio/`에 복사
