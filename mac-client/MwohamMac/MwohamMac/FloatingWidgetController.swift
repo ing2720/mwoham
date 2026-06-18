@@ -12,7 +12,10 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
     @Published private(set) var isVisible = false
 
     private static let defaultSize = NSSize(width: 330, height: 390)
-    private static let minimumContentSize = NSSize(width: 214, height: 80)
+    private static let minimumContentSize = NSSize(
+        width: FloatingWidgetView.minimumContentSize.width,
+        height: FloatingWidgetView.minimumContentSize.height
+    )
     private static let compactSize = minimumContentSize
     private let settingsStore: FloatingWidgetSettingsStore
     private var panel: NSPanel?
@@ -117,16 +120,19 @@ final class FloatingWidgetController: NSObject, ObservableObject, NSWindowDelega
             return
         }
         let currentFrame = panel.frame
-        let targetSize = NSSize(
+        let targetContentSize = NSSize(
             width: max(size.width, Self.minimumContentSize.width),
             height: max(size.height, Self.minimumContentSize.height)
         )
+        let targetFrame = panel.frameRect(
+            forContentRect: NSRect(origin: .zero, size: targetContentSize)
+        )
         let newOrigin = NSPoint(
             x: currentFrame.minX,
-            y: currentFrame.maxY - targetSize.height
+            y: currentFrame.maxY - targetFrame.height
         )
         panel.setFrame(
-            NSRect(origin: newOrigin, size: targetSize),
+            NSRect(origin: newOrigin, size: targetFrame.size),
             display: true,
             animate: true
         )

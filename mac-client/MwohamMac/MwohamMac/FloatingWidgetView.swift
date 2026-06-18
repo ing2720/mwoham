@@ -7,7 +7,7 @@ import AppKit
 import SwiftUI
 
 struct FloatingWidgetView: View {
-    static let minimumContentSize = CGSize(width: 214, height: 80)
+    static let minimumContentSize = CGSize(width: 214, height: 73)
 
     @ObservedObject var viewModel: BackendStatusViewModel
     @ObservedObject var settingsStore: FloatingWidgetSettingsStore
@@ -31,7 +31,11 @@ struct FloatingWidgetView: View {
                     maxHeight: .infinity,
                     alignment: .topLeading
                 )
-                .background(widgetBackground)
+                .padding(.top, titleBarContentInset(for: proxy.size))
+        }
+        .background {
+            widgetBackground
+                .ignoresSafeArea()
         }
         .frame(
             minWidth: Self.minimumContentSize.width,
@@ -51,43 +55,48 @@ struct FloatingWidgetView: View {
         }
     }
 
+    private func titleBarContentInset(for size: CGSize) -> CGFloat {
+        size.height <= 140 ? 0 : 0
+    }
+
     @ViewBuilder
     private func content(
         for layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode,
         size: CGSize
     ) -> some View {
-        if size.width <= 240 && size.height <= 140 {
-            narrowWidthView
-        } else {
-            switch layoutMode {
-            case .veryCompact:
-                veryCompactView
+        switch layoutMode {
+        case .veryCompact:
+            veryCompactView
 
-            case .compact:
+        case .compact:
+            if size.width <= 240 && size.height <= 140 {
+                narrowWidthView
+            } else {
                 adaptiveWidgetContent(
                     layoutMode: .compact,
-                    visibility: WidgetVisibility(size: size),
+                    visibility: FloatingWidgetLayoutVisibility(size: size),
                     rowSpacing: 5,
                     sectionSpacing: 8,
                     usesRelaxedSpacing: false
                 )
-            case .regular:
-                adaptiveWidgetContent(
-                    layoutMode: .regular,
-                    visibility: WidgetVisibility(size: size),
-                    rowSpacing: 6,
-                    sectionSpacing: 10,
-                    usesRelaxedSpacing: false
-                )
-            case .spacious:
-                adaptiveWidgetContent(
-                    layoutMode: .spacious,
-                    visibility: WidgetVisibility(size: size),
-                    rowSpacing: 6,
-                    sectionSpacing: 8,
-                    usesRelaxedSpacing: true
-                )
             }
+
+        case .regular:
+            adaptiveWidgetContent(
+                layoutMode: .regular,
+                visibility: FloatingWidgetLayoutVisibility(size: size),
+                rowSpacing: 6,
+                sectionSpacing: 10,
+                usesRelaxedSpacing: false
+            )
+        case .spacious:
+            adaptiveWidgetContent(
+                layoutMode: .spacious,
+                visibility: FloatingWidgetLayoutVisibility(size: size),
+                rowSpacing: 6,
+                sectionSpacing: 8,
+                usesRelaxedSpacing: true
+            )
         }
     }
 
@@ -115,7 +124,14 @@ struct FloatingWidgetView: View {
                 )
             )
         }
-        .padding(8)
+        .padding(
+            EdgeInsets(
+                top: 0,
+                leading: 8,
+                bottom: 8,
+                trailing: 8
+            )
+        )
     }
 
     private var narrowWidthView: some View {
@@ -158,12 +174,19 @@ struct FloatingWidgetView: View {
                 )
             )
         }
-        .padding(8)
+        .padding(
+            EdgeInsets(
+                top: 0,
+                leading: 8,
+                bottom: 8,
+                trailing: 8
+            )
+        )
     }
 
     private func adaptiveWidgetContent(
         layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode,
-        visibility: WidgetVisibility,
+        visibility: FloatingWidgetLayoutVisibility,
         rowSpacing: CGFloat,
         sectionSpacing: CGFloat,
         usesRelaxedSpacing: Bool
@@ -171,9 +194,10 @@ struct FloatingWidgetView: View {
         let displayPolicy = displayPolicy(for: visibility)
 
         return VStack(alignment: .leading, spacing: sectionSpacing) {
-            headerView(layoutMode: layoutMode,
-                       isNarrowWidth: visibility.usesNarrowHeader
-                   )
+            headerView(
+                layoutMode: layoutMode,
+                isNarrowWidth: visibility.usesNarrowHeader
+            )
 
             VStack(alignment: .leading, spacing: rowSpacing) {
                 if displayPolicy.showsCompactActivity {
@@ -238,7 +262,9 @@ struct FloatingWidgetView: View {
 
             actionControls(displayPolicy: displayPolicy)
         }
-        .padding(visibility.contentPadding(defaultPadding: usesRelaxedSpacing ? 18 : 14))
+        .padding(.top, 0)
+        .padding(.horizontal, visibility.contentPadding(defaultPadding: usesRelaxedSpacing ? 18 : 14))
+        .padding(.bottom, visibility.contentPadding(defaultPadding: usesRelaxedSpacing ? 18 : 14))
     }
 
     @ViewBuilder
@@ -317,24 +343,11 @@ struct FloatingWidgetView: View {
     }
 
     private func displayPolicy(
-        for visibility: WidgetVisibility
+        for visibility: FloatingWidgetLayoutVisibility
     ) -> FloatingWidgetDisplayPolicy {
         FloatingWidgetDisplayPolicy(
             settings: settingsStore.settings,
-            layout: FloatingWidgetLayoutAvailability(
-                showsCompactActivity: visibility.showsCompactActivity,
-                showsCurrentApp: visibility.showsCurrentApp,
-                showsCurrentWindow: visibility.showsCurrentWindow,
-                showsOCRStatus: visibility.showsOCR,
-                showsDevTrackingRow: visibility.showsDevTrackingRow,
-                showsDevTrackingBadge: visibility.showsDevTrackingBadge,
-                showsElapsedTime: true,
-                showsOpenMainWindowAction: visibility.showsOpenMainWindowAction,
-                showsOpenDashboardAction: visibility.showsOpenDashboardAction,
-                showsDevTrackingAction: visibility.showsDevTrackingAction,
-                showsMeetingModeAction: visibility.showsMeetingModeAction,
-                usesSingleColumnActions: visibility.usesSingleColumnActions
-            ),
+            layout: visibility.layoutAvailability,
             actions: FloatingWidgetActionAvailability(
                 canToggleDevTracking:
                     !presentation.controlActions.isDevTrackingToggleDisabled,
@@ -541,13 +554,30 @@ private struct FloatingWidgetActionButtonStyle: ButtonStyle {
     }
 }
 
-private struct WidgetVisibility {
+private struct FloatingWidgetLayoutVisibility {
     let width: CGFloat
     let height: CGFloat
 
     init(size: CGSize) {
         self.width = size.width
         self.height = size.height
+    }
+
+    var layoutAvailability: FloatingWidgetLayoutAvailability {
+        FloatingWidgetLayoutAvailability(
+            showsCompactActivity: showsCompactActivity,
+            showsCurrentApp: showsCurrentApp,
+            showsCurrentWindow: showsCurrentWindow,
+            showsOCRStatus: showsOCRStatus,
+            showsDevTrackingRow: showsDevTrackingRow,
+            showsDevTrackingBadge: showsDevTrackingBadge,
+            showsElapsedTime: true,
+            showsOpenMainWindowAction: showsOpenMainWindowAction,
+            showsOpenDashboardAction: showsOpenDashboardAction,
+            showsDevTrackingAction: showsDevTrackingAction,
+            showsMeetingModeAction: showsMeetingModeAction,
+            usesSingleColumnActions: usesSingleColumnActions
+        )
     }
 
     var showsCompactActivity: Bool {
@@ -566,7 +596,7 @@ private struct WidgetVisibility {
         height >= 190
     }
 
-    var showsOCR: Bool {
+    var showsOCRStatus: Bool {
         height >= 200
     }
 
@@ -592,14 +622,6 @@ private struct WidgetVisibility {
 
     var showsOpenDashboardAction: Bool {
         height >= 270
-    }
-
-    var showsSecondaryActionRow: Bool {
-        height >= 220
-    }
-
-    var showsQuickActionRow: Bool {
-        height >= 230
     }
 
     var usesCondensedRecordingControl: Bool {

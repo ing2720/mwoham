@@ -1,7 +1,26 @@
-# MVP QA 체크리스트
+# Pre-release QA 체크리스트
 
-이 문서는 MVP를 실제 사용 시나리오 기준으로 검증하기 위한 체크리스트입니다.
-기능 구현 문서가 아니라, 로컬 환경에서 무엇을 확인해야 하는지와 실패 시 의심 원인을 정리합니다.
+이 문서는 Release packaging 직전에 현재 macOS 앱과 backend를 실제 사용
+시나리오 기준으로 검증하기 위한 체크리스트입니다. 기능 구현 문서가 아니라,
+로컬 환경에서 무엇을 확인해야 하는지와 실패 시 의심 원인을 정리합니다.
+
+Release packaging 자체는 아직 이 문서의 실행 범위가 아닙니다. 현재 Apple
+Development signed build는 내부 개발/QA용이고, Developer ID notarization,
+DMG/ZIP packaging, 배포용 `spctl` 기준 확정은 다음 packaging 단계에서 다룹니다.
+
+## 최종 QA 흐름
+
+1. Backend lifecycle: 앱 자동 시작, `/health`, 외부 backend 보존
+2. Recording: 시작, 일시정지, 재개, 종료
+3. Dev Tracking: 자동 시작/종료, repo path, command metadata
+4. Meeting transcription: 마이크, 시스템 오디오, 회의 전체, Local Whisper fallback
+5. Timeline: 기본/상세/API/web 정렬과 filter
+6. Reports: 생성, 편집, Markdown/PDF export, fallback report
+7. Floating Widget: resize, responsive layout, 설정 저장/로드/reset
+8. Menu Bar: 상태 표시와 빠른 액션
+9. Launch at Login: 앱 자동 실행 등록/해제, recording 자동 시작 없음
+10. Permissions: 접근성, 화면 기록, 마이크, 음성 인식
+11. Packaging pre-check: signed Release 내부 QA, notarization/DMG는 다음 단계로 보류
 
 ## 사전 준비
 
@@ -1200,7 +1219,7 @@ git diff --check
 git diff --check
 ```
 
-## 18. Floating Widget 설정 1단계 QA
+## 18. Floating Widget 설정/테마 QA
 
 확인:
 
@@ -1218,8 +1237,8 @@ git diff --check
    덮어써지지 않는지 확인합니다.
 8. OCR, recording, backend 등 기존 상태 badge의 의미 색상이 유지되는지
    확인합니다.
-9. 표시 항목과 빠른 액션 ON/OFF UI는 아직 보이지 않고, 실제 표시/숨김 동작도
-   적용되지 않는지 확인합니다.
+9. 표시 항목과 빠른 액션 ON/OFF UI가 보이고, 각 toggle이 실제 표시/숨김 동작에
+   반영되는지 확인합니다.
 10. recording, Dev Tracking, 회의모드, 메뉴바, Launch at Login,
     report/timeline/settings 화면 동작이 기존과 동일한지 확인합니다.
 
@@ -1236,7 +1255,7 @@ git diff --check
 git diff --check
 ```
 
-## 19. Floating Widget 설정 2단계 QA
+## 19. Floating Widget 표시 항목/빠른 액션 QA
 
 확인:
 
@@ -1312,6 +1331,49 @@ git diff --check
 ./scripts/test_macos_report_presentation.sh
 ./scripts/build_macos_app.sh --open
 git diff --check
+```
+
+## 21. Packaging pre-check
+
+확인:
+
+1. `git status --short`에서 의도한 코드/문서 변경만 보이는지 확인합니다.
+2. `docs/portfolio_logs/`의 개인 작업 기록은 gitignore 대상이며 커밋 대상에
+   포함하지 않는지 확인합니다.
+3. backend 검증이 통과하는지 확인합니다.
+4. macOS harness 검증이 통과하는지 확인합니다.
+5. signed build는 Apple Development 인증서와 Team ID
+   `XMP48Q3KXN` 기준으로만 내부 QA에 사용합니다.
+6. `~/Applications/MwohamMac.app`의 bundle identifier가
+   `com.ing2720.MwohamMac`인지 확인합니다.
+7. `codesign --verify --deep --strict`와 `codesign -dv --verbose=4`로
+   Identifier, TeamIdentifier, Authority를 확인합니다.
+8. `spctl --assess --type execute` 결과는 Apple Development 내부 build에서
+   Developer ID/notarization 통과 기준으로 해석하지 않습니다.
+9. Release packaging script, Developer ID signing, notarization, DMG/ZIP
+   생성은 다음 작업으로 남깁니다.
+10. Launch at Login은 앱 자동 실행만 담당하며 recording 자동 시작으로
+    해석하지 않습니다.
+
+검증 명령:
+
+```bash
+cd /Users/a/Projects/mwoham
+
+./scripts/test_macos_floating_widget_settings.sh
+./scripts/test_macos_floating_widget_responsive.sh
+./scripts/test_macos_menu_bar_floating_presentation.sh
+./scripts/test_macos_launch_at_login.sh
+./scripts/test_macos_timeline_presentation.sh
+./scripts/test_macos_report_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+git status --short
+git diff --stat
+
+cd /Users/a/Projects/mwoham/backend
+uv run python scripts/run_dev_checks.py --no-record
+uv run pytest -q
 ```
 
 ## 개발용 검증 명령
