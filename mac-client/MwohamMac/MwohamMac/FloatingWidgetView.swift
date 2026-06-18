@@ -7,7 +7,7 @@ import AppKit
 import SwiftUI
 
 struct FloatingWidgetView: View {
-    static let minimumContentSize = CGSize(width: 214, height: 80)
+    static let minimumContentSize = CGSize(width: 214, height: 73)
 
     @ObservedObject var viewModel: BackendStatusViewModel
     @ObservedObject var settingsStore: FloatingWidgetSettingsStore
@@ -64,14 +64,14 @@ struct FloatingWidgetView: View {
         for layoutMode: MenuBarFloatingPresentation.FloatingWidgetLayoutMode,
         size: CGSize
     ) -> some View {
-        if size.width <= 240 && size.height <= 140 {
-            narrowWidthView
-        } else {
-            switch layoutMode {
-            case .veryCompact:
-                veryCompactView
+        switch layoutMode {
+        case .veryCompact:
+            veryCompactView
 
-            case .compact:
+        case .compact:
+            if size.width <= 240 && size.height <= 140 {
+                narrowWidthView
+            } else {
                 adaptiveWidgetContent(
                     layoutMode: .compact,
                     visibility: FloatingWidgetLayoutVisibility(size: size),
@@ -79,23 +79,24 @@ struct FloatingWidgetView: View {
                     sectionSpacing: 8,
                     usesRelaxedSpacing: false
                 )
-            case .regular:
-                adaptiveWidgetContent(
-                    layoutMode: .regular,
-                    visibility: FloatingWidgetLayoutVisibility(size: size),
-                    rowSpacing: 6,
-                    sectionSpacing: 10,
-                    usesRelaxedSpacing: false
-                )
-            case .spacious:
-                adaptiveWidgetContent(
-                    layoutMode: .spacious,
-                    visibility: FloatingWidgetLayoutVisibility(size: size),
-                    rowSpacing: 6,
-                    sectionSpacing: 8,
-                    usesRelaxedSpacing: true
-                )
             }
+
+        case .regular:
+            adaptiveWidgetContent(
+                layoutMode: .regular,
+                visibility: FloatingWidgetLayoutVisibility(size: size),
+                rowSpacing: 6,
+                sectionSpacing: 10,
+                usesRelaxedSpacing: false
+            )
+        case .spacious:
+            adaptiveWidgetContent(
+                layoutMode: .spacious,
+                visibility: FloatingWidgetLayoutVisibility(size: size),
+                rowSpacing: 6,
+                sectionSpacing: 8,
+                usesRelaxedSpacing: true
+            )
         }
     }
 
