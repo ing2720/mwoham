@@ -31,7 +31,11 @@ struct FloatingWidgetView: View {
                     maxHeight: .infinity,
                     alignment: .topLeading
                 )
-                .background(widgetBackground)
+                .padding(.top, titleBarContentInset(for: proxy.size))
+        }
+        .background {
+            widgetBackground
+                .ignoresSafeArea()
         }
         .frame(
             minWidth: Self.minimumContentSize.width,
@@ -49,6 +53,10 @@ struct FloatingWidgetView: View {
                 .opacity(settingsStore.settings.opacity)
             settingsStore.settings.accentColor.subtleBackgroundColor
         }
+    }
+
+    private func titleBarContentInset(for size: CGSize) -> CGFloat {
+        size.height <= 140 ? 0 : 0
     }
 
     @ViewBuilder
@@ -115,7 +123,14 @@ struct FloatingWidgetView: View {
                 )
             )
         }
-        .padding(8)
+        .padding(
+            EdgeInsets(
+                top: 0,
+                leading: 8,
+                bottom: 8,
+                trailing: 8
+            )
+        )
     }
 
     private var narrowWidthView: some View {
@@ -158,7 +173,14 @@ struct FloatingWidgetView: View {
                 )
             )
         }
-        .padding(8)
+        .padding(
+            EdgeInsets(
+                top: 0,
+                leading: 8,
+                bottom: 8,
+                trailing: 8
+            )
+        )
     }
 
     private func adaptiveWidgetContent(
@@ -239,7 +261,9 @@ struct FloatingWidgetView: View {
 
             actionControls(displayPolicy: displayPolicy)
         }
-        .padding(visibility.contentPadding(defaultPadding: usesRelaxedSpacing ? 18 : 14))
+        .padding(.top, 0)
+        .padding(.horizontal, visibility.contentPadding(defaultPadding: usesRelaxedSpacing ? 18 : 14))
+        .padding(.bottom, visibility.contentPadding(defaultPadding: usesRelaxedSpacing ? 18 : 14))
     }
 
     @ViewBuilder
