@@ -117,13 +117,15 @@ struct FloatingWidgetView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(2)
 
-                Text(presentation.recordingElapsedTimeText)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .minimumScaleFactor(0.7)
-                    .layoutPriority(1)
+                if settingsStore.settings.showsElapsedTime {
+                    Text(presentation.recordingElapsedTimeText)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .minimumScaleFactor(0.7)
+                        .layoutPriority(1)
+                }
 
                 Spacer(minLength: 2)
 
@@ -158,40 +160,42 @@ struct FloatingWidgetView: View {
         sectionSpacing: CGFloat,
         usesRelaxedSpacing: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: sectionSpacing) {
+        let displayPolicy = displayPolicy(for: visibility)
+
+        return VStack(alignment: .leading, spacing: sectionSpacing) {
             headerView(layoutMode: layoutMode,
                        isNarrowWidth: visibility.usesNarrowHeader
                    )
 
             VStack(alignment: .leading, spacing: rowSpacing) {
-                if visibility.showsCompactActivity {
+                if displayPolicy.showsCompactActivity {
                     Text(presentation.compactCurrentActivityText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                if visibility.showsCurrentApp {
+                if displayPolicy.showsCurrentApp {
                     FloatingStatusRow(
                         title: "현재 앱",
                         value: presentation.currentAppText
                     )
                 }
-                if visibility.showsCurrentWindow {
+                if displayPolicy.showsCurrentWindow {
                     FloatingStatusRow(
                         title: "현재 창",
                         value: presentation.currentWindowText
                     )
                 }
-                if visibility.showsOCR {
+                if displayPolicy.showsOCRStatus {
                     FloatingStatusBadgeRow(
                         title: presentation.ocrTitle,
                         state: presentation.ocrState
                     )
                 }
-                if visibility.showsDevTrackingRow {
+                if displayPolicy.showsDevTrackingRow {
                     FloatingDevTrackingRow(presentation: presentation)
-                } else if visibility.showsDevTrackingBadge {
+                } else if displayPolicy.showsDevTrackingBadge {
                     DevTrackingCompactBadge(
                         text: presentation.devTrackingDisplayText,
                         state: presentation.devTrackingBadgeState
@@ -224,58 +228,112 @@ struct FloatingWidgetView: View {
                 )
             )
 
-            actionControls(visibility: visibility)
+            actionControls(displayPolicy: displayPolicy)
         }
         .padding(visibility.contentPadding(defaultPadding: usesRelaxedSpacing ? 18 : 14))
     }
 
     @ViewBuilder
-    private func actionControls(visibility: WidgetVisibility) -> some View {
-        if visibility.usesSingleColumnActions {
-            VStack(spacing: 8) {
-                if visibility.showsDevTrackingAction {
-                    devTrackingToggleButton
-                }
-
-                if visibility.showsMeetingModeAction {
-                    meetingModeToggleButton
-                }
-
-                if visibility.showsOpenMainWindowAction {
-                    openMainWindowButton
-                }
-
-                if visibility.showsOpenDashboardAction {
-                    openDashboardButton
-                }
+    private func actionControls(
+        displayPolicy: FloatingWidgetDisplayPolicy
+    ) -> some View {
+        if displayPolicy.showsAnyQuickAction {
+            if displayPolicy.usesSingleColumnActions {
+                singleColumnActionControls(displayPolicy: displayPolicy)
+            } else {
+                multiColumnActionControls(displayPolicy: displayPolicy)
             }
-            .buttonStyle(
-                FloatingWidgetActionButtonStyle(
-                    accentColor: settingsStore.settings.accentColor.color
-                )
+        }
+    }
+
+    private func singleColumnActionControls(
+        displayPolicy: FloatingWidgetDisplayPolicy
+    ) -> some View {
+        VStack(spacing: 8) {
+            if displayPolicy.showsDevTrackingAction {
+                devTrackingToggleButton
+            }
+
+            if displayPolicy.showsMeetingModeAction {
+                meetingModeToggleButton
+            }
+
+            if displayPolicy.showsOpenMainWindowAction {
+                openMainWindowButton
+            }
+
+            if displayPolicy.showsOpenDashboardAction {
+                openDashboardButton
+            }
+        }
+        .buttonStyle(
+            FloatingWidgetActionButtonStyle(
+                accentColor: settingsStore.settings.accentColor.color
             )
-        } else {
-            VStack(spacing: 8) {
-                if visibility.showsSecondaryActionRow {
-                    HStack(spacing: 8) {
+        )
+    }
+
+    private func multiColumnActionControls(
+        displayPolicy: FloatingWidgetDisplayPolicy
+    ) -> some View {
+        VStack(spacing: 8) {
+            if displayPolicy.showsAnySecondaryAction {
+                HStack(spacing: 8) {
+                    if displayPolicy.showsDevTrackingAction {
                         devTrackingToggleButton
+                    }
+
+                    if displayPolicy.showsMeetingModeAction {
                         meetingModeToggleButton
                     }
                 }
+            }
 
-                if visibility.showsQuickActionRow {
-                    HStack(spacing: 8) {
+            if displayPolicy.showsAnyOpenAction {
+                HStack(spacing: 8) {
+                    if displayPolicy.showsOpenMainWindowAction {
                         openMainWindowButton
+                    }
+
+                    if displayPolicy.showsOpenDashboardAction {
                         openDashboardButton
                     }
                 }
             }
-            .buttonStyle(
-                FloatingWidgetActionButtonStyle(
-                    accentColor: settingsStore.settings.accentColor.color
-                )
-            )
         }
+        .buttonStyle(
+            FloatingWidgetActionButtonStyle(
+                accentColor: settingsStore.settings.accentColor.color
+            )
+        )
+    }
+
+    private func displayPolicy(
+        for visibility: WidgetVisibility
+    ) -> FloatingWidgetDisplayPolicy {
+        FloatingWidgetDisplayPolicy(
+            settings: settingsStore.settings,
+            layout: FloatingWidgetLayoutAvailability(
+                showsCompactActivity: visibility.showsCompactActivity,
+                showsCurrentApp: visibility.showsCurrentApp,
+                showsCurrentWindow: visibility.showsCurrentWindow,
+                showsOCRStatus: visibility.showsOCR,
+                showsDevTrackingRow: visibility.showsDevTrackingRow,
+                showsDevTrackingBadge: visibility.showsDevTrackingBadge,
+                showsElapsedTime: true,
+                showsOpenMainWindowAction: visibility.showsOpenMainWindowAction,
+                showsOpenDashboardAction: visibility.showsOpenDashboardAction,
+                showsDevTrackingAction: visibility.showsDevTrackingAction,
+                showsMeetingModeAction: visibility.showsMeetingModeAction,
+                usesSingleColumnActions: visibility.usesSingleColumnActions
+            ),
+            actions: FloatingWidgetActionAvailability(
+                canToggleDevTracking:
+                    !presentation.controlActions.isDevTrackingToggleDisabled,
+                canToggleMeetingMode:
+                    !presentation.controlActions.isMeetingModeToggleDisabled
+            )
+        )
     }
 
     private var devTrackingToggleButton: some View {
@@ -342,13 +400,15 @@ struct FloatingWidgetView: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .layoutPriority(2)
 
-            Text(presentation.recordingElapsedTimeText)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .minimumScaleFactor(0.7)
-                .layoutPriority(1)
+            if settingsStore.settings.showsElapsedTime {
+                Text(presentation.recordingElapsedTimeText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
+            }
 
             Spacer(minLength: 2)
 

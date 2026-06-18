@@ -51,11 +51,40 @@ struct FloatingWidgetSettingsView: View {
                 .padding(.vertical, 4)
             }
 
-            GroupBox("안내") {
-                Text("표시 항목과 빠른 액션 설정은 다음 단계에서 지원합니다.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
+            GroupBox("표시 항목") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("현재 앱", isOn: $store.settings.showsCurrentApp)
+                    Toggle("현재 창", isOn: $store.settings.showsCurrentWindow)
+                    Toggle("OCR 상태", isOn: $store.settings.showsOCRStatus)
+                    Toggle(
+                        "Dev Tracking 상태",
+                        isOn: $store.settings.showsDevTrackingStatus
+                    )
+                    Toggle("기록 시간", isOn: $store.settings.showsElapsedTime)
+                }
+                .padding(.vertical, 4)
+            }
+
+            GroupBox("빠른 액션") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle(
+                        "메인 창 열기",
+                        isOn: $store.settings.showsOpenMainWindowAction
+                    )
+                    Toggle(
+                        "대시보드 열기",
+                        isOn: $store.settings.showsOpenDashboardAction
+                    )
+                    Toggle(
+                        "Dev Tracking 시작/중지",
+                        isOn: $store.settings.showsDevTrackingAction
+                    )
+                    Toggle(
+                        "회의모드 시작/중지",
+                        isOn: $store.settings.showsMeetingModeAction
+                    )
+                }
+                .padding(.vertical, 4)
             }
 
             HStack {

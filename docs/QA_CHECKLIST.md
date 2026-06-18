@@ -1236,6 +1236,50 @@ git diff --check
 git diff --check
 ```
 
+## 19. Floating Widget 설정 2단계 QA
+
+확인:
+
+1. 위젯 설정 sheet에 `표시 항목` section이 보이는지 확인합니다.
+2. `현재 앱` toggle OFF/ON 시 플로팅 위젯의 현재 앱 row가 숨김/표시되는지
+   확인합니다.
+3. `현재 창` toggle OFF/ON 시 플로팅 위젯의 현재 창 row가 숨김/표시되는지
+   확인합니다.
+4. `OCR 상태` toggle OFF/ON 시 OCR row가 숨김/표시되는지 확인합니다.
+5. `Dev Tracking 상태` toggle OFF/ON 시 Dev Tracking row 또는 compact badge가
+   숨김/표시되는지 확인합니다.
+6. `기록 시간` toggle OFF/ON 시 header의 기록 시간 text가 숨김/표시되는지
+   확인합니다. 기록 상태 badge와 RecordingControl은 유지되어야 합니다.
+7. 위젯 설정 sheet에 `빠른 액션` section이 보이는지 확인합니다.
+8. `메인 창 열기`, `대시보드 열기`, `Dev Tracking 시작/중지`,
+   `회의모드 시작/중지` toggle OFF/ON 시 각 버튼이 숨김/표시되는지 확인합니다.
+9. 모든 빠른 액션을 OFF로 바꾸면 빈 action 영역이나 빈 row가 남지 않는지
+   확인합니다.
+10. compact/veryCompact 크기에서는 settings가 ON이어도 공간이 부족한 항목과
+    빠른 액션이 숨겨지는지 확인합니다.
+11. `기본값으로 초기화` 클릭 시 opacity, 색상, 표시 항목, 빠른 액션이 모두
+    기본값으로 복구되고 위젯 UI가 즉시 기본 표시 상태로 돌아오는지 확인합니다.
+12. 앱 재실행 후 표시 항목/빠른 액션 설정값이 유지되는지 확인합니다.
+13. RecordingControl의 기록 시작/일시정지/재개/종료는 설정과 무관하게 유지되는지
+    확인합니다.
+14. recording, Dev Tracking, 회의모드 실제 동작 정책이 기존과 동일한지
+    확인합니다.
+15. 메뉴바, Launch at Login, report/timeline/settings 화면 동작이 기존과 동일한지
+    확인합니다.
+
+검증 명령:
+
+```bash
+./scripts/test_macos_floating_widget_settings.sh
+./scripts/test_macos_floating_widget_responsive.sh
+./scripts/test_macos_menu_bar_floating_presentation.sh
+./scripts/test_macos_launch_at_login.sh
+./scripts/test_macos_timeline_presentation.sh
+./scripts/test_macos_report_presentation.sh
+./scripts/build_macos_app.sh --open
+git diff --check
+```
+
 ## 개발용 검증 명령
 
 백엔드 전체 검증:

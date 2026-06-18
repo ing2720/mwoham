@@ -80,3 +80,97 @@ enum FloatingWidgetAccentColor: String, CaseIterable, Codable, Equatable, Identi
         }
     }
 }
+
+struct FloatingWidgetLayoutAvailability: Equatable {
+    var showsCompactActivity: Bool = false
+    var showsCurrentApp: Bool = false
+    var showsCurrentWindow: Bool = false
+    var showsOCRStatus: Bool = false
+    var showsDevTrackingRow: Bool = false
+    var showsDevTrackingBadge: Bool = false
+    var showsElapsedTime: Bool = false
+
+    var showsOpenMainWindowAction: Bool = false
+    var showsOpenDashboardAction: Bool = false
+    var showsDevTrackingAction: Bool = false
+    var showsMeetingModeAction: Bool = false
+    var usesSingleColumnActions: Bool = false
+}
+
+struct FloatingWidgetActionAvailability: Equatable {
+    var canOpenMainWindow: Bool = true
+    var canOpenDashboard: Bool = true
+    var canToggleDevTracking: Bool = true
+    var canToggleMeetingMode: Bool = true
+}
+
+struct FloatingWidgetDisplayPolicy: Equatable {
+    let showsCompactActivity: Bool
+    let showsCurrentApp: Bool
+    let showsCurrentWindow: Bool
+    let showsOCRStatus: Bool
+    let showsDevTrackingRow: Bool
+    let showsDevTrackingBadge: Bool
+    let showsElapsedTime: Bool
+
+    let showsOpenMainWindowAction: Bool
+    let showsOpenDashboardAction: Bool
+    let showsDevTrackingAction: Bool
+    let showsMeetingModeAction: Bool
+    let usesSingleColumnActions: Bool
+
+    var showsAnyQuickAction: Bool {
+        showsOpenMainWindowAction
+            || showsOpenDashboardAction
+            || showsDevTrackingAction
+            || showsMeetingModeAction
+    }
+
+    var showsAnySecondaryAction: Bool {
+        showsDevTrackingAction || showsMeetingModeAction
+    }
+
+    var showsAnyOpenAction: Bool {
+        showsOpenMainWindowAction || showsOpenDashboardAction
+    }
+
+    init(
+        settings: FloatingWidgetSettings,
+        layout: FloatingWidgetLayoutAvailability,
+        actions: FloatingWidgetActionAvailability = FloatingWidgetActionAvailability()
+    ) {
+        showsCompactActivity =
+            layout.showsCompactActivity
+            && settings.showsCurrentApp
+            && settings.showsCurrentWindow
+        showsCurrentApp = settings.showsCurrentApp && layout.showsCurrentApp
+        showsCurrentWindow =
+            settings.showsCurrentWindow && layout.showsCurrentWindow
+        showsOCRStatus = settings.showsOCRStatus && layout.showsOCRStatus
+        showsDevTrackingRow =
+            settings.showsDevTrackingStatus && layout.showsDevTrackingRow
+        showsDevTrackingBadge =
+            settings.showsDevTrackingStatus
+            && !layout.showsDevTrackingRow
+            && layout.showsDevTrackingBadge
+        showsElapsedTime = settings.showsElapsedTime && layout.showsElapsedTime
+
+        showsOpenMainWindowAction =
+            settings.showsOpenMainWindowAction
+            && layout.showsOpenMainWindowAction
+            && actions.canOpenMainWindow
+        showsOpenDashboardAction =
+            settings.showsOpenDashboardAction
+            && layout.showsOpenDashboardAction
+            && actions.canOpenDashboard
+        showsDevTrackingAction =
+            settings.showsDevTrackingAction
+            && layout.showsDevTrackingAction
+            && actions.canToggleDevTracking
+        showsMeetingModeAction =
+            settings.showsMeetingModeAction
+            && layout.showsMeetingModeAction
+            && actions.canToggleMeetingMode
+        usesSingleColumnActions = layout.usesSingleColumnActions
+    }
+}

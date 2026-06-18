@@ -23,6 +23,23 @@ func makeDefaults(_ name: String) -> UserDefaults {
     return defaults
 }
 
+func defaultLayout() -> FloatingWidgetLayoutAvailability {
+    FloatingWidgetLayoutAvailability(
+        showsCompactActivity: true,
+        showsCurrentApp: true,
+        showsCurrentWindow: true,
+        showsOCRStatus: true,
+        showsDevTrackingRow: true,
+        showsDevTrackingBadge: false,
+        showsElapsedTime: true,
+        showsOpenMainWindowAction: true,
+        showsOpenDashboardAction: true,
+        showsDevTrackingAction: true,
+        showsMeetingModeAction: true,
+        usesSingleColumnActions: true
+    )
+}
+
 @main
 enum FloatingWidgetSettingsHarness {
     static func main() {
@@ -77,6 +94,121 @@ enum FloatingWidgetSettingsHarness {
 
         let resetReloaded = FloatingWidgetSettingsStore(userDefaults: defaults)
         expect(resetReloaded.settings == .defaults, "reset defaults should persist")
+
+        let defaultPolicy = FloatingWidgetDisplayPolicy(
+            settings: .defaults,
+            layout: defaultLayout()
+        )
+        expect(defaultPolicy.showsCompactActivity, "compact activity should show when app/window settings and layout allow it")
+        expect(defaultPolicy.showsCurrentApp, "current app should show when setting and layout allow it")
+        expect(defaultPolicy.showsCurrentWindow, "current window should show when setting and layout allow it")
+        expect(defaultPolicy.showsOCRStatus, "OCR should show when setting and layout allow it")
+        expect(defaultPolicy.showsDevTrackingRow, "Dev Tracking row should show when setting and layout allow it")
+        expect(!defaultPolicy.showsDevTrackingBadge, "Dev Tracking badge should not duplicate row")
+        expect(defaultPolicy.showsElapsedTime, "elapsed time should show when setting and layout allow it")
+        expect(defaultPolicy.showsOpenMainWindowAction, "main window action should show when setting and layout allow it")
+        expect(defaultPolicy.showsOpenDashboardAction, "dashboard action should show when setting and layout allow it")
+        expect(defaultPolicy.showsDevTrackingAction, "Dev Tracking action should show when setting and layout allow it")
+        expect(defaultPolicy.showsMeetingModeAction, "meeting mode action should show when setting and layout allow it")
+        expect(defaultPolicy.showsAnyQuickAction, "quick action section should show when at least one action is visible")
+
+        var displaySettings = FloatingWidgetSettings.defaults
+        displaySettings.showsCurrentApp = false
+        var policy = FloatingWidgetDisplayPolicy(
+            settings: displaySettings,
+            layout: defaultLayout()
+        )
+        expect(!policy.showsCurrentApp, "current app setting off should hide current app")
+        expect(!policy.showsCompactActivity, "current app setting off should hide compact activity summary")
+
+        displaySettings = .defaults
+        displaySettings.showsCurrentWindow = false
+        policy = FloatingWidgetDisplayPolicy(
+            settings: displaySettings,
+            layout: defaultLayout()
+        )
+        expect(!policy.showsCurrentWindow, "current window setting off should hide current window")
+        expect(!policy.showsCompactActivity, "current window setting off should hide compact activity summary")
+
+        displaySettings = .defaults
+        displaySettings.showsOCRStatus = false
+        policy = FloatingWidgetDisplayPolicy(
+            settings: displaySettings,
+            layout: defaultLayout()
+        )
+        expect(!policy.showsOCRStatus, "OCR setting off should hide OCR")
+
+        displaySettings = .defaults
+        displaySettings.showsDevTrackingStatus = false
+        policy = FloatingWidgetDisplayPolicy(
+            settings: displaySettings,
+            layout: defaultLayout()
+        )
+        expect(!policy.showsDevTrackingRow, "Dev Tracking setting off should hide row")
+        expect(!policy.showsDevTrackingBadge, "Dev Tracking setting off should hide badge")
+
+        displaySettings = .defaults
+        displaySettings.showsElapsedTime = false
+        policy = FloatingWidgetDisplayPolicy(
+            settings: displaySettings,
+            layout: defaultLayout()
+        )
+        expect(!policy.showsElapsedTime, "elapsed time setting off should hide elapsed time")
+
+        displaySettings = .defaults
+        displaySettings.showsOpenMainWindowAction = false
+        displaySettings.showsOpenDashboardAction = false
+        displaySettings.showsDevTrackingAction = false
+        displaySettings.showsMeetingModeAction = false
+        policy = FloatingWidgetDisplayPolicy(
+            settings: displaySettings,
+            layout: defaultLayout()
+        )
+        expect(!policy.showsOpenMainWindowAction, "main window action setting off should hide action")
+        expect(!policy.showsOpenDashboardAction, "dashboard action setting off should hide action")
+        expect(!policy.showsDevTrackingAction, "Dev Tracking action setting off should hide action")
+        expect(!policy.showsMeetingModeAction, "meeting mode action setting off should hide action")
+        expect(!policy.showsAnyQuickAction, "all quick actions off should hide action section")
+        expect(!policy.showsAnySecondaryAction, "all secondary actions off should hide secondary row")
+        expect(!policy.showsAnyOpenAction, "all open actions off should hide open row")
+
+        let compactLayout = FloatingWidgetLayoutAvailability(
+            showsCompactActivity: true,
+            showsCurrentApp: false,
+            showsCurrentWindow: false,
+            showsOCRStatus: false,
+            showsDevTrackingRow: false,
+            showsDevTrackingBadge: true,
+            showsElapsedTime: true,
+            showsOpenMainWindowAction: false,
+            showsOpenDashboardAction: false,
+            showsDevTrackingAction: false,
+            showsMeetingModeAction: false,
+            usesSingleColumnActions: true
+        )
+        policy = FloatingWidgetDisplayPolicy(
+            settings: .defaults,
+            layout: compactLayout
+        )
+        expect(!policy.showsCurrentApp, "layout without room should hide current app even when setting is on")
+        expect(!policy.showsCurrentWindow, "layout without room should hide current window even when setting is on")
+        expect(!policy.showsOCRStatus, "layout without room should hide OCR even when setting is on")
+        expect(!policy.showsDevTrackingRow, "compact layout should not show full Dev Tracking row")
+        expect(policy.showsDevTrackingBadge, "compact layout can show Dev Tracking badge when setting is on")
+        expect(!policy.showsAnyQuickAction, "compact layout without room should hide quick action section")
+
+        policy = FloatingWidgetDisplayPolicy(
+            settings: .defaults,
+            layout: defaultLayout(),
+            actions: FloatingWidgetActionAvailability(
+                canOpenMainWindow: true,
+                canOpenDashboard: true,
+                canToggleDevTracking: true,
+                canToggleMeetingMode: false
+            )
+        )
+        expect(!policy.showsMeetingModeAction, "unavailable meeting action should hide")
+        expect(policy.showsDevTrackingAction, "available Dev Tracking action should remain visible")
 
         defaults.removePersistentDomain(forName: suiteName)
         print("FloatingWidget settings harness passed")
