@@ -247,40 +247,6 @@ struct FloatingWidgetView: View {
         }
     }
 
-    @ViewBuilder
-    private func secondaryControlActions(
-        usesSingleColumn: Bool
-    ) -> some View {
-        if usesSingleColumn {
-            VStack(spacing: 8) {
-                devTrackingToggleButton
-                meetingModeToggleButton
-            }
-        } else {
-            HStack(spacing: 8) {
-                devTrackingToggleButton
-                meetingModeToggleButton
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func quickActions(usesSingleColumn: Bool) -> some View {
-        Group {
-            if usesSingleColumn {
-                VStack(spacing: 8) {
-                    openMainWindowButton
-                    openDashboardButton
-                }
-            } else {
-                HStack(spacing: 8) {
-                    openMainWindowButton
-                    openDashboardButton
-                }
-            }
-        }
-    }
-
     private var devTrackingToggleButton: some View {
         PrimaryActionButton(
             title: presentation.controlActions.devTrackingToggleLabel,
