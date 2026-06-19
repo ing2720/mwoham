@@ -2218,6 +2218,29 @@ def test_gemini_client_returns_none_without_api_key() -> None:
     assert client.generate_text_result("hello").error_reason == "api_key_missing"
 
 
+def test_prompt_builder_truncates_oversized_report_context() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=140,
+        items=[
+            TimelineItem(
+                type="event",
+                id=index,
+                timestamp=datetime(2026, 5, 26, 1, index % 60, tzinfo=UTC),
+                source="window",
+                app_name="VSCode",
+                content="report latency stabilization evidence " + ("x" * 500),
+            )
+            for index in range(140)
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "REPORT_CONTEXT_TRUNCATED" in prompt
+    assert prompt.count("report latency stabilization evidence") < 140
+
+
 def test_ai_provider_defaults_to_gemini_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in [
         "AI_PROVIDER",
@@ -2378,6 +2401,29 @@ def test_openai_client_classifies_quota_response(
     assert result.status_code == 429
 
 
+def test_openai_client_uses_configured_timeout_and_classifies_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeout = None
+
+    def fake_post(*args, **kwargs):
+        nonlocal observed_timeout
+        observed_timeout = kwargs.get("timeout")
+        raise httpx.TimeoutException("timed out")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = OpenAIClient(
+        api_key="test-openai-key",
+        model="gpt-test-mini",
+        timeout_seconds=7.5,
+    ).generate_text_result("hello")
+
+    assert observed_timeout == 7.5
+    assert result.text is None
+    assert result.error_reason == "timeout"
+
+
 def test_report_service_uses_openai_client_when_provider_is_openai(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2489,6 +2535,29 @@ def test_gemini_client_classifies_quota_exceeded_response(
     assert result.text is None
     assert result.error_reason == "quota_exceeded"
     assert result.status_code == 429
+
+
+def test_gemini_client_uses_configured_timeout_and_classifies_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeout = None
+
+    def fake_post(*args, **kwargs):
+        nonlocal observed_timeout
+        observed_timeout = kwargs.get("timeout")
+        raise httpx.TimeoutException("timed out")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = GeminiClient(
+        api_key="test-api-key",
+        model="gemini-2.5-flash",
+        timeout_seconds=6.5,
+    ).generate_text_result("hello")
+
+    assert observed_timeout == 6.5
+    assert result.text is None
+    assert result.error_reason == "timeout"
 
 
 def test_gemini_client_handles_json_parse_error(

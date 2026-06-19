@@ -160,10 +160,10 @@
   <section class="panel" style="margin-bottom: 16px;">
     <h2>리포트 생성</h2>
     <div class="report-actions">
-      <form method="post" action="/reports/daily/create?mode=simple">
+      <form method="post" action="/reports/daily/create?mode=simple" class="report-create-form">
         <button type="submit">간단 리포트 생성</button>
       </form>
-      <form method="post" action="/reports/daily/create?mode=detailed">
+      <form method="post" action="/reports/daily/create?mode=detailed" class="report-create-form">
         <button type="submit">상세 리포트 생성</button>
       </form>
     </div>
@@ -263,6 +263,7 @@
 
       const createdByLabel = (value) => {
         if (value === "ai") return "AI";
+        if (value === "fallback") return "Fallback";
         if (value === "system") return "시스템";
         if (value === "user") return "사용자";
         return value || "-";
@@ -367,6 +368,15 @@
         link.addEventListener("click", (event) => {
           event.preventDefault();
           openReport(reportID);
+        });
+      });
+
+      document.querySelectorAll(".report-create-form").forEach((form) => {
+        form.addEventListener("submit", () => {
+          form.querySelectorAll("button").forEach((button) => {
+            button.disabled = true;
+            button.textContent = "생성 중...";
+          });
         });
       });
 

@@ -112,6 +112,8 @@ Dev Tracking, 회의모드 상태를 표시합니다. 위젯 창 크기에 따�
 - 모델 선택: 연결 테스트 또는 모델 불러오기 후 dropdown에서 선택
 - key 삭제: 현재 선택한 provider의 Keychain 항목만 삭제
 - key 없음 또는 API 실패: backend가 로컬 fallback 리포트를 생성
+- AI 성공 리포트는 `AI 생성`, provider 미설정/API 실패/timeout fallback은
+  `Fallback 생성`으로 표시
 
 API Key 전체 값은 저장 후 다시 표시하지 않고 `••••1234` 형태의 요약만
 표시합니다. 모델명은 직접 입력하지 않고 provider API에서 조회된 compatible

@@ -154,6 +154,7 @@ macOS 접근성, 화면 기록, 마이크 권한은 앱이 자동 허용할 수 
 - `GEMINI_API_KEY`, `GEMINI_MODEL`: 개발용 Gemini 호환 설정
 - `OPENAI_API_KEY`, `OPENAI_MODEL`: 개발용 OpenAI 설정
 - `GEMINI_MAX_OUTPUT_TOKENS`: AI 리포트 최대 출력 토큰
+- `AI_REPORT_TIMEOUT_SECONDS`: AI 리포트 provider 호출 timeout. 기본값은 25초
 - `ENABLE_SCREEN_OBSERVATION_AI_INFERENCE`: 개별 화면 관찰 AI 해석 호출 여부. 기본값은 `false`
 - `SCREEN_AI_MIN_INTERVAL_SECONDS`: 화면 관찰 AI 해석 최소 간격
 - `SCREEN_AI_DAILY_LIMIT`: 화면 관찰 AI 해석 일일 제한
@@ -289,6 +290,8 @@ UserDefaults, repo, 문서에는 포함되지 않습니다.
 - API Key: macOS Keychain 저장
 - 모델: 연결 테스트 또는 모델 불러오기 후 API에서 자동 조회한 목록에서 선택
 - 키 없음, invalid key, 네트워크/API/quota 실패: 로컬 fallback 리포트 생성
+- AI 리포트 성공 시 `created_by=ai`, provider 미설정/실패/timeout 시
+  `created_by=fallback`으로 표시
 - `.env`: 개발용 override로만 유지
 
 Provider/model/API Key 변경은 다음 backend 시작 또는 재시작부터 적용됩니다.

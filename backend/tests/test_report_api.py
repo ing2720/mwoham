@@ -76,7 +76,8 @@ def test_daily_report_api_uses_timeline_placeholder_content(client: TestClient) 
     assert create_response.status_code == 201
     created = create_response.json()
     assert created["date"] == "2026-05-26"
-    assert created["created_by"] == "system"
+    assert created["created_by"] == "fallback"
+    assert created["fallback_reason"] == "api_key_missing"
     assert FALLBACK_EVIDENCE_MESSAGE in created["content"]
     assert "리포트 서비스 뼈대 구현" in created["content"]
     assert "Gemini는 아직 호출하지 않음" in created["content"]
@@ -304,7 +305,8 @@ def test_simple_fallback_does_not_use_screen_observation_raw_text_as_completed_w
     assert response.status_code == 201
     body = response.json()
     assert body["mode"] == "simple"
-    assert body["created_by"] == "system"
+    assert body["created_by"] == "fallback"
+    assert body["fallback_reason"] == "api_key_missing"
     assert "## 완료한 작업\n- 확인된 핵심 작업 없음" in body["content"]
     assert "## 다음 작업\n- 확인된 내용 없음." in body["content"]
     assert "feat: 장소 목록 추 83 open" not in body["content"]
@@ -811,7 +813,8 @@ def test_daily_report_falls_back_when_mocked_gemini_returns_none(client: TestCli
 
     assert response.status_code == 201
     body = response.json()
-    assert body["created_by"] == "system"
+    assert body["created_by"] == "fallback"
+    assert body["fallback_reason"] == "ai_unavailable"
     assert FALLBACK_EVIDENCE_MESSAGE in body["content"]
 
 
@@ -834,7 +837,8 @@ def test_daily_report_falls_back_when_gemini_quota_is_exceeded(client: TestClien
 
     assert response.status_code == 201
     body = response.json()
-    assert body["created_by"] == "system"
+    assert body["created_by"] == "fallback"
+    assert body["fallback_reason"] == "quota_exceeded"
     assert FALLBACK_EVIDENCE_MESSAGE in body["content"]
     assert summarizer.calls == 1
 

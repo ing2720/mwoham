@@ -16,6 +16,7 @@ from app.services.transcript_quality import TranscriptQualityPolicy, get_transcr
 
 class PromptBuilder:
     KST = KST
+    REPORT_CONTEXT_MAX_CHARS = 18000
     WORK_HINT_KEYWORDS = (
         "pytest",
         "ruff",
@@ -392,7 +393,17 @@ class PromptBuilder:
         environment_summary = self._format_activity_environment_summary(activity_segments)
         if environment_summary:
             lines.append(environment_summary)
-        return "\n".join(lines)
+        return self._limit_report_context("\n".join(lines))
+
+    def _limit_report_context(self, text: str) -> str:
+        if len(text) <= self.REPORT_CONTEXT_MAX_CHARS:
+            return text
+        suffix = (
+            "\n... REPORT_CONTEXT_TRUNCATED: AI latency stability limit applied; "
+            "earlier high-priority evidence was preserved ..."
+        )
+        limit = max(self.REPORT_CONTEXT_MAX_CHARS - len(suffix), 0)
+        return text[:limit].rstrip() + suffix
 
     def _format_timeline_item(self, item) -> str:
         timestamp = self._format_kst_time(item.timestamp)

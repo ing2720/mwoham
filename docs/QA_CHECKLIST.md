@@ -641,7 +641,9 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 정상 기대 결과:
 
 - AI Provider 호출에 성공하면 `created_by="ai"`입니다.
-- API key가 없거나 invalid key/API/quota/network 실패가 발생하면 `created_by="system"` fallback 리포트가 생성됩니다.
+- API key가 없거나 invalid key/API/quota/network/timeout 실패가 발생하면 `created_by="fallback"` fallback 리포트가 생성됩니다.
+- fallback 리포트 응답에는 API key 없이 `fallback_reason`이 포함되고, 앱/웹에서 AI 생성이 아닌 fallback 생성임을 구분할 수 있습니다.
+- AI 리포트 생성 latency를 확인하고, timeout 이후 앱 전체 오류가 아니라 fallback 리포트로 전환되는지 확인합니다.
 - 같은 `date + mode + project_id`로 `/reports/daily`를 여러 번 실행해도 새 row가
   계속 늘지 않고 기존 리포트가 갱신됩니다.
 - `/reports/today`는 list schema를 유지하면서 오늘 날짜 최신 리포트 1개를 맨 위
@@ -756,8 +758,8 @@ uv run python -c "from app.ai.provider import resolve_ai_provider_config; from a
 정상 기대 결과:
 
 - provider와 model이 설정 화면 또는 개발용 `.env`와 일치합니다.
-- key가 없으면 `has_key=False`이고 `/reports/daily`는 `created_by="system"` fallback 리포트를 생성합니다.
-- invalid key, quota 초과, 네트워크 실패 시 `/reports/daily`는 실패 reason을 로그에 남기고 fallback 리포트를 생성합니다.
+- key가 없으면 `has_key=False`이고 `/reports/daily`는 `created_by="fallback"` fallback 리포트를 생성합니다.
+- invalid key, quota 초과, 네트워크/timeout 실패 시 `/reports/daily`는 실패 reason과 latency를 API key 없이 로그에 남기고 fallback 리포트를 생성합니다.
 - API key 값은 로그와 응답에 출력되지 않습니다.
 
 실패 시 의심 원인:
