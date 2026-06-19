@@ -210,3 +210,16 @@ if rg -n '"/Users/a/Library/Application Support/Mwoham/models/ggml-large-v3-turb
   echo "user-specific model path must not be a production default" >&2
   exit 1
 fi
+
+FIXED_APP_PATH_PATTERNS=(
+  '"/Applications/''MwohamMac.app'
+  '"/Users/a/Applications/''MwohamMac.app'
+  '"~/Applications/''MwohamMac.app'
+  '"MwohamMac.app/''Contents'
+)
+for pattern in "${FIXED_APP_PATH_PATTERNS[@]}"; do
+  if rg -n "$pattern" "$APP_DIR/STTRuntimeResolver.swift" "$APP_DIR/LocalWhisperSettings.swift"; then
+    echo "STT runtime must resolve resources from Bundle.main.resourceURL, not a fixed app path" >&2
+    exit 1
+  fi
+done

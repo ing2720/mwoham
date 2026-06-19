@@ -4,13 +4,13 @@ Mwoham Backend는 로컬 작업 기록 에이전트의 FastAPI 서버입니다. 
 
 macOS 앱은 backend API를 통해 기록 세션, 활성 앱/창 구간, OCR 텍스트, 수동 메모, 회의 전사, DevEvent를 저장합니다. backend는 Daily Review Dashboard, 기본/상세 타임라인, Markdown/PDF export, 개발용 스크립트를 제공합니다.
 
-개발 중 macOS 권한을 안정적으로 유지하려면 repo root에서 고정 앱 번들을 실행합니다.
+개발 중 macOS 권한을 안정적으로 유지하려면 repo root에서 앱 번들을 빌드해 실행합니다.
 
 ```bash
 ./scripts/build_macos_app.sh --open
 ```
 
-화면 기록, 마이크, 음성 인식 등 앱 권한은 `~/Applications/MwohamMac.app` 기준으로 부여합니다.
+화면 기록, 마이크, 음성 인식 등 앱 권한은 실행 중인 `MwohamMac.app` bundle 기준으로 부여합니다.
 
 ## 기술 스택
 

@@ -47,7 +47,7 @@ final class FakeLoginItemService: LoginItemServicing {
         LaunchAtLoginDiagnostics(
             rawStatus: rawDiagnosticStatus,
             bundleIdentifier: "com.ing2720.MwohamMac",
-            appPath: "/Users/a/Applications/MwohamMac.app",
+            appPath: "/tmp/MwohamMac.app",
             isStableAppPath: true
         )
     }
