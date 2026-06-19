@@ -680,7 +680,11 @@ final class LocalApiClient {
 
     private func makeRequest(path: String) -> URLRequest {
         let url = baseURL.appending(path: path)
-        var request = URLRequest(url: url)
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
         if let apiToken, !apiToken.isEmpty {
             request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")

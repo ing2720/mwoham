@@ -3,6 +3,7 @@
 //  MwohamMac
 //
 
+import Combine
 import SwiftUI
 
 struct TimelinePageView: View {
@@ -37,6 +38,20 @@ struct TimelinePageView: View {
         }
         .task {
             if !viewModel.hasLoadedItems {
+                await viewModel.refresh()
+            }
+        }
+        .onReceive(
+            Timer.publish(
+                every: TimelinePageAutoRefresh.intervalSeconds,
+                on: .main,
+                in: .common
+            ).autoconnect()
+        ) { _ in
+            guard isBackendConnected else {
+                return
+            }
+            Task {
                 await viewModel.refresh()
             }
         }
@@ -108,6 +123,10 @@ struct TimelinePageView: View {
             }
         }
     }
+}
+
+private enum TimelinePageAutoRefresh {
+    static let intervalSeconds: TimeInterval = 30
 }
 
 private struct TimelineGroupCard: View {
