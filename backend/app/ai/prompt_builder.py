@@ -16,6 +16,7 @@ from app.services.transcript_quality import TranscriptQualityPolicy, get_transcr
 
 class PromptBuilder:
     KST = KST
+    REPORT_CONTEXT_MAX_CHARS = 18000
     WORK_HINT_KEYWORDS = (
         "pytest",
         "ruff",
@@ -89,12 +90,13 @@ class PromptBuilder:
                 "기반해 구체 작업 단위로 작성하세요.",
                 "- 시간대별 작업 흐름은 앱 사용 시간이 아니라 실제로 진행한 작업 후보 중심으로 "
                 "작성하세요.",
+                "- 시간대별 작업 흐름은 timestamp순을 유지하세요.",
                 "- 상세 리포트 기준으로 오늘 한 일 요약은 2~4문장 허용, "
                 "CURRENT_WORK_FOCUS, 핵심 구현, 검증 결과를 함께 쓰세요.",
                 "- 시간대별 작업 흐름은 고정 5~6개 제한을 두지 말고 필요하면 6~10개 bullet까지 "
                 "허용하세요. 각 bullet은 구현 기능, 수정 로직, 검증 테스트, 실패 후 성공 흐름, "
                 "QA 결과 중 하나 이상을 담은 작업 단위 설명이어야 합니다.",
-                "- Git 변경, command, 파일명, 브랜치명, 테스트를 각각 나열하지 말고, 같은 "
+                "- Git 변경, command, 파일명, 브랜치명, 테스트를 나열하지 말고, 같은 "
                 "시간대의 git_snapshot, command_result, diff context를 묶어 작업 단위와 "
                 "검증 흐름으로 요약하세요.",
                 "- CURRENT_WORK_FOCUS, MEETING_MEMO_CONTEXT, PRIORITY_MEETING_TRANSCRIPTS, "
@@ -145,6 +147,8 @@ class PromptBuilder:
                 "- 실패한 terminal command는 성공한 명령보다 우선적으로 트러블슈팅 후보로 "
                 "검토하세요. 같은 계열 명령이 실패 후 성공했다면 하나의 해결 흐름으로 "
                 "요약하세요.",
+                "- git switch/checkout/status/diff/log 실패는 반복/build/test/API 실패 근거 "
+                "없으면 트러블슈팅으로 올리지 마세요.",
                 "- PRIORITY_COMMAND_FLOWS가 있으면 failed->success 흐름, 개발 검증 명령, "
                 "확인용 명령을 개별 command 나열보다 우선해서 하나의 검증/보완 흐름으로 "
                 "해석하세요.",
@@ -176,9 +180,7 @@ class PromptBuilder:
                 "- 버전명은 DevEvent, git tag, branch, memo, command context 등 입력에 명확한 "
                 "근거가 있을 때만 사용하세요. 특정 버전 번호를 추측해서 쓰지 마세요.",
                 "- 다음 작업 후보에는 이미 오늘 완료된 기능을 다시 구현 과제로 제안하지 마세요.",
-                "- 다음 작업 후보는 명시된 로드맵, 실패한 QA, TODO 메모, 미완료 항목 기준으로만 "
-                "작성하세요. 현재 로드맵은 13차 Launch at Login, 14차 메뉴바/플로팅 위젯 "
-                "리팩토링, 15차 Release 패키징입니다.",
+                "- 다음 작업 후보는 완료 기능 반복 없이 Release packaging을 우선하세요.",
                 "- 입력에 구현/검증 완료로 보이는 항목이 있으면 다음 작업 후보에서 반복 제안하지 "
                 "마세요. 예: persistent state, TTL dedupe, debounce, repo path 설정, "
                 "stdout/stderr 상태 표시, report input 20분 압축, CURRENT_GIT_DIFF_CONTEXT, "
@@ -216,6 +218,8 @@ class PromptBuilder:
                 "- secret/token/password로 보이는 값은 언급하지 마세요.",
                 "- diff 일부가 생략되어 있으면 DEV_EVENT 요약과 함께 보수적으로 추론하세요.",
                 "- 근거가 부족한 섹션은 '확인된 내용 없음.'으로 작성하세요.",
+                "- 검증 evidence가 있으면 통과/실패를 쓰고, 없으면 추측하지 마세요.",
+                "- 영향 없는 범위는 미변경 정책(DB/API/recording/STT 등)만 쓰세요.",
                 "- 섹션 순서를 지키세요.",
                 "",
                 "리포트 구조:",
@@ -250,9 +254,8 @@ class PromptBuilder:
                 "- 다음 작업은 이미 완료된 항목을 반복하지 말고 1~3개만 제안하세요.",
                 "- 테스트/검증 결과는 pytest, run_dev_checks.py, git diff --check, ruff, "
                 "alembic, xcodebuild 같은 검증 근거가 있을 때만 쓰세요.",
-                "- 다음 작업은 로드맵/TODO/실패 QA/미완료 항목 기준으로만 쓰세요. 현재 로드맵은 "
-                "13차 Launch at Login, 14차 메뉴바/플로팅 위젯 리팩토링, "
-                "15차 Release 패키징입니다.",
+                "- 다음 작업은 로드맵/TODO/실패 QA/미완료 기준으로만 쓰고, 완료 기능은 반복 "
+                "제안하지 마세요. 후속 단계는 Release packaging을 우선하세요.",
                 "- 회의 전사는 결정사항, 논의사항, 후속작업 후보로 짧게 반영하되, 잡담이나 "
                 "휴식 대화를 작업 완료/결정사항으로 과장하지 마세요.",
                 "- source=local_whisper_full_meeting의 timestamp와 microphone/system_audio "
@@ -390,7 +393,17 @@ class PromptBuilder:
         environment_summary = self._format_activity_environment_summary(activity_segments)
         if environment_summary:
             lines.append(environment_summary)
-        return "\n".join(lines)
+        return self._limit_report_context("\n".join(lines))
+
+    def _limit_report_context(self, text: str) -> str:
+        if len(text) <= self.REPORT_CONTEXT_MAX_CHARS:
+            return text
+        suffix = (
+            "\n... REPORT_CONTEXT_TRUNCATED: AI latency stability limit applied; "
+            "earlier high-priority evidence was preserved ..."
+        )
+        limit = max(self.REPORT_CONTEXT_MAX_CHARS - len(suffix), 0)
+        return text[:limit].rstrip() + suffix
 
     def _format_timeline_item(self, item) -> str:
         timestamp = self._format_kst_time(item.timestamp)
@@ -574,7 +587,7 @@ class PromptBuilder:
                 and not self._is_background_event(item, current_focus_lines or [])
             )
         ]
-        manual_events.sort(key=self._dev_event_priority_key)
+        manual_events.sort(key=lambda item: item.timestamp)
         return grouped_lines + [
             self._format_dev_event_for_report_input(item) for item in manual_events
         ]
@@ -958,6 +971,8 @@ class PromptBuilder:
         paired_success_ids: set[int] = set()
         for item in sorted_commands:
             if item.status != "failed":
+                continue
+            if self._is_inspection_command(item.command or item.content):
                 continue
             next_success = self._find_next_success_command(item, sorted_commands)
             if next_success is None:

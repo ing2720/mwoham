@@ -18,7 +18,7 @@ from app.services.report_service import ReportService, get_report_service
 from app.services.timeline_builder import get_timeline_builder
 
 FALLBACK_EVIDENCE_MESSAGE = (
-    "Gemini 응답을 사용할 수 없어 정제된 작업 evidence와 검증 결과 중심으로 정리했습니다."
+    "AI Provider 응답을 사용할 수 없어 정제된 작업 evidence와 검증 결과 중심으로 정리했습니다."
 )
 
 
@@ -76,7 +76,8 @@ def test_daily_report_api_uses_timeline_placeholder_content(client: TestClient) 
     assert create_response.status_code == 201
     created = create_response.json()
     assert created["date"] == "2026-05-26"
-    assert created["created_by"] == "system"
+    assert created["created_by"] == "fallback"
+    assert created["fallback_reason"] == "api_key_missing"
     assert FALLBACK_EVIDENCE_MESSAGE in created["content"]
     assert "리포트 서비스 뼈대 구현" in created["content"]
     assert "Gemini는 아직 호출하지 않음" in created["content"]
@@ -166,6 +167,34 @@ def test_daily_report_api_generates_detailed_mode_report(client: TestClient) -> 
     assert "## 오늘 한 일 요약\n상세 리포트 생성" in body["content"]
     assert "## 시간대별 작업 흐름\n확인된 내용 없음." in body["content"]
     assert "## 다음 작업 후보\n확인된 내용 없음." in body["content"]
+    assert summarizer.modes == ["detailed"]
+
+
+def test_web_daily_report_create_uses_report_service_ai_policy(
+    client: TestClient,
+) -> None:
+    original_override = app.dependency_overrides.get(get_report_service)
+    summarizer = StubSummarizer("## 오늘 한 일 요약\nweb AI 리포트 생성")
+    service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=summarizer,
+    )
+    app.dependency_overrides[get_report_service] = lambda: service
+    try:
+        response = client.post(
+            "/reports/daily/create?mode=detailed",
+            follow_redirects=False,
+        )
+    finally:
+        if original_override is None:
+            app.dependency_overrides.pop(get_report_service, None)
+        else:
+            app.dependency_overrides[get_report_service] = original_override
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/reports/")
+    assert summarizer.calls == 1
     assert summarizer.modes == ["detailed"]
 
 
@@ -276,7 +305,8 @@ def test_simple_fallback_does_not_use_screen_observation_raw_text_as_completed_w
     assert response.status_code == 201
     body = response.json()
     assert body["mode"] == "simple"
-    assert body["created_by"] == "system"
+    assert body["created_by"] == "fallback"
+    assert body["fallback_reason"] == "api_key_missing"
     assert "## 완료한 작업\n- 확인된 핵심 작업 없음" in body["content"]
     assert "## 다음 작업\n- 확인된 내용 없음." in body["content"]
     assert "feat: 장소 목록 추 83 open" not in body["content"]
@@ -573,7 +603,8 @@ def test_fallback_report_hides_git_inspection_and_keeps_validation_separate() ->
         assert "prompt_builder.py" not in content
     assert "macOS 타임라인 표시 정책 harness 통과" in detailed
     assert "macOS 타임라인 표시 정책 harness 통과" in simple
-    assert "13차 Launch at Login" in detailed
+    assert "Release packaging" in detailed
+    assert "13차 Launch at Login" not in detailed
     assert len([line for line in simple.splitlines() if line.startswith("- ")]) <= 10
 
 
@@ -782,7 +813,8 @@ def test_daily_report_falls_back_when_mocked_gemini_returns_none(client: TestCli
 
     assert response.status_code == 201
     body = response.json()
-    assert body["created_by"] == "system"
+    assert body["created_by"] == "fallback"
+    assert body["fallback_reason"] == "ai_unavailable"
     assert FALLBACK_EVIDENCE_MESSAGE in body["content"]
 
 
@@ -805,7 +837,8 @@ def test_daily_report_falls_back_when_gemini_quota_is_exceeded(client: TestClien
 
     assert response.status_code == 201
     body = response.json()
-    assert body["created_by"] == "system"
+    assert body["created_by"] == "fallback"
+    assert body["fallback_reason"] == "quota_exceeded"
     assert FALLBACK_EVIDENCE_MESSAGE in body["content"]
     assert summarizer.calls == 1
 

@@ -4,7 +4,7 @@ from datetime import date as DateType
 from datetime import datetime as DateTimeType
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.schemas.common import ApiSchema
 
@@ -32,8 +32,15 @@ class ReportResponse(ApiSchema):
     source_range_start: DateTimeType | None = None
     source_range_end: DateTimeType | None = None
     created_by: str
+    fallback_reason: str | None = None
     created_at: DateTimeType
     updated_at: DateTimeType
+
+    @model_validator(mode="after")
+    def fill_generic_fallback_reason(self) -> ReportResponse:
+        if self.created_by == "fallback" and self.fallback_reason is None:
+            self.fallback_reason = "fallback_generated"
+        return self
 
 
 class ReportListResponse(ApiSchema):

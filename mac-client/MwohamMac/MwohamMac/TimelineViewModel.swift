@@ -314,36 +314,8 @@ final class TimelineViewModel: ObservableObject {
     }
 
     private static func parseDate(_ value: String) -> Date? {
-        if let date = isoFormatterWithFractionalSeconds.date(from: value) {
-            return date
-        }
-        if let date = isoFormatter.date(from: value) {
-            return date
-        }
-        return looseDateFormatter.date(from: value)
+        TimelineDateParser.parse(value)
     }
-
-    private static let isoFormatterWithFractionalSeconds: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [
-            .withInternetDateTime,
-            .withFractionalSeconds,
-        ]
-        return formatter
-    }()
-
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
-    private static let looseDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        return formatter
-    }()
 
     private static let detailDateFormatter: DateFormatter = {
         let formatter = DateFormatter()

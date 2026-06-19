@@ -9,11 +9,14 @@ struct AIProviderSettingsSectionView: View {
     @ObservedObject var store: AIProviderSettingsStore
     let keyStore: AIProviderKeyStore
     var modelService = AIProviderModelService()
+    var canRestartBackend = false
+    var restartBackend: (() async -> Void)?
 
     @State private var apiKeyInput = ""
     @State private var keyState = AIProviderKeyState(hasKey: false, maskedSummary: nil)
     @State private var connectionStatus: AIProviderOperationStatus = .idle
     @State private var modelFetchStatus: AIProviderOperationStatus = .idle
+    @State private var hasPendingBackendRestart = false
 
     var body: some View {
         StatusCard("AI 리포트 설정", systemImage: "sparkles") {
@@ -82,6 +85,35 @@ struct AIProviderSettingsSectionView: View {
 
                 statusRows
 
+                HStack {
+                    Text(
+                        AIProviderBackendApplyPolicy.message(
+                            hasPendingBackendRestart: hasPendingBackendRestart,
+                            canRestartBackend: canRestartBackend
+                        )
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(
+                        hasPendingBackendRestart ? .orange : .secondary
+                    )
+
+                    Spacer()
+
+                    PrimaryActionButton(
+                        title: "backend 재시작 적용",
+                        systemImage: "arrow.trianglehead.2.clockwise",
+                        isDisabled: AIProviderBackendApplyPolicy
+                            .isRestartDisabled(
+                                hasPendingBackendRestart: hasPendingBackendRestart,
+                                canRestartBackend: canRestartBackend,
+                                isBusy: isBusy
+                            )
+                    ) {
+                        await restartBackend?()
+                        hasPendingBackendRestart = false
+                    }
+                }
+
                 Text(
                     "API Key는 macOS Keychain에 저장됩니다. 모델 목록은 연결 테스트 후 자동으로 불러옵니다. "
                         + "키가 없으면 로컬 fallback 리포트로 생성됩니다. 앱 번들에는 API Key가 포함되지 않습니다."
@@ -89,10 +121,6 @@ struct AIProviderSettingsSectionView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
-
-                Text("Provider와 모델 변경은 다음 backend 시작 또는 재시작부터 적용됩니다.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
             .onAppear {
                 refreshKeyState()
@@ -150,14 +178,20 @@ struct AIProviderSettingsSectionView: View {
     private var selectedProviderBinding: Binding<AIProvider> {
         Binding(
             get: { store.selectedProvider },
-            set: { store.selectedProvider = $0 }
+            set: {
+                store.selectedProvider = $0
+                hasPendingBackendRestart = true
+            }
         )
     }
 
     private var selectedModelBinding: Binding<String> {
         Binding(
             get: { store.selectedModel },
-            set: { store.selectedModel = $0 }
+            set: {
+                store.selectedModel = $0
+                hasPendingBackendRestart = true
+            }
         )
     }
 
@@ -182,6 +216,7 @@ struct AIProviderSettingsSectionView: View {
             store.setModels(models, for: store.selectedProvider)
             connectionStatus = .success("연결 성공")
             modelFetchStatus = .success("\(models.count)개 모델 확인")
+            hasPendingBackendRestart = true
         } catch {
             connectionStatus = .failure(error.localizedDescription)
         }
@@ -193,6 +228,7 @@ struct AIProviderSettingsSectionView: View {
             let models = try await fetchModelsFromInputOrKeychain()
             store.setModels(models, for: store.selectedProvider)
             modelFetchStatus = .success("\(models.count)개 모델 확인")
+            hasPendingBackendRestart = true
         } catch {
             modelFetchStatus = .failure(error.localizedDescription)
         }
@@ -215,6 +251,7 @@ struct AIProviderSettingsSectionView: View {
             }
             refreshKeyState()
             connectionStatus = .success("저장됨")
+            hasPendingBackendRestart = true
         } catch {
             connectionStatus = .failure(error.localizedDescription)
         }
@@ -226,6 +263,7 @@ struct AIProviderSettingsSectionView: View {
             apiKeyInput = ""
             refreshKeyState()
             connectionStatus = .success("삭제됨")
+            hasPendingBackendRestart = true
         } catch {
             connectionStatus = .failure(error.localizedDescription)
         }

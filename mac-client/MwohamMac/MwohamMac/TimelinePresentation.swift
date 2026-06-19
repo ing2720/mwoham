@@ -165,6 +165,59 @@ struct TimelineDisplayGroup: Identifiable, Equatable {
     }
 }
 
+enum TimelineDateParser {
+    static func parse(_ value: String) -> Date? {
+        if let date = isoFormatterWithFractionalSeconds.date(from: value) {
+            return date
+        }
+        if let date = isoFormatter.date(from: value) {
+            return date
+        }
+        if let date = utcFormatterWithMicroseconds.date(from: value) {
+            return date
+        }
+        if let date = utcFormatterWithMilliseconds.date(from: value) {
+            return date
+        }
+        return utcFormatter.date(from: value)
+    }
+
+    private static let isoFormatterWithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        return formatter
+    }()
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let utcFormatterWithMicroseconds: DateFormatter = {
+        makeUTCFormatter(format: "yyyy-MM-dd'T'HH:mm:ss.SSSSSS")
+    }()
+
+    private static let utcFormatterWithMilliseconds: DateFormatter = {
+        makeUTCFormatter(format: "yyyy-MM-dd'T'HH:mm:ss.SSS")
+    }()
+
+    private static let utcFormatter: DateFormatter = {
+        makeUTCFormatter(format: "yyyy-MM-dd'T'HH:mm:ss")
+    }()
+
+    private static func makeUTCFormatter(format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = format
+        return formatter
+    }
+}
+
 enum TimelinePresentationBuilder {
     static func groups(
         for items: [TimelineDisplayItem],
@@ -187,8 +240,7 @@ enum TimelinePresentationBuilder {
             guard let periodItems = grouped[period], !periodItems.isEmpty else {
                 return nil
             }
-            let visible = periodItems.filter { !$0.isFoldedNoise }
-            let folded = periodItems.filter(\.isFoldedNoise)
+            let splitItems = splitVisibleAndFoldedItems(periodItems)
             let importantCount = periodItems.filter(\.isImportant).count
             let isReportCandidate =
                 importantCount > 0
@@ -201,8 +253,8 @@ enum TimelinePresentationBuilder {
                 id: period.rawValue,
                 title: period.title,
                 systemImage: period.systemImage,
-                items: visible,
-                foldedItems: folded,
+                items: splitItems.visible,
+                foldedItems: splitItems.folded,
                 totalCount: periodItems.count,
                 importantCount: importantCount,
                 isReportCandidate: isReportCandidate
@@ -264,6 +316,20 @@ enum TimelinePresentationBuilder {
             previousDate = item.timestamp
             return copy
         }
+    }
+
+    private static func splitVisibleAndFoldedItems(
+        _ periodItems: [TimelineDisplayItem]
+    ) -> (visible: [TimelineDisplayItem], folded: [TimelineDisplayItem]) {
+        let visible = periodItems.filter { !$0.isFoldedNoise }
+        let folded = periodItems.filter(\.isFoldedNoise)
+        guard visible.isEmpty, !folded.isEmpty else {
+            return (visible, folded)
+        }
+
+        let previewItems = Array(folded.prefix(3))
+        let remainingFoldedItems = Array(folded.dropFirst(previewItems.count))
+        return (previewItems, remainingFoldedItems)
     }
 
     private static func isShortActivity(_ item: TimelineDisplayItem) -> Bool {

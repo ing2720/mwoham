@@ -30,6 +30,43 @@ enum AIProviderSettingsHarness {
         expect(AIProvider.openai.displayName == "OpenAI", "OpenAI display name")
         expect(AIProvider.gemini.defaultModel == "gemini-2.5-flash", "Gemini default model")
         expect(AIProvider.openai.defaultModel.contains("mini"), "OpenAI default favors mini")
+        expect(
+            AIProviderBackendApplyPolicy.message(
+                hasPendingBackendRestart: false,
+                canRestartBackend: false
+            ).contains("재시작"),
+            "default backend apply message mentions restart"
+        )
+        expect(
+            AIProviderBackendApplyPolicy.message(
+                hasPendingBackendRestart: true,
+                canRestartBackend: true
+            ).contains("web report"),
+            "owned backend pending message mentions web report"
+        )
+        expect(
+            AIProviderBackendApplyPolicy.message(
+                hasPendingBackendRestart: true,
+                canRestartBackend: false
+            ).contains("외부 backend 재시작"),
+            "external backend pending message mentions external restart"
+        )
+        expect(
+            AIProviderBackendApplyPolicy.isRestartDisabled(
+                hasPendingBackendRestart: true,
+                canRestartBackend: true,
+                isBusy: false
+            ) == false,
+            "restart is enabled when pending and owned backend can restart"
+        )
+        expect(
+            AIProviderBackendApplyPolicy.isRestartDisabled(
+                hasPendingBackendRestart: true,
+                canRestartBackend: false,
+                isBusy: false
+            ),
+            "restart is disabled for external backend"
+        )
 
         let geminiModels = AIProviderModelPolicy.filterReportCapableModels(
             provider: .gemini,
