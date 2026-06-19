@@ -422,9 +422,13 @@ else
   echo "3/5 Skipping codesign identity verification for explicit unsigned mode."
 fi
 
-echo "4/5 Registering the installed app with LaunchServices..."
-"/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister" \
-  -f "${APP_PATH}"
+if [[ "${MWOHAM_SKIP_LSREGISTER:-0}" == "1" ]]; then
+  echo "4/5 Skipping LaunchServices registration."
+else
+  echo "4/5 Registering the installed app with LaunchServices..."
+  "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister" \
+    -f "${APP_PATH}"
+fi
 
 echo "5/5 Installation complete."
 echo "Installed app: ${APP_PATH}"

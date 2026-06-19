@@ -4,9 +4,9 @@ MwohamMac은 로컬 backend와 연결되는 macOS SwiftUI 앱입니다. 일반 �
 
 backend 기본 주소는 `http://127.0.0.1:8765`입니다. backend가 실행 중이지 않으면 앱은 연결 실패 안내와 대시보드 열기/새로고침 동작을 제공합니다.
 
-현재 macOS client는 Release packaging 직전 QA 대상입니다. Apple Development
-signed 앱은 내부 개발/권한 QA용이고, Developer ID notarization과 DMG/ZIP
-배포 산출물은 다음 packaging 단계에서 다룹니다.
+현재 macOS client는 1차 Release DMG packaging QA 대상입니다. Apple Development
+signed 또는 ad-hoc 앱은 내부 개발/권한 QA용이고, Developer ID notarization과 공개
+배포용 `spctl` 기준 확정은 다음 Release 단계에서 다룹니다.
 
 ## 주요 역할
 
@@ -217,7 +217,9 @@ Application Support fallback, 개발환경 fallback 순서입니다. Release DMG
 `MwohamMac.app/Contents/Resources/STT/whisper-cli`와
 `Contents/Resources/STT/models/ggml-large-v3-turbo.bin`을 포함하는 것을 기본
 정책으로 하며, 일반 사용자는 별도 모델 설치나 외부 STT API key 없이 사용할 수
-있습니다. 앱 설정의 Local Whisper 상태 카드에서 runtime/model source, 경로,
+있습니다. Homebrew `whisper-cli`는 dylib 의존성이 있으므로 1차 DMG packaging은
+필요한 `libwhisper`, `ggml`, `libomp` dylib를 앱 번들에 함께 넣고 bundle-local
+install name으로 수정합니다. 앱 설정의 Local Whisper 상태 카드에서 runtime/model source, 경로,
 마이크 권한, 사용 가능 여부를 확인합니다.
 
 `whisper-cli` 또는 `large-v3-turbo` 모델이 없거나 실행 권한이 없으면 회의 전체

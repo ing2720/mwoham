@@ -48,8 +48,8 @@ enum AIProviderSettingsHarness {
             AIProviderBackendApplyPolicy.message(
                 hasPendingBackendRestart: true,
                 canRestartBackend: false
-            ).contains("외부 backend 재시작"),
-            "external backend pending message mentions external restart"
+            ).contains("앱이 시작한 프로세스가 아니어서"),
+            "external backend pending message explains disabled app restart"
         )
         expect(
             AIProviderBackendApplyPolicy.isRestartDisabled(
