@@ -4,7 +4,9 @@ from datetime import UTC, date, datetime
 from sqlalchemy.orm import Session
 
 from app.ai.gemini_client import GeminiClient
+from app.ai.openai_client import OpenAIClient
 from app.ai.prompt_builder import get_prompt_builder
+from app.ai.provider import AIProvider, resolve_ai_provider_config
 from app.ai.report_content_cleaner import ReportContentCleaner, get_report_content_cleaner
 from app.ai.summarizer import GeminiSummarizer
 from app.core.config import settings
@@ -132,15 +134,24 @@ class ReportService:
 
 
 def get_report_service() -> ReportService:
+    provider_config = resolve_ai_provider_config(settings)
+    if provider_config.provider == AIProvider.OPENAI:
+        client = OpenAIClient(
+            api_key=provider_config.api_key,
+            model=provider_config.model,
+            max_output_tokens=settings.gemini_max_output_tokens,
+        )
+    else:
+        client = GeminiClient(
+            api_key=provider_config.api_key,
+            model=provider_config.model,
+            max_output_tokens=settings.gemini_max_output_tokens,
+        )
     return ReportService(
         repository=ReportRepository(),
         timeline_builder=get_timeline_builder(),
         summarizer=GeminiSummarizer(
-            client=GeminiClient(
-                api_key=settings.gemini_api_key,
-                model=settings.gemini_model,
-                max_output_tokens=settings.gemini_max_output_tokens,
-            ),
+            client=client,
             prompt_builder=get_prompt_builder(),
         ),
         content_cleaner=get_report_content_cleaner(),

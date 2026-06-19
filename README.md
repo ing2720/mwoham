@@ -1,6 +1,6 @@
 # Mwoham
 
-Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 작업 흐름을 수집하고, 로컬 FastAPI backend가 SQLite에 저장한 뒤 Gemini를 이용해 일일 리포트를 생성합니다.
+Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 작업 흐름을 수집하고, 로컬 FastAPI backend가 SQLite에 저장한 뒤 선택한 AI Provider 또는 로컬 fallback으로 일일 리포트를 생성합니다.
 
 현재 구현은 macOS SwiftUI 클라이언트와 FastAPI 로컬 서버 기반입니다. 일반 창, 메뉴바, 플로팅 위젯, Daily Review Dashboard, 기본/상세 타임라인, Markdown/PDF 리포트 export를 제공합니다.
 
@@ -25,7 +25,10 @@ notarization, DMG/ZIP 같은 배포 패키징을 다룹니다.
   - 개발 검증 명령 결과
   - 자동 Dev Tracking watcher
   - zsh hook 기반 터미널 명령 metadata
-- Gemini 기반 일일 리포트 생성
+- AI Provider 기반 일일 리포트 생성
+  - Gemini
+  - OpenAI
+  - API Key 미설정/실패 시 로컬 fallback
 - Daily Review Dashboard
   - 오늘 Daily Report 카드
   - validation command 중심 검증 결과
@@ -48,7 +51,7 @@ notarization, DMG/ZIP 같은 배포 패키징을 다룹니다.
 
 ```text
 backend/
-  FastAPI, SQLite, TimelineBuilder, Gemini report, web dashboard
+  FastAPI, SQLite, TimelineBuilder, AI report, web dashboard
 mac-client/MwohamMac/
   macOS SwiftUI app, menu bar, floating widget, OCR, meeting transcription, Dev Tracking process
 docs/
@@ -146,9 +149,11 @@ macOS 접근성, 화면 기록, 마이크 권한은 앱이 자동 허용할 수 
 주요 설정:
 
 - `DATABASE_URL`: 기본값 `sqlite:///./data/mwoham.sqlite3`
-- `GEMINI_API_KEY`: Gemini API 키. 비어 있으면 system fallback 리포트를 생성할 수 있습니다.
-- `GEMINI_MODEL`: 기본값 `gemini-2.5-flash-lite`
-- `GEMINI_MAX_OUTPUT_TOKENS`: Gemini 리포트 최대 출력 토큰
+- `AI_PROVIDER`: 개발용 provider override. `gemini` 또는 `openai`
+- `AI_MODEL`: 개발용 provider 공통 model override
+- `GEMINI_API_KEY`, `GEMINI_MODEL`: 개발용 Gemini 호환 설정
+- `OPENAI_API_KEY`, `OPENAI_MODEL`: 개발용 OpenAI 설정
+- `GEMINI_MAX_OUTPUT_TOKENS`: AI 리포트 최대 출력 토큰
 - `ENABLE_SCREEN_OBSERVATION_AI_INFERENCE`: 개별 화면 관찰 AI 해석 호출 여부. 기본값은 `false`
 - `SCREEN_AI_MIN_INTERVAL_SECONDS`: 화면 관찰 AI 해석 최소 간격
 - `SCREEN_AI_DAILY_LIMIT`: 화면 관찰 AI 해석 일일 제한
@@ -271,6 +276,24 @@ compact/regular/spacious layout을 선택하고, 매우 작은 크기에서는 �
 Launch at Login은 macOS 로그인 시 `MwohamMac` 앱을 자동 실행하는 기능입니다.
 앱이 실행되어도 recording session은 자동 시작되지 않으며, 사용자가 직접
 `기록 시작`을 눌러야 합니다.
+
+## AI Provider Settings
+
+AI 리포트 품질을 높이려면 macOS 앱 설정 화면에서 AI Provider를 선택하고 API
+Key를 입력할 수 있습니다. 입력된 키는 macOS Keychain의
+`com.ing2720.MwohamMac.ai-provider` service에 provider별로 저장되며 앱 번들,
+UserDefaults, repo, 문서에는 포함되지 않습니다.
+
+- 지원 provider: Gemini, OpenAI
+- Provider와 선택 모델: UserDefaults 저장
+- API Key: macOS Keychain 저장
+- 모델: 연결 테스트 또는 모델 불러오기 후 API에서 자동 조회한 목록에서 선택
+- 키 없음, invalid key, 네트워크/API/quota 실패: 로컬 fallback 리포트 생성
+- `.env`: 개발용 override로만 유지
+
+Provider/model 변경은 다음 backend 시작 또는 앱이 시작한 backend 재시작부터
+적용됩니다. 외부에서 이미 실행 중인 backend는 해당 프로세스의 환경 변수를
+사용합니다.
 
 ## Command Tracking
 

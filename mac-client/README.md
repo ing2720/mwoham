@@ -19,6 +19,7 @@ signed 앱은 내부 개발/권한 QA용이고, Developer ID notarization과 DMG
 - 자동 Dev Tracking watcher process 실행과 상태 표시
 - 메뉴바와 플로팅 위젯 상태 표시
 - 플로팅 위젯 설정 저장/로드/reset
+- AI Provider 설정과 API Key Keychain 저장
 - Launch at Login 설정
 
 ## macOS 권한 안내
@@ -99,6 +100,27 @@ Dev Tracking, 회의모드 상태를 표시합니다. 위젯 창 크기에 따�
 설정은 `UserDefaults`의 `floatingWidgetSettings`에 저장됩니다. 위젯 크기/위치
 저장, custom color picker, recording 자동 시작 정책 변경은 현재 범위에
 포함하지 않습니다.
+
+## AI 리포트 설정
+
+설정 화면의 `AI 리포트 설정`에서 provider를 선택하고 API Key를 입력할 수
+있습니다.
+
+- Provider: Gemini, OpenAI
+- API Key 저장 위치: macOS Keychain
+- Provider/model 저장 위치: UserDefaults
+- 모델 선택: 연결 테스트 또는 모델 불러오기 후 dropdown에서 선택
+- key 삭제: 현재 선택한 provider의 Keychain 항목만 삭제
+- key 없음 또는 API 실패: backend가 로컬 fallback 리포트를 생성
+
+API Key 전체 값은 저장 후 다시 표시하지 않고 `••••1234` 형태의 요약만
+표시합니다. 모델명은 직접 입력하지 않고 provider API에서 조회된 compatible
+model 목록에서 선택합니다.
+
+앱이 backend를 새로 시작할 때 선택한 provider/model/key를 process environment에
+주입합니다. 이미 외부에서 실행 중인 backend에는 자동으로 주입되지 않으므로,
+설정 변경 후 앱이 시작한 backend를 재시작하거나 외부 backend를 다시 실행해야
+합니다.
 
 ## Launch at Login
 
@@ -227,3 +249,4 @@ DB schema, migration, API endpoint는 변경하지 않았고, 기존 source vali
 - Dev Tracking은 Git diff 본문이나 파일 내용을 저장하지 않음
 - debug audio WAV는 사용자가 명시적으로 QA/debug 보관을 켠 경우에만
   `~/Library/Application Support/Mwoham/debug_audio/`에 복사
+- AI Provider API Key는 UserDefaults에 저장하지 않고 Keychain에만 저장

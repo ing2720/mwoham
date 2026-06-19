@@ -366,7 +366,11 @@ final class BackendLifecycleManager: ObservableObject {
         let existingPath = environment["PATH"] ?? ""
         environment["PATH"] =
             (requiredPaths + [existingPath]).joined(separator: ":")
-        return environment
+        return AIProviderBackendEnvironment.applyingAIProviderSettings(
+            to: environment,
+            settings: AIProviderSettingsStore().settings,
+            keyStore: AIProviderKeychainStore()
+        )
     }
 
     private static func isPortInUse(port: UInt16) -> Bool {

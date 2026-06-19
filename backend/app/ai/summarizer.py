@@ -1,10 +1,9 @@
-from app.ai.gemini_client import GeminiClient
 from app.ai.prompt_builder import PromptBuilder
 from app.schemas.timeline import TimelineResponse
 
 
 class GeminiSummarizer:
-    def __init__(self, client: GeminiClient, prompt_builder: PromptBuilder) -> None:
+    def __init__(self, client, prompt_builder: PromptBuilder) -> None:
         self.client = client
         self.prompt_builder = prompt_builder
         self.last_finish_reason: str | None = None
