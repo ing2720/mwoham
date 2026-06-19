@@ -236,7 +236,7 @@ enum TimelinePresentationBuilder {
             period(for: item.timestamp, calendar: calendar)
         }
 
-        return TimelinePeriod.allCases.compactMap { period in
+        return TimelinePeriod.displayDescending.compactMap { period in
             guard let periodItems = grouped[period], !periodItems.isEmpty else {
                 return nil
             }
@@ -253,8 +253,8 @@ enum TimelinePresentationBuilder {
                 id: period.rawValue,
                 title: period.title,
                 systemImage: period.systemImage,
-                items: splitItems.visible,
-                foldedItems: splitItems.folded,
+                items: Array(splitItems.visible.reversed()),
+                foldedItems: Array(splitItems.folded.reversed()),
                 totalCount: periodItems.count,
                 importantCount: importantCount,
                 isReportCandidate: isReportCandidate
@@ -378,6 +378,13 @@ private enum TimelinePeriod: String, CaseIterable {
     case afternoon
     case evening
     case night
+
+    static let displayDescending: [TimelinePeriod] = [
+        .night,
+        .evening,
+        .afternoon,
+        .morning,
+    ]
 
     var title: String {
         switch self {
