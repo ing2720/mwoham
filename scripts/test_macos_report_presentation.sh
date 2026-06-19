@@ -22,7 +22,6 @@ let reports = [
         id: 1,
         date: "2026-06-15",
         mode: "simple",
-        createdBy: "system",
         title: "어제 간단 리포트",
         content: "어제 작업 요약",
         createdAt: "2026-06-15T09:00:00Z",
@@ -32,7 +31,6 @@ let reports = [
         id: 2,
         date: "2026-06-16",
         mode: "detailed",
-        createdBy: "ai",
         title: "오늘 상세 리포트",
         content: "오늘 작업 요약\n두 번째 줄",
         createdAt: "2026-06-16T10:00:00Z",
@@ -42,7 +40,6 @@ let reports = [
         id: 3,
         date: "2026-06-16",
         mode: "simple",
-        createdBy: "fallback",
         title: nil,
         content: String(repeating: "가", count: 160),
         createdAt: "2026-06-16T11:00:00Z",
@@ -59,7 +56,6 @@ expect(groups[0].reports[0].id == 3, "latest updated report is first")
 expect(groups[0].reports[0].isLatest, "latest report is marked")
 expect(groups[0].reports[0].title == "제목 없음", "missing title fallback")
 expect(groups[0].reports[0].preview.hasSuffix("..."), "long preview is truncated")
-expect(groups[0].reports[0].creator == .fallback, "fallback creator is preserved")
 expect(groups[0].reports[1].mode == .detailed, "detailed badge policy is preserved")
 expect(groups[1].reports[0].mode == .simple, "simple badge policy is preserved")
 
@@ -75,7 +71,6 @@ expect(
 expect(ReportMode(apiValue: "detailed").label == "상세 리포트", "detailed mode label")
 expect(ReportMode(apiValue: "simple").label == "간단 리포트", "simple mode label")
 expect(ReportCreator(apiValue: "ai").label == "AI 생성", "ai creator label")
-expect(ReportCreator(apiValue: "fallback").label == "Fallback 생성", "fallback creator label")
 expect(ReportCreator(apiValue: "user").label == "사용자 수정", "user creator label")
 
 print("macOS report presentation tests passed")

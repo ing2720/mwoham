@@ -1,6 +1,5 @@
 import logging
 from datetime import UTC, date, datetime
-from time import perf_counter
 
 from sqlalchemy.orm import Session
 
@@ -43,28 +42,24 @@ class ReportService:
     def create_daily_report(self, db: Session, request: DailyReportCreate) -> ReportResponse:
         target_date = parse_date_or_today_kst(request.date)
         timeline = self.timeline_builder.build_detail_for_kst_date(db, target_date=target_date)
-        started_at = perf_counter()
         generated_content = self.summarizer.summarize_daily_report(timeline, mode=request.mode)
-        ai_latency_ms = getattr(self.summarizer, "last_latency_ms", None)
         cleaned_content = (
             self.content_cleaner.clean(generated_content, mode=request.mode)
             if generated_content
             else None
         )
-        fallback_reason = self._fallback_reason(cleaned_content)
         if cleaned_content is None:
             logger.warning(
-                "Daily report is falling back: date=%s reason=%s finish_reason=%s "
-                "was_truncated=%s ai_latency_ms=%s",
+                "Daily report is falling back to placeholder: date=%s reason=%s "
+                "finish_reason=%s was_truncated=%s",
                 target_date.isoformat(),
-                fallback_reason,
+                getattr(self.summarizer, "last_error_reason", None),
                 getattr(self.summarizer, "last_finish_reason", None),
                 getattr(self.summarizer, "last_was_truncated", False),
-                ai_latency_ms,
             )
         source_range_start, source_range_end = self._source_range_for_kst_date(target_date)
         content = cleaned_content or self.fallback_builder.build(timeline, mode=request.mode)
-        created_by = "ai" if cleaned_content else "fallback"
+        created_by = "ai" if cleaned_content else "system"
         title = self._daily_report_title(target_date, mode=request.mode)
         existing_report = self.repository.get_latest_by_identity(
             db,
@@ -79,19 +74,7 @@ class ReportService:
             existing_report.source_range_end = source_range_end
             existing_report.created_by = created_by
             existing_report.updated_at = datetime.now(UTC)
-            saved = self.repository.update(db, existing_report)
-            response = self._report_response(saved, fallback_reason=fallback_reason)
-            logger.info(
-                "Daily report generated: date=%s mode=%s created_by=%s total_latency_ms=%s "
-                "ai_latency_ms=%s fallback_reason=%s updated_existing=true",
-                target_date.isoformat(),
-                request.mode,
-                response.created_by,
-                int((perf_counter() - started_at) * 1000),
-                ai_latency_ms,
-                response.fallback_reason,
-            )
-            return response
+            return ReportResponse.model_validate(self.repository.update(db, existing_report))
 
         report = Report(
             project_id=request.project_id,
@@ -103,19 +86,7 @@ class ReportService:
             source_range_end=source_range_end,
             created_by=created_by,
         )
-        saved = self.repository.create(db, report)
-        response = self._report_response(saved, fallback_reason=fallback_reason)
-        logger.info(
-            "Daily report generated: date=%s mode=%s created_by=%s total_latency_ms=%s "
-            "ai_latency_ms=%s fallback_reason=%s updated_existing=false",
-            target_date.isoformat(),
-            request.mode,
-            response.created_by,
-            int((perf_counter() - started_at) * 1000),
-            ai_latency_ms,
-            response.fallback_reason,
-        )
-        return response
+        return ReportResponse.model_validate(self.repository.create(db, report))
 
     def list_reports(
         self,
@@ -161,29 +132,6 @@ class ReportService:
             return f"{target_date.isoformat()} 간단 작업 리포트"
         return f"{target_date.isoformat()} 일일 작업 리포트"
 
-    def _fallback_reason(self, cleaned_content: str | None) -> str | None:
-        if cleaned_content:
-            return None
-        reason = getattr(self.summarizer, "last_error_reason", None)
-        if reason:
-            return reason
-        if getattr(self.summarizer, "last_was_truncated", False):
-            return "truncated_response"
-        if getattr(self.summarizer, "last_finish_reason", None):
-            return "invalid_response"
-        return "ai_unavailable"
-
-    def _report_response(
-        self,
-        report: Report,
-        *,
-        fallback_reason: str | None = None,
-    ) -> ReportResponse:
-        response = ReportResponse.model_validate(report)
-        if response.created_by == "fallback" and fallback_reason:
-            return response.model_copy(update={"fallback_reason": fallback_reason})
-        return response
-
 
 def get_report_service() -> ReportService:
     provider_config = resolve_ai_provider_config(settings)
@@ -192,14 +140,12 @@ def get_report_service() -> ReportService:
             api_key=provider_config.api_key,
             model=provider_config.model,
             max_output_tokens=settings.gemini_max_output_tokens,
-            timeout_seconds=settings.ai_report_timeout_seconds,
         )
     else:
         client = GeminiClient(
             api_key=provider_config.api_key,
             model=provider_config.model,
             max_output_tokens=settings.gemini_max_output_tokens,
-            timeout_seconds=settings.ai_report_timeout_seconds,
         )
     return ReportService(
         repository=ReportRepository(),

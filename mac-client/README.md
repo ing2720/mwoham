@@ -112,17 +112,10 @@ Dev Tracking, 회의모드 상태를 표시합니다. 위젯 창 크기에 따�
 - 모델 선택: 연결 테스트 또는 모델 불러오기 후 dropdown에서 선택
 - key 삭제: 현재 선택한 provider의 Keychain 항목만 삭제
 - key 없음 또는 API 실패: backend가 로컬 fallback 리포트를 생성
-- AI 성공 리포트는 `AI 생성`, provider 미설정/API 실패/timeout fallback은
-  `Fallback 생성`으로 표시
 
 API Key 전체 값은 저장 후 다시 표시하지 않고 `••••1234` 형태의 요약만
 표시합니다. 모델명은 직접 입력하지 않고 provider API에서 조회된 compatible
 model 목록에서 선택합니다.
-
-Provider/model/API Key 변경은 backend 프로세스가 다음에 시작되거나 재시작될 때
-환경변수로 주입됩니다. 앱이 시작한 backend는 설정 화면의 `backend 재시작 적용`
-버튼으로 갱신할 수 있고, 외부에서 실행한 backend는 사용자가 직접 재시작해야 web
-report AI 생성에도 새 설정이 반영됩니다.
 
 앱이 backend를 새로 시작할 때 선택한 provider/model/key를 process environment에
 주입합니다. 이미 외부에서 실행 중인 backend에는 자동으로 주입되지 않으므로,

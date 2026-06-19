@@ -154,7 +154,6 @@ macOS 접근성, 화면 기록, 마이크 권한은 앱이 자동 허용할 수 
 - `GEMINI_API_KEY`, `GEMINI_MODEL`: 개발용 Gemini 호환 설정
 - `OPENAI_API_KEY`, `OPENAI_MODEL`: 개발용 OpenAI 설정
 - `GEMINI_MAX_OUTPUT_TOKENS`: AI 리포트 최대 출력 토큰
-- `AI_REPORT_TIMEOUT_SECONDS`: AI 리포트 provider 호출 timeout. 기본값은 25초
 - `ENABLE_SCREEN_OBSERVATION_AI_INFERENCE`: 개별 화면 관찰 AI 해석 호출 여부. 기본값은 `false`
 - `SCREEN_AI_MIN_INTERVAL_SECONDS`: 화면 관찰 AI 해석 최소 간격
 - `SCREEN_AI_DAILY_LIMIT`: 화면 관찰 AI 해석 일일 제한
@@ -290,14 +289,11 @@ UserDefaults, repo, 문서에는 포함되지 않습니다.
 - API Key: macOS Keychain 저장
 - 모델: 연결 테스트 또는 모델 불러오기 후 API에서 자동 조회한 목록에서 선택
 - 키 없음, invalid key, 네트워크/API/quota 실패: 로컬 fallback 리포트 생성
-- AI 리포트 성공 시 `created_by=ai`, provider 미설정/실패/timeout 시
-  `created_by=fallback`으로 표시
 - `.env`: 개발용 override로만 유지
 
-Provider/model/API Key 변경은 다음 backend 시작 또는 재시작부터 적용됩니다.
-앱이 시작한 backend는 설정 화면의 `backend 재시작 적용` 버튼으로 새 환경변수를
-주입할 수 있습니다. 외부에서 이미 실행 중인 backend는 해당 프로세스의 환경 변수를
-사용하므로 직접 재시작해야 web report AI 생성에도 반영됩니다.
+Provider/model 변경은 다음 backend 시작 또는 앱이 시작한 backend 재시작부터
+적용됩니다. 외부에서 이미 실행 중인 backend는 해당 프로세스의 환경 변수를
+사용합니다.
 
 ## Command Tracking
 

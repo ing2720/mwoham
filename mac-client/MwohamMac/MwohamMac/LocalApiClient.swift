@@ -358,7 +358,6 @@ struct ReportResponse: Decodable, Identifiable, Equatable {
     let sourceRangeStart: String?
     let sourceRangeEnd: String?
     let createdBy: String
-    let fallbackReason: String?
     let createdAt: String
     let updatedAt: String
 
@@ -372,7 +371,6 @@ struct ReportResponse: Decodable, Identifiable, Equatable {
         case sourceRangeStart = "source_range_start"
         case sourceRangeEnd = "source_range_end"
         case createdBy = "created_by"
-        case fallbackReason = "fallback_reason"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -477,14 +475,10 @@ final class LocalApiClient {
 
     @discardableResult
     func createDailyReport(mode: String) async throws -> ReportResponse {
-        var request = makeRequest(path: "/reports/daily")
-        request.httpMethod = "POST"
-        request.timeoutInterval = 40
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(DailyReportCreateRequest(mode: mode))
-
-        return try await send(request)
+        try await post(
+            "/reports/daily",
+            body: DailyReportCreateRequest(mode: mode)
+        )
     }
 
     @discardableResult
@@ -686,11 +680,7 @@ final class LocalApiClient {
 
     private func makeRequest(path: String) -> URLRequest {
         let url = baseURL.appending(path: path)
-        var request = URLRequest(
-            url: url,
-            cachePolicy: .reloadIgnoringLocalCacheData
-        )
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        var request = URLRequest(url: url)
 
         if let apiToken, !apiToken.isEmpty {
             request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
