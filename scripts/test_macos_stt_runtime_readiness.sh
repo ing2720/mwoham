@@ -124,6 +124,24 @@ expect(readiness.status == .ready, "Application Support fallback should be ready
 expect(readiness.whisperCLI.source == .applicationSupport, "Application Support CLI source")
 expect(readiness.model.source == .applicationSupport, "Application Support model source")
 
+var candidates = STTRuntimeResolver(
+    resourceURL: bundledRoot,
+    applicationSupportURL: appSupportRoot,
+    configuredWhisperCLIPath: nil,
+    configuredModelPath: nil,
+    devWhisperCLIPath: nil,
+    devModelPath: nil,
+    allowsDevFallback: false
+).discoveredCandidates()
+expect(
+    candidates.whisperCLI.map(\.source) == [.bundled, .applicationSupport],
+    "CLI candidates should preserve resolver priority"
+)
+expect(
+    candidates.model.map(\.source) == [.bundled, .applicationSupport],
+    "model candidates should preserve resolver priority"
+)
+
 writeFile(devCLI, executable: true)
 writeFile(devModel)
 let devDisabled = STTRuntimeResolver(
@@ -149,6 +167,18 @@ let devEnabled = STTRuntimeResolver(
 expect(devEnabled.status == .ready, "dev fallback should be available in dev mode")
 expect(devEnabled.whisperCLI.source == .devFallback, "dev CLI source is explicit")
 expect(devEnabled.model.source == .devFallback, "dev model source is explicit")
+
+candidates = STTRuntimeResolver(
+    resourceURL: root.appendingPathComponent("dev-candidates-bundle"),
+    applicationSupportURL: root.appendingPathComponent("dev-candidates-support"),
+    configuredWhisperCLIPath: nil,
+    configuredModelPath: nil,
+    devWhisperCLIPath: devCLI.path,
+    devModelPath: devModel.path,
+    allowsDevFallback: true
+).discoveredCandidates()
+expect(candidates.whisperCLI.map(\.source) == [.devFallback], "dev CLI candidate")
+expect(candidates.model.map(\.source) == [.devFallback], "dev model candidate")
 
 let env = STTRuntimeResolver(
     resourceURL: bundledRoot,

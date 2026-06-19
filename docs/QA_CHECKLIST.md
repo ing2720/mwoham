@@ -1411,25 +1411,38 @@ uv run pytest tests/test_report_api.py::test_web_daily_report_create_uses_report
 확인:
 
 1. 설정 화면에 Local Whisper/STT Runtime 상태 카드가 표시되는지 확인합니다.
-2. `MwohamMac.app/Contents/Resources/STT/whisper-cli`가 있으면 source가 `번들됨`
-   또는 그에 준하는 상태로 표시되는지 확인합니다.
-3. `MwohamMac.app/Contents/Resources/STT/models/ggml-large-v3-turbo.bin`이 있으면
-   모델 설치됨/사용 가능 상태로 표시되는지 확인합니다.
-4. 일반 사용자 안내에 별도 STT API key나 모델 설치가 필요 없다는 문구가 보이는지
+2. Settings Local Whisper 카드가 `사용 상태`, `STT 실행 파일`, `STT 모델`,
+   `STT 실행 파일`, `STT 모델 파일`, `QA/debug용 소스별 WAV 보관` 중심으로
+   간결하게 표시되는지 확인합니다.
+3. `STT 실행 파일` dropdown에 자동 발견된 `whisper-cli` 후보가 표시되는지
    확인합니다.
-5. 모델 누락 상태에서 회의 전체 전사 시작이 차단되고
+4. `STT 모델` dropdown에 자동 발견된 `ggml-large-v3-turbo.bin` 후보가 표시되는지
+   확인합니다.
+5. dropdown에서 후보를 선택하면 경로가 저장되고 상태가 즉시 재계산되는지
+   확인합니다.
+6. 후보가 없거나 직접 지정이 필요하면 `직접 선택`으로 파일을 고를 수 있는지
+   확인합니다.
+7. 긴 경로는 한 줄 ellipsis로 표시되고 hover/help 또는 text selection으로 전체
+   경로 확인이 가능한지 확인합니다.
+8. `MwohamMac.app/Contents/Resources/STT/whisper-cli`가 있으면 source가 `번들됨`
+   또는 그에 준하는 상태로 표시되는지 확인합니다.
+9. `MwohamMac.app/Contents/Resources/STT/models/ggml-large-v3-turbo.bin`이 있으면
+   모델 설치됨/사용 가능 상태로 표시되는지 확인합니다.
+10. 일반 사용자 안내에 별도 STT API key나 모델 설치가 필요 없다는 문구가 보이는지
+   확인합니다.
+11. 모델 누락 상태에서 회의 전체 전사 시작이 차단되고
    `STT 모델 파일을 찾을 수 없어 회의 전사를 시작할 수 없습니다.` 계열 안내가
    표시되는지 확인합니다.
-6. `whisper-cli` 누락 상태에서 회의 전체 전사 시작이 차단되는지 확인합니다.
-7. `whisper-cli` 실행 권한이 없으면 실행 권한 없음 상태가 표시되는지 확인합니다.
-8. 마이크 권한 없음 상태는 기존 권한 안내와 연결되는지 확인합니다.
-9. bundled resource가 없고 Application Support fallback이 있으면 fallback 상태로
+12. `whisper-cli` 누락 상태에서 회의 전체 전사 시작이 차단되는지 확인합니다.
+13. `whisper-cli` 실행 권한이 없으면 실행 권한 없음 상태가 표시되는지 확인합니다.
+14. 마이크 권한 없음 상태는 기존 권한 안내와 연결되는지 확인합니다.
+15. bundled resource가 없고 Application Support fallback이 있으면 fallback 상태로
    사용 가능 표시가 되는지 확인합니다.
-10. 앱이 시작한 backend environment에 `STT_WHISPER_CLI_PATH`와 `STT_MODEL_PATH`가
+16. 앱이 시작한 backend environment에 `STT_WHISPER_CLI_PATH`와 `STT_MODEL_PATH`가
     주입되는지 확인합니다.
-11. release `.app` resource check script가 누락된 runtime/model을 실패로 보고하는지
+17. release `.app` resource check script가 누락된 runtime/model을 실패로 보고하는지
     확인합니다.
-12. 모델 파일과 `whisper-cli` 바이너리가 git 변경 목록에 포함되지 않는지 확인합니다.
+18. 모델 파일과 `whisper-cli` 바이너리가 git 변경 목록에 포함되지 않는지 확인합니다.
 
 검증 명령:
 

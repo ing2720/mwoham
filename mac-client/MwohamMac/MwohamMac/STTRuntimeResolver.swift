@@ -133,6 +133,30 @@ struct STTRuntimeResolvedResource: Equatable {
     }
 }
 
+struct STTRuntimeResourceCandidate: Identifiable, Equatable {
+    let source: STTRuntimeResourceSource
+    let url: URL
+    let exists: Bool
+    let isExecutable: Bool
+
+    var id: String {
+        url.standardizedFileURL.path
+    }
+
+    var path: String {
+        url.path
+    }
+
+    var displayName: String {
+        "\(source.label) - \(url.path)"
+    }
+}
+
+struct STTRuntimeCandidates: Equatable {
+    let whisperCLI: [STTRuntimeResourceCandidate]
+    let model: [STTRuntimeResourceCandidate]
+}
+
 struct STTRuntimeReadiness: Equatable {
     let status: STTRuntimeStatus
     let whisperCLI: STTRuntimeResolvedResource
@@ -217,6 +241,13 @@ struct STTRuntimeResolver {
         return values
     }
 
+    func discoveredCandidates() -> STTRuntimeCandidates {
+        STTRuntimeCandidates(
+            whisperCLI: discoveredCandidates(from: whisperCLICandidates()),
+            model: discoveredCandidates(from: modelCandidates())
+        )
+    }
+
     private func resolveWhisperCLI() -> STTRuntimeResolvedResource {
         resolveFirstExisting(candidates: whisperCLICandidates())
     }
@@ -260,6 +291,24 @@ struct STTRuntimeResolver {
             )
         }
         return inspect(source: .missing, url: first.1)
+    }
+
+    private func discoveredCandidates(
+        from candidates: [(STTRuntimeResourceSource, URL)]
+    ) -> [STTRuntimeResourceCandidate] {
+        candidates.compactMap { candidate in
+            let resource = inspect(source: candidate.0, url: candidate.1)
+            guard resource.exists,
+                  let url = resource.url else {
+                return nil
+            }
+            return STTRuntimeResourceCandidate(
+                source: candidate.0,
+                url: url,
+                exists: resource.exists,
+                isExecutable: resource.isExecutable
+            )
+        }
     }
 
     private func inspect(
