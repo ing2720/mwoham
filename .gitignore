@@ -6,6 +6,7 @@ docs/*
 !docs/DEV_TRACKING.md
 !docs/COMMAND_TRACKING.md
 !docs/STT_WHISPER_POC.md
+!docs/RELEASE_CHECKLIST.md
 
 # Build and tester distribution artifacts
 dist/

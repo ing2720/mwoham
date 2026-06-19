@@ -4,9 +4,9 @@
 시나리오 기준으로 검증하기 위한 체크리스트입니다. 기능 구현 문서가 아니라,
 로컬 환경에서 무엇을 확인해야 하는지와 실패 시 의심 원인을 정리합니다.
 
-Release packaging 자체는 아직 이 문서의 실행 범위가 아닙니다. 현재 Apple
-Development signed build는 내부 개발/QA용이고, Developer ID notarization,
-DMG/ZIP packaging, 배포용 `spctl` 기준 확정은 다음 packaging 단계에서 다룹니다.
+1차 Release packaging은 이 문서의 실행 범위에 포함됩니다. 현재 Apple
+Development signed 또는 ad-hoc DMG는 내부 개발/QA용이고, Developer ID
+notarization과 공개 배포용 `spctl` 기준 확정은 다음 Release 단계에서 다룹니다.
 
 ## 최종 QA 흐름
 
@@ -21,7 +21,7 @@ DMG/ZIP packaging, 배포용 `spctl` 기준 확정은 다음 packaging 단계에
 9. Menu Bar: 상태 표시와 빠른 액션
 10. Launch at Login: 앱 자동 실행 등록/해제, recording 자동 시작 없음
 11. Permissions: 접근성, 화면 기록, 마이크, 음성 인식
-12. Packaging pre-check: signed Release 내부 QA, notarization/DMG는 다음 단계로 보류
+12. Packaging: Release build, bundled STT runtime, DMG 생성/검증, 수동 설치 QA
 
 ## 사전 준비
 
@@ -257,6 +257,56 @@ spctl --assess --type execute --verbose=4 "$APP" || true
 6. unsigned 앱은 경고를 출력하고 실행되지만 권한/TCC QA에는 사용하지 않습니다.
 7. `--destination`을 지정하지 않은 기본 실행에서 `/Applications`가 아니라
    `~/Applications/MwohamMac.app`을 사용하는지 확인합니다.
+
+## 12. Release DMG packaging
+
+사전 확인:
+
+```bash
+git status --short
+git diff --stat
+security find-identity -v -p codesigning
+otool -L /opt/homebrew/bin/whisper-cli
+ls -lh /opt/homebrew/bin/whisper-cli
+ls -lh "$HOME/Library/Application Support/Mwoham/models/ggml-large-v3-turbo.bin"
+```
+
+Homebrew `whisper-cli`가 `/opt/homebrew/opt` 또는 `/opt/homebrew/Cellar` dylib를
+참조하면 단독 실행 파일이 아닙니다. 1차 DMG는 `whisper-cli`와 필요한 dylib를
+`MwohamMac.app/Contents/Resources/STT/lib`에 함께 넣고 install name을 bundle-local
+경로로 수정하는 방식을 사용합니다.
+
+DMG 생성:
+
+```bash
+./scripts/package_macos_dmg.sh --version 0.1.0 --internal-qa
+```
+
+signed Apple Development 인증서가 있고 `MWOHAM_CODE_SIGN_IDENTITY` 또는 기존 앱
+signature에서 identity를 확인할 수 있으면 `--internal-qa` 없이 실행할 수 있습니다.
+인증서가 없으면 `--internal-qa`는 ad-hoc re-sign을 사용하므로 TCC/Gatekeeper 최종
+QA 기준이 아닙니다.
+
+자동 검증:
+
+```bash
+./scripts/check_release_stt_resources.sh "$HOME/Applications/MwohamMac.app"
+codesign --verify --deep --strict --verbose=2 "$HOME/Applications/MwohamMac.app"
+hdiutil verify dist/Mwoham-0.1.0.dmg
+```
+
+수동 설치 QA:
+
+1. `dist/Mwoham-0.1.0.dmg`를 mount합니다.
+2. `MwohamMac.app`을 `Applications` 바로가기로 드래그합니다.
+3. `/Applications/MwohamMac.app`을 실행합니다.
+4. `/health`가 정상 응답하는지 확인합니다.
+5. Settings의 Local Whisper 상태에서 bundled runtime/model 경로가 표시되는지 확인합니다.
+6. `whisper-cli` 실행 권한과 `ggml-large-v3-turbo.bin` 모델 파일 존재를 확인합니다.
+7. 회의 전사를 시작하고 transcript 저장을 확인합니다.
+8. AI Provider key가 없을 때 fallback report가 생성되는지 확인합니다.
+9. AI Provider key가 있을 때 AI report와 fallback badge/reason 표시를 확인합니다.
+10. Timeline, Report, menu bar, floating widget, Launch at Login 설정이 기존 정책대로 동작하는지 확인합니다.
 
 `spctl`은 Developer ID/notarization 배포 검사가 포함되므로 Apple Development
 내부 빌드에서는 거부될 수 있습니다. 현재 필수 검증은 strict codesign과

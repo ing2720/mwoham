@@ -4,9 +4,9 @@ Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 �
 
 현재 구현은 macOS SwiftUI 클라이언트와 FastAPI 로컬 서버 기반입니다. 일반 창, 메뉴바, 플로팅 위젯, Daily Review Dashboard, 기본/상세 타임라인, Markdown/PDF 리포트 export를 제공합니다.
 
-현재 단계는 Release packaging 직전 정리 단계입니다. 앱 기능, backend API, DB schema,
-recording/STT/Dev Tracking 정책은 고정하고, 다음 작업에서 Developer ID 서명,
-notarization, DMG/ZIP 같은 배포 패키징을 다룹니다.
+현재 단계는 1차 Release DMG packaging 단계입니다. 앱 기능, backend API, DB
+schema, recording/STT/Dev Tracking 정책은 고정하고, 배포 산출물 생성만 다룹니다.
+Developer ID 서명과 notarization은 별도 공개 배포 단계에서 처리합니다.
 
 ## 현재 기능
 
@@ -158,6 +158,31 @@ Mwoham의 회의 전사는 로컬 Whisper runtime을 사용합니다. Release DM
 
 runtime 또는 `large-v3-turbo` 모델이 없거나 `whisper-cli` 실행 권한이 없으면
 회의 전체 전사를 시작하지 않고 앱 설정과 전사 화면에서 안내를 표시합니다.
+
+## 1차 DMG packaging
+
+내부 QA용 DMG는 다음 명령으로 생성합니다.
+
+```bash
+./scripts/package_macos_dmg.sh --version 0.1.0 --internal-qa
+```
+
+생성물:
+
+- `dist/Mwoham-0.1.0.dmg`
+- DMG 내부 `MwohamMac.app`
+- DMG 내부 `Applications` 바로가기
+- DMG 내부 `README_INSTALL.md`
+
+`package_macos_dmg.sh`는 Release app build, STT resource 복사, bundled dylib
+install name 정리, STT resource check, app re-sign, DMG 생성과 verify를 수행합니다.
+로컬 Homebrew `whisper-cli`는 `/opt/homebrew` dylib 의존성이 있으므로 static binary가
+아니며, 1차 packaging은 `whisper-cli`와 필요한 dylib를 app bundle 안에 함께 넣는
+방식을 사용합니다.
+
+Apple Development/ad-hoc internal QA DMG는 일반 외부 배포용 notarized app이 아닙니다.
+공개 배포 전에는 Developer ID Application signing, notarization, `spctl` 기준 QA를
+별도로 완료해야 합니다.
 
 ## 환경 설정
 

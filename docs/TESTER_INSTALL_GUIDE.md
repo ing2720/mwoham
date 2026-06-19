@@ -1,8 +1,12 @@
 # 지인 테스트용 설치/실행 가이드
 
-이 문서는 내부/지인 테스트용 MwohamMac 앱 실행 가이드입니다. 정식 배포용 signing, notarization, DMG 배포는 아직 포함하지 않습니다.
+이 문서는 내부/지인 테스트용 MwohamMac 앱 실행 가이드입니다. 1차 Release
+산출물은 DMG이며, 정식 공개 배포용 Developer ID signing과 notarization은 아직
+포함하지 않습니다.
 
-현재 테스트 버전은 `MwohamMac.app` 안에 backend를 번들링하지 않습니다. 앱은 Xcode 없이 실행할 수 있지만, backend 실행을 위해 Python과 uv가 필요합니다.
+현재 테스트 버전은 `MwohamMac.app` 안에 backend를 번들링하지 않습니다. 앱은
+Xcode 없이 실행할 수 있지만, backend 실행을 위해 Python과 uv가 필요합니다.
+Local Whisper STT 실행 파일과 `large-v3-turbo` 모델은 DMG의 앱 번들에 포함됩니다.
 
 ## 구성
 
@@ -11,6 +15,21 @@
 - backend 기본 주소: `http://127.0.0.1:8765`
 
 ## 앱 준비 방식
+
+### DMG로 설치하는 테스터
+
+개발자가 전달한 `Mwoham-0.1.0.dmg`를 엽니다.
+
+1. DMG 안의 `MwohamMac.app`을 `Applications` 바로가기로 드래그합니다.
+2. `/Applications/MwohamMac.app`을 실행합니다.
+3. macOS가 확인되지 않은 앱 경고를 표시하면, 내부 QA 빌드임을 확인한 뒤 시스템
+   설정에서 실행을 허용합니다.
+4. 첫 실행 후 접근성, 마이크, 음성 인식, 화면 기록 권한을 허용합니다.
+5. 권한을 허용한 뒤 앱을 완전히 종료하고 다시 실행합니다.
+
+이 DMG는 Apple Development 또는 ad-hoc internal QA build일 수 있습니다. 일반
+외부 배포용 Developer ID notarized app이 아니므로 Gatekeeper 경고가 표시될 수
+있습니다.
 
 ### Xcode가 없는 테스터
 
@@ -125,6 +144,11 @@ Release DMG에는 Whisper 실행 파일과 `large-v3-turbo` 모델을 포함하�
 필요 없습니다. 설정 화면의 Local Whisper 상태가 `모델 없음` 또는 `실행 파일 없음`
 으로 표시되면 배포 파일이 손상됐거나 모델 포함 버전이 아니므로 포함된 배포판으로
 다시 설치합니다.
+
+1차 DMG packaging은 Homebrew `whisper-cli`가 참조하는 `libwhisper`, `ggml`,
+`libomp` dylib를 앱 번들 안에 함께 넣고 install name을 bundle-local 경로로
+수정합니다. static `whisper-cli` 또는 Developer ID notarized runtime은 공개 배포
+전 별도 Release 작업입니다.
 
 ## Dev Tracking
 

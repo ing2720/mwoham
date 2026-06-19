@@ -23,6 +23,7 @@ APP_PATH="$1"
 STT_DIR="$APP_PATH/Contents/Resources/STT"
 CLI_PATH="$STT_DIR/whisper-cli"
 MODEL_PATH="$STT_DIR/models/ggml-large-v3-turbo.bin"
+LIB_DIR="$STT_DIR/lib"
 MIN_MODEL_BYTES=$((100 * 1024 * 1024))
 
 if [[ ! -d "$APP_PATH" || "$APP_PATH" != *.app ]]; then
@@ -51,6 +52,29 @@ if [[ "$MODEL_BYTES" -lt "$MIN_MODEL_BYTES" ]]; then
   exit 1
 fi
 
+REQUIRED_DYLIBS=(
+  "libwhisper.1.dylib"
+  "libggml.0.dylib"
+  "libggml-base.0.dylib"
+  "libomp.dylib"
+)
+
+for dylib in "${REQUIRED_DYLIBS[@]}"; do
+  if [[ ! -f "$LIB_DIR/$dylib" ]]; then
+    echo "Whisper runtime dylib이 누락되었습니다: $LIB_DIR/$dylib" >&2
+    exit 1
+  fi
+done
+
+if otool -L "$CLI_PATH" "$LIB_DIR"/*.dylib | grep -F "/opt/homebrew/" >/dev/null; then
+  echo "번들된 whisper-cli 또는 dylib에 /opt/homebrew 의존성이 남아 있습니다." >&2
+  otool -L "$CLI_PATH" "$LIB_DIR"/*.dylib >&2
+  exit 1
+fi
+
 echo "STT release resources look ready:"
 echo "- $CLI_PATH"
 echo "- $MODEL_PATH ($MODEL_BYTES bytes)"
+for dylib in "${REQUIRED_DYLIBS[@]}"; do
+  echo "- $LIB_DIR/$dylib"
+done
