@@ -117,7 +117,14 @@ OCR, 활성 창 추적, 회의 전사 검증을 위해 권한 허용이 필요�
 - 시스템 오디오: 음성 인식, 화면 기록
 - 회의 전체: 음성 인식, 마이크, 화면 기록
 
-회의 전체는 마이크와 시스템 오디오 입력을 하나의 Apple Speech recognitionTask로 처리합니다.
+회의 전체는 마이크와 시스템 오디오 입력을 하나의 Apple Speech recognitionTask로
+처리하고, 종료 시 로컬 Whisper runtime으로 일괄 전사를 시도합니다.
+
+Release DMG에는 Whisper 실행 파일과 `large-v3-turbo` 모델을 포함하는 것을 기본
+정책으로 합니다. 일반 사용자는 별도 STT API key, Homebrew 설치, 모델 다운로드가
+필요 없습니다. 설정 화면의 Local Whisper 상태가 `모델 없음` 또는 `실행 파일 없음`
+으로 표시되면 배포 파일이 손상됐거나 모델 포함 버전이 아니므로 포함된 배포판으로
+다시 설치합니다.
 
 ## Dev Tracking
 
@@ -246,6 +253,17 @@ Dev Tracking 오류:
 - repo path가 실제 디렉터리인지 확인합니다.
 - `git -C <repoPath> rev-parse --show-toplevel`이 성공하는지 확인합니다.
 - uv가 설치되어 있고 앱 실행 환경 PATH에서 찾을 수 있는지 확인합니다.
+
+STT Runtime 없음:
+
+- 설정 화면의 Local Whisper 상태 카드를 확인합니다.
+- 일반 사용자는 모델을 직접 설치하지 않고 `large-v3-turbo` 모델이 포함된 배포판을
+  다시 설치합니다.
+- 개발 환경에서는 `/opt/homebrew/bin/whisper-cli`와
+  `~/Library/Application Support/Mwoham/models/ggml-large-v3-turbo.bin` fallback을
+  사용할 수 있습니다.
+- `whisper-cli`가 있지만 실행 권한 없음으로 표시되면 배포 bundle의 실행 권한을
+  확인합니다.
 
 앱 실행이 macOS에서 차단됨:
 

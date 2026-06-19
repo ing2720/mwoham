@@ -536,8 +536,9 @@ open "http://127.0.0.1:8765/timeline/detail?filter=memo"
    - 마이크
    - 시스템 오디오
    - 회의 전체
-2. 회의 전체 Local Whisper를 확인하려면 `whisper-cli`와 GGML model의 저장소 밖
-   절대 경로를 입력합니다.
+2. 회의 전체 Local Whisper를 확인하려면 설정 화면의 Local Whisper 상태 카드에서
+   bundled runtime/model 또는 Application Support fallback이 사용 가능으로
+   표시되는지 확인합니다.
 3. Mac 앱에서 `회의 전사 시작`을 누릅니다.
 4. 권한 요청이 표시되면 필요한 권한을 허용합니다.
 5. 마이크 source에서는 한국어로 짧은 문장과 의미 있는 문장을 말합니다.
@@ -562,7 +563,10 @@ curl "http://127.0.0.1:8765/status"
   - `apple_speech_full_meeting`
   - `local_whisper_full_meeting`
 - Whisper 성공 시 `local_whisper_full_meeting`만 최종 저장됩니다.
-- Whisper binary/model 미설정 또는 실행 실패 시 `apple_speech_full_meeting`으로 fallback합니다.
+- Whisper binary/model 누락 또는 실행 권한 오류는 시작 전에 차단되고 한국어 안내가
+  표시됩니다.
+- Whisper 실행 중 실패 시 앱 전체가 중단되지 않고 기존 fallback/오류 안내 정책을
+  따릅니다.
 - 원본 오디오는 영구 저장되지 않고, 임시 WAV는 처리 후 삭제됩니다.
 - backend로 audio data가 전송되지 않고 transcript text만 저장됩니다.
 - 회의 전사 종료 후 앱 상태가 `회의 전사 종료됨` 또는 `전사 저장 후 종료됨` 계열로 표시됩니다.
@@ -573,7 +577,7 @@ curl "http://127.0.0.1:8765/status"
 - 권한을 허용한 뒤 앱을 재실행하지 않았습니다.
 - 너무 짧은 전사 조각이 저장 품질 정책에 의해 제외되었습니다.
 - backend가 실행 중이 아니거나 Local API Token 설정이 앱과 맞지 않습니다.
-- Whisper binary에 실행 권한이 없거나 model 경로가 잘못되었습니다.
+- Whisper binary가 누락됐거나 실행 권한이 없거나 model 경로가 잘못되었습니다.
 - `/private/tmp/mwoham-meeting-whisper-*`가 남아 있다면 앱이 처리 중 강제 종료됐는지 확인합니다.
 
 ## 11. 자동 Dev Tracking 확인
@@ -1402,7 +1406,52 @@ cd backend
 uv run pytest tests/test_report_api.py::test_web_daily_report_create_uses_report_service_ai_policy -q
 ```
 
-## 22. Packaging pre-check
+## 22. STT bundled runtime readiness QA
+
+확인:
+
+1. 설정 화면에 Local Whisper/STT Runtime 상태 카드가 표시되는지 확인합니다.
+2. Settings Local Whisper 카드가 `사용 상태`, `STT 실행 파일`, `STT 모델`,
+   `STT 실행 파일`, `STT 모델 파일`, `QA/debug용 소스별 WAV 보관` 중심으로
+   간결하게 표시되는지 확인합니다.
+3. `STT 실행 파일` dropdown에 자동 발견된 `whisper-cli` 후보가 표시되는지
+   확인합니다.
+4. `STT 모델` dropdown에 자동 발견된 `ggml-large-v3-turbo.bin` 후보가 표시되는지
+   확인합니다.
+5. dropdown에서 후보를 선택하면 경로가 저장되고 상태가 즉시 재계산되는지
+   확인합니다.
+6. 후보가 없거나 직접 지정이 필요하면 `직접 선택`으로 파일을 고를 수 있는지
+   확인합니다.
+7. 긴 경로는 한 줄 ellipsis로 표시되고 hover/help 또는 text selection으로 전체
+   경로 확인이 가능한지 확인합니다.
+8. `MwohamMac.app/Contents/Resources/STT/whisper-cli`가 있으면 source가 `번들됨`
+   또는 그에 준하는 상태로 표시되는지 확인합니다.
+9. `MwohamMac.app/Contents/Resources/STT/models/ggml-large-v3-turbo.bin`이 있으면
+   모델 설치됨/사용 가능 상태로 표시되는지 확인합니다.
+10. 일반 사용자 안내에 별도 STT API key나 모델 설치가 필요 없다는 문구가 보이는지
+   확인합니다.
+11. 모델 누락 상태에서 회의 전체 전사 시작이 차단되고
+   `STT 모델 파일을 찾을 수 없어 회의 전사를 시작할 수 없습니다.` 계열 안내가
+   표시되는지 확인합니다.
+12. `whisper-cli` 누락 상태에서 회의 전체 전사 시작이 차단되는지 확인합니다.
+13. `whisper-cli` 실행 권한이 없으면 실행 권한 없음 상태가 표시되는지 확인합니다.
+14. 마이크 권한 없음 상태는 기존 권한 안내와 연결되는지 확인합니다.
+15. bundled resource가 없고 Application Support fallback이 있으면 fallback 상태로
+   사용 가능 표시가 되는지 확인합니다.
+16. 앱이 시작한 backend environment에 `STT_WHISPER_CLI_PATH`와 `STT_MODEL_PATH`가
+    주입되는지 확인합니다.
+17. release `.app` resource check script가 누락된 runtime/model을 실패로 보고하는지
+    확인합니다.
+18. 모델 파일과 `whisper-cli` 바이너리가 git 변경 목록에 포함되지 않는지 확인합니다.
+
+검증 명령:
+
+```bash
+./scripts/test_macos_stt_runtime_readiness.sh
+./scripts/check_release_stt_resources.sh /path/to/MwohamMac.app
+```
+
+## 23. Packaging pre-check
 
 확인:
 
@@ -1430,6 +1479,7 @@ uv run pytest tests/test_report_api.py::test_web_daily_report_create_uses_report
 cd /Users/a/Projects/mwoham
 
 ./scripts/test_macos_floating_widget_settings.sh
+./scripts/test_macos_stt_runtime_readiness.sh
 ./scripts/test_macos_ai_provider_settings.sh
 ./scripts/test_macos_floating_widget_responsive.sh
 ./scripts/test_macos_menu_bar_floating_presentation.sh

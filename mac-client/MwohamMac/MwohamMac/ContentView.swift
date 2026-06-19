@@ -675,6 +675,17 @@ private struct SettingsView: View {
 
             StatusCard("Local Whisper", systemImage: "cpu") {
                 VStack(alignment: .leading, spacing: 10) {
+                    Text("Mwoham은 로컬 Whisper STT를 사용합니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Text(
+                        "일반 사용자는 별도 모델 설치가 필요 없습니다. "
+                            + "배포판에는 large-v3-turbo 모델이 포함될 예정입니다."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
                     LabeledContent("사용 상태") {
                         StatusBadge(
                             state: meetingViewModel
@@ -683,45 +694,49 @@ private struct SettingsView: View {
                         )
                     }
 
-                    LabeledContent("Whisper 실행 파일") {
-                        TextField(
-                            "whisper-cli 절대 경로",
-                            text: $meetingViewModel.whisperBinaryPath
+                    LabeledContent("STT 실행 파일") {
+                        STTResourcePickerRow(
+                            path: meetingViewModel.whisperSettingsInspection
+                                .binaryPath,
+                            placeholder: "whisper-cli를 선택해 주세요.",
+                            candidates: sttRuntimeCandidates.whisperCLI,
+                            panelTitle: "STT 실행 파일 선택",
+                            panelMessage: "whisper-cli 실행 파일을 선택하세요.",
+                            selectedPath: $meetingViewModel.whisperBinaryPath
                         )
-                        .textFieldStyle(.roundedBorder)
-                        .frame(minWidth: 360)
                     }
 
-                    LabeledContent("Whisper 모델") {
-                        TextField(
-                            "GGML model 절대 경로",
-                            text: $meetingViewModel.whisperModelPath
+                    LabeledContent("STT 모델") {
+                        STTResourcePickerRow(
+                            path: meetingViewModel.whisperSettingsInspection
+                                .modelPath,
+                            placeholder: "ggml-large-v3-turbo.bin을 선택해 주세요.",
+                            candidates: sttRuntimeCandidates.model,
+                            panelTitle: "STT 모델 선택",
+                            panelMessage: "ggml-large-v3-turbo.bin 모델 파일을 선택하세요.",
+                            selectedPath: $meetingViewModel.whisperModelPath
                         )
-                        .textFieldStyle(.roundedBorder)
-                        .frame(minWidth: 360)
                     }
 
-                    LabeledContent("실행 파일 확인") {
+                    LabeledContent("STT 실행 파일") {
                         Text(
                             meetingViewModel.whisperSettingsInspection
-                                .binaryIsExecutable
-                                ? "실행 가능"
-                                : "실행할 수 없음"
+                                .binaryExists
+                                ? (
+                                    meetingViewModel.whisperSettingsInspection
+                                        .binaryIsExecutable
+                                        ? "실행 가능"
+                                        : "실행 불가"
+                                )
+                                : "없음"
                         )
                     }
 
-                    LabeledContent("모델 파일") {
+                    LabeledContent("STT 모델 파일") {
                         Text(
                             meetingViewModel.whisperSettingsInspection.modelExists
-                                ? "파일 확인됨"
-                                : "파일 없음"
-                        )
-                    }
-
-                    LabeledContent("모델 크기") {
-                        Text(
-                            meetingViewModel.whisperSettingsInspection
-                                .modelFileSizeText
+                                ? "확인됨"
+                                : "없음"
                         )
                     }
 
@@ -731,8 +746,9 @@ private struct SettingsView: View {
                     )
 
                     Text(
-                        "경로와 debug 옵션은 다음 회의 시작부터 적용됩니다. "
-                            + "기본 임시 오디오는 처리 후 삭제됩니다."
+                        "번들된 STT 리소스가 있으면 우선 사용합니다. "
+                            + "경로 override와 debug 옵션은 다음 회의 시작부터 적용됩니다. "
+                            + "모델 파일이 없으면 회의 전사를 시작할 수 없습니다."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -1048,6 +1064,13 @@ private struct SettingsView: View {
         }
     }
 
+    private var sttRuntimeCandidates: STTRuntimeCandidates {
+        STTRuntimeResolver(
+            configuredWhisperCLIPath: meetingViewModel.whisperBinaryPath,
+            configuredModelPath: meetingViewModel.whisperModelPath
+        ).discoveredCandidates()
+    }
+
     private func openAccessibilitySettings() {
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
@@ -1055,6 +1078,75 @@ private struct SettingsView: View {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+}
+
+private struct STTResourcePickerRow: View {
+    let path: String
+    let placeholder: String
+    let candidates: [STTRuntimeResourceCandidate]
+    let panelTitle: String
+    let panelMessage: String
+    @Binding var selectedPath: String
+
+    private var displayPath: String {
+        path.isEmpty ? placeholder : path
+    }
+
+    private var pickerSelection: Binding<String> {
+        Binding(
+            get: {
+                if !selectedPath.isEmpty {
+                    return selectedPath
+                }
+                return path
+            },
+            set: { newPath in
+                selectedPath = newPath
+            }
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if candidates.isEmpty {
+                Text(displayPath)
+                    .foregroundStyle(path.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(displayPath)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Picker("", selection: pickerSelection) {
+                    ForEach(candidates) { candidate in
+                        Text(candidate.displayName)
+                            .tag(candidate.path)
+                    }
+                }
+                .labelsHidden()
+                .help(displayPath)
+                .frame(maxWidth: .infinity)
+            }
+
+            Button("직접 선택", action: selectPath)
+                .buttonStyle(.bordered)
+        }
+        .frame(minWidth: 360)
+    }
+
+    private func selectPath() {
+        let panel = NSOpenPanel()
+        panel.title = panelTitle
+        panel.message = panelMessage
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = true
+        if panel.runModal() == .OK,
+           let url = panel.url {
+            selectedPath = url.path
+        }
     }
 }
 

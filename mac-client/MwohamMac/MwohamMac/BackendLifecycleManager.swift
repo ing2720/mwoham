@@ -366,6 +366,9 @@ final class BackendLifecycleManager: ObservableObject {
         let existingPath = environment["PATH"] ?? ""
         environment["PATH"] =
             (requiredPaths + [existingPath]).joined(separator: ":")
+        STTRuntimeResolver().backendEnvironmentValues().forEach { key, value in
+            environment[key] = value
+        }
         return AIProviderBackendEnvironment.applyingAIProviderSettings(
             to: environment,
             settings: AIProviderSettingsStore().settings,

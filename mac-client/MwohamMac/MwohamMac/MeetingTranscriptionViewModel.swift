@@ -162,6 +162,13 @@ final class MeetingTranscriptionViewModel: ObservableObject {
         )
     }
 
+    var sttRuntimeReadiness: STTRuntimeReadiness {
+        STTRuntimeResolver(
+            configuredWhisperCLIPath: whisperBinaryPath,
+            configuredModelPath: whisperModelPath
+        ).resolve()
+    }
+
     var sttDisplayState: STTDisplayState {
         if state.isError {
             return .error(state.label)
@@ -229,6 +236,25 @@ final class MeetingTranscriptionViewModel: ObservableObject {
 
         guard canStart else {
             return
+        }
+
+        if selectedAudioSource == .fullMeeting {
+            let readiness = sttRuntimeReadiness
+            guard readiness.isReady else {
+                shouldShowSpeechPermissionHelp =
+                    readiness.status == .missingMicrophonePermission
+                transcriptionStatus =
+                    readiness.status.startFailureMessage
+                    ?? readiness.status.detail
+                sttResultSummary = STTResultSummary(
+                    didComplete: true,
+                    succeeded: false,
+                    usedFallback: false,
+                    processingSeconds: nil,
+                    sourceDiagnostics: []
+                )
+                return
+            }
         }
 
         transcriptionStatus = "권한 확인 중"

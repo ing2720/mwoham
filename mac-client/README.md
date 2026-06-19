@@ -212,7 +212,19 @@ macOS 앱은 Apple Speech와 local Whisper 기반 회의 전사를 지원합니�
 
 회의 전체 모드는 Apple Speech recognitionTask 두 개를 동시에 실행하지 않습니다. Apple Speech는 실시간 fallback이며, local Whisper는 회의 종료 시 일괄 처리합니다. UI의 `STT engine`에서 현재 우선 engine과 fallback 결과를 확인할 수 있습니다.
 
-Whisper binary/model 경로는 회의 전체 UI에서 설정하고 `UserDefaults`에 저장합니다. 모델 파일은 앱이나 repo에 포함하지 않습니다. 화자 분리와 마이크/시스템 오디오 믹싱 고도화는 현재 범위에 포함하지 않습니다.
+Local Whisper runtime 탐색 순서는 bundled resource, 사용자 설정 override,
+Application Support fallback, 개발환경 fallback 순서입니다. Release DMG에는
+`MwohamMac.app/Contents/Resources/STT/whisper-cli`와
+`Contents/Resources/STT/models/ggml-large-v3-turbo.bin`을 포함하는 것을 기본
+정책으로 하며, 일반 사용자는 별도 모델 설치나 외부 STT API key 없이 사용할 수
+있습니다. 앱 설정의 Local Whisper 상태 카드에서 runtime/model source, 경로,
+마이크 권한, 사용 가능 여부를 확인합니다.
+
+`whisper-cli` 또는 `large-v3-turbo` 모델이 없거나 실행 권한이 없으면 회의 전체
+전사를 시작하지 않고 안내를 표시합니다. 개발자는 UserDefaults override 또는
+`~/Library/Application Support/Mwoham` fallback으로 runtime/model을 검증할 수
+있지만 모델 파일과 `whisper-cli` 바이너리는 repo에 포함하지 않습니다. 화자 분리와
+마이크/시스템 오디오 믹싱 고도화는 현재 범위에 포함하지 않습니다.
 
 ## 회의 전사 권한 안내
 

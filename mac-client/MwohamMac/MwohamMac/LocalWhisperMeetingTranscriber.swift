@@ -6,58 +6,6 @@
 import AVFoundation
 import Foundation
 
-struct LocalWhisperConfiguration: Sendable {
-    let binaryURL: URL
-    let modelURL: URL
-    let language: String
-}
-
-enum LocalWhisperConfigurationResolution {
-    case available(LocalWhisperConfiguration)
-    case unavailable(String)
-}
-
-enum LocalWhisperSettings {
-    static let binaryPathKey = "localWhisperBinaryPath"
-    static let modelPathKey = "localWhisperModelPath"
-    static let debugAudioExportEnabledKey = "localWhisperDebugAudioExportEnabled"
-
-    static func resolve(
-        defaults: UserDefaults = .standard
-    ) -> LocalWhisperConfigurationResolution {
-        let binaryPath = normalizedPath(defaults.string(forKey: binaryPathKey) ?? "")
-        let modelPath = normalizedPath(defaults.string(forKey: modelPathKey) ?? "")
-
-        guard !binaryPath.isEmpty, !modelPath.isEmpty else {
-            return .unavailable("Whisper binary/model 경로 미설정")
-        }
-
-        let fileManager = FileManager.default
-        guard fileManager.isExecutableFile(atPath: binaryPath) else {
-            return .unavailable("Whisper binary를 실행할 수 없음")
-        }
-        guard fileManager.fileExists(atPath: modelPath) else {
-            return .unavailable("Whisper model을 찾을 수 없음")
-        }
-
-        return .available(
-            LocalWhisperConfiguration(
-                binaryURL: URL(fileURLWithPath: binaryPath),
-                modelURL: URL(fileURLWithPath: modelPath),
-                language: "ko"
-            )
-        )
-    }
-
-    private static func normalizedPath(_ path: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return ""
-        }
-        return NSString(string: trimmed).expandingTildeInPath
-    }
-}
-
 struct LocalWhisperTranscript: Sendable {
     let text: String
     let processingSeconds: TimeInterval
