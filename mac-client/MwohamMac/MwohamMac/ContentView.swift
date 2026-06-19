@@ -854,7 +854,7 @@ private struct SettingsView: View {
                     if launchAtLoginManager.status == .bundleNotFound {
                         WarningBanner(
                             message:
-                                "signed 앱 경로에서 다시 실행해 주세요. 기본 안정 경로는 ~/Applications/MwohamMac.app입니다.",
+                                "Applications 폴더로 복사한 MwohamMac.app에서 다시 실행해 주세요.",
                             title: "앱 번들 확인 필요"
                         )
                     }

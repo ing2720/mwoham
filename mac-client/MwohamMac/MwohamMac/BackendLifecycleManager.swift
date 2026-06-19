@@ -26,10 +26,7 @@ final class BackendLifecycleManager: ObservableObject {
 
     init(
         localApiClient: LocalApiClient,
-        backendDirectory: URL = URL(
-            fileURLWithPath: "/Users/a/Projects/mwoham/backend",
-            isDirectory: true
-        ),
+        backendDirectory: URL = BackendLifecycleManager.defaultBackendDirectory(),
         fileManager: FileManager = .default
     ) {
         self.localApiClient = localApiClient
@@ -350,6 +347,101 @@ final class BackendLifecycleManager: ObservableObject {
         ]
         return candidates.first {
             FileManager.default.isExecutableFile(atPath: $0)
+        }
+    }
+
+    nonisolated private static func defaultBackendDirectory(
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default,
+        filePath: String = #filePath
+    ) -> URL {
+        let candidates = backendDirectoryCandidates(
+            bundle: bundle,
+            fileManager: fileManager,
+            filePath: filePath
+        )
+        return candidates.first { candidate in
+            var isDirectory: ObjCBool = false
+            return fileManager.fileExists(
+                atPath: candidate.path,
+                isDirectory: &isDirectory
+            ) && isDirectory.boolValue
+        } ?? candidates[0]
+    }
+
+    nonisolated private static func backendDirectoryCandidates(
+        bundle: Bundle,
+        fileManager: FileManager,
+        filePath: String
+    ) -> [URL] {
+        var candidates: [URL] = []
+
+        if let resourceURL = bundle.resourceURL {
+            candidates.append(
+                resourceURL.appendingPathComponent("backend", isDirectory: true)
+            )
+        }
+
+        if let configured = configuredBackendDirectory() {
+            candidates.append(configured)
+        }
+
+        candidates.append(
+            defaultApplicationSupportURL(fileManager: fileManager)
+                .appendingPathComponent("backend", isDirectory: true)
+        )
+
+        if _isDebugAssertConfiguration() {
+            candidates.append(devBackendDirectory(filePath: filePath))
+        }
+
+        return deduplicate(candidates)
+    }
+
+    nonisolated private static func configuredBackendDirectory() -> URL? {
+        let userDefaultValue = UserDefaults.standard.string(
+            forKey: "mwohamBackendDirectoryPath"
+        )
+        let environmentValue = ProcessInfo.processInfo.environment[
+            "MWOHAM_BACKEND_DIRECTORY"
+        ]
+        let path = [userDefaultValue, environmentValue]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let path else {
+            return nil
+        }
+        return URL(
+            fileURLWithPath: NSString(string: path).expandingTildeInPath,
+            isDirectory: true
+        )
+    }
+
+    nonisolated private static func defaultApplicationSupportURL(
+        fileManager: FileManager
+    ) -> URL {
+        let baseURL = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Application Support")
+        return baseURL.appendingPathComponent("Mwoham", isDirectory: true)
+    }
+
+    nonisolated private static func devBackendDirectory(filePath: String) -> URL {
+        URL(fileURLWithPath: filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("backend", isDirectory: true)
+    }
+
+    nonisolated private static func deduplicate(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        return urls.filter { url in
+            seen.insert(url.standardizedFileURL.path).inserted
         }
     }
 

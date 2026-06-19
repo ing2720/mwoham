@@ -46,10 +46,12 @@ macOS 앱 자동 시작 확인:
 5. `앱이 띄운 backend 중지`를 누르면 해당 프로세스만 종료되고 상태가
    `중지됨`으로 바뀌는지 확인합니다.
 
-앱은 다음 고정 명령을 인자 배열로 실행합니다.
+앱은 현재 실행 중인 bundle의 `Contents/Resources/backend`, Application Support의
+`Mwoham/backend`, 수동 override, 개발 build fallback 순서로 backend directory를
+선택한 뒤 다음 명령을 인자 배열로 실행합니다.
 
 ```bash
-cd /Users/a/Projects/mwoham/backend
+cd "$RESOLVED_BACKEND_DIR"
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
@@ -88,7 +90,7 @@ curl http://127.0.0.1:8765/status
 
 - 포트 `8765`가 이미 사용 중입니다.
 - 포트는 열려 있지만 `/health`가 정상 응답하지 않아 `포트 충돌 의심` 상태입니다.
-- `/Users/a/Projects/mwoham/backend` 경로가 없어 `backend 경로 오류` 상태입니다.
+- 선택된 backend directory가 없어 `backend 경로 오류` 상태입니다.
 - 앱 실행 환경의 `PATH`, `/opt/homebrew/bin`, `/usr/local/bin`에서 `uv`를 찾지
   못해 `uv 실행 실패` 상태입니다.
 - `uv sync`가 끝나지 않았거나 가상환경 의존성이 없습니다.
@@ -211,7 +213,9 @@ unsigned로 자동 fallback하지 않습니다.
 
 확인:
 
-- 앱 실행 경로가 `~/Applications/MwohamMac.app`인지 확인합니다.
+- 앱 실행 경로가 DMG 내부가 아니라 복사된 `.app`인지 확인합니다.
+- STT/backend 리소스가 고정 설치 경로가 아니라 현재 실행 중인 bundle 기준으로
+  계산되는지 확인합니다.
 - 일반 창에서 백엔드 연결 상태가 `연결됨`으로 보입니다.
 - 메뉴바 항목이 표시됩니다.
 - 메뉴바에서 플로팅 위젯을 열고 닫을 수 있습니다.
@@ -219,7 +223,7 @@ unsigned로 자동 fallback하지 않습니다.
 bundle 및 코드 서명 확인:
 
 ```bash
-APP="$HOME/Applications/MwohamMac.app"
+APP="/path/to/MwohamMac.app"
 
 /usr/libexec/PlistBuddy \
   -c "Print :CFBundleIdentifier" \
@@ -244,8 +248,7 @@ spctl --assess --type execute --verbose=4 "$APP" || true
 
 패키징/업데이트 QA:
 
-1. signed Debug를 설치하고 `~/Applications/MwohamMac.app`에서 실행되는지
-   확인합니다.
+1. signed Debug를 설치하고 복사된 `MwohamMac.app`에서 실행되는지 확인합니다.
 2. signed Release로 교체한 뒤 실행 경로가 유지되고 기존 앱 프로세스가 새
    bundle로 교체되는지 확인합니다.
 3. `codesign --verify --deep --strict`가 통과하고 Identifier, TeamIdentifier,
@@ -255,8 +258,8 @@ spctl --assess --type execute --verbose=4 "$APP" || true
 5. 권한 온보딩과 독립 권한 상태 표시가 signed 앱 identity 기준으로 유지되는지
    확인합니다.
 6. unsigned 앱은 경고를 출력하고 실행되지만 권한/TCC QA에는 사용하지 않습니다.
-7. `--destination`을 지정하지 않은 기본 실행에서 `/Applications`가 아니라
-   `~/Applications/MwohamMac.app`을 사용하는지 확인합니다.
+7. `--destination`을 지정하지 않은 개발 build 출력 경로와 DMG 설치 경로가
+   앱 런타임 리소스 탐색 정책에 섞이지 않는지 확인합니다.
 
 ## 12. Release DMG packaging
 
@@ -290,8 +293,9 @@ QA 기준이 아닙니다.
 자동 검증:
 
 ```bash
-./scripts/check_release_stt_resources.sh "$HOME/Applications/MwohamMac.app"
-codesign --verify --deep --strict --verbose=2 "$HOME/Applications/MwohamMac.app"
+APP="/Applications/MwohamMac.app"
+./scripts/check_release_stt_resources.sh "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"
 hdiutil verify dist/Mwoham-0.1.0.dmg
 ```
 
@@ -299,7 +303,7 @@ hdiutil verify dist/Mwoham-0.1.0.dmg
 
 1. `dist/Mwoham-0.1.0.dmg`를 mount합니다.
 2. `MwohamMac.app`을 `Applications` 바로가기로 드래그합니다.
-3. `/Applications/MwohamMac.app`을 실행합니다.
+3. DMG 내부 앱이 아니라 Applications로 복사된 앱을 실행합니다.
 4. `/health`가 정상 응답하는지 확인합니다.
 5. Settings의 Local Whisper 상태에서 bundled runtime/model 경로가 표시되는지 확인합니다.
 6. `whisper-cli` 실행 권한과 `ggml-large-v3-turbo.bin` 모델 파일 존재를 확인합니다.
@@ -307,6 +311,10 @@ hdiutil verify dist/Mwoham-0.1.0.dmg
 8. AI Provider key가 없을 때 fallback report가 생성되는지 확인합니다.
 9. AI Provider key가 있을 때 AI report와 fallback badge/reason 표시를 확인합니다.
 10. Timeline, Report, menu bar, floating widget, Launch at Login 설정이 기존 정책대로 동작하는지 확인합니다.
+11. Finder 우클릭 > 열기로 차단되면 시스템 설정 > 개인정보 보호 및 보안에서
+    “그래도 열기” 또는 “Open Anyway”로 허용한 뒤 다시 실행합니다.
+12. App Translocation 또는 Gatekeeper path randomization 상황에서도 STT/backend
+    리소스가 `Bundle.main.resourceURL` 기준으로 잡히는지 확인합니다.
 
 `spctl`은 Developer ID/notarization 배포 검사가 포함되므로 Apple Development
 내부 빌드에서는 거부될 수 있습니다. 현재 필수 검증은 strict codesign과
@@ -315,15 +323,15 @@ Identifier, TeamIdentifier, Authority 일치입니다.
 TCC 권한 확인:
 
 - 시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서
-  `~/Applications/MwohamMac.app`을 허용합니다.
-- 화면 기록, 마이크, 음성 인식도 같은 고정 앱 bundle 기준으로 허용합니다.
+  복사된 `MwohamMac.app`을 허용합니다.
+- 화면 기록, 마이크, 음성 인식도 같은 앱 bundle 기준으로 허용합니다.
 - 접근성 권한은 앱에서 자동 허용할 수 없습니다.
 - 기존 ad-hoc 앱을 사용했다면 목록의 이전 MwohamMac 항목을 제거하고 서명된
-  고정 경로 앱을 다시 추가한 뒤 앱을 재실행합니다.
+  앱을 다시 추가한 뒤 앱을 재실행합니다.
 
 Launch at Login QA:
 
-1. signed 앱을 `~/Applications/MwohamMac.app`에서 실행합니다.
+1. signed 앱을 Applications로 복사한 뒤 실행합니다.
 2. 설정 > 자동 실행 카드에 `로그인 시 자동 실행` Toggle과 현재 상태 badge가
    표시되는지 확인합니다.
 3. Toggle을 켜면 macOS 로그인 항목에 MwohamMac이 등록되고 상태가 `등록됨`으로
@@ -1493,6 +1501,8 @@ uv run pytest tests/test_report_api.py::test_web_daily_report_create_uses_report
 17. release `.app` resource check script가 누락된 runtime/model을 실패로 보고하는지
     확인합니다.
 18. 모델 파일과 `whisper-cli` 바이너리가 git 변경 목록에 포함되지 않는지 확인합니다.
+19. 앱 경로가 `/Applications`가 아니어도 STT bundled resource path가
+    `Bundle.main.resourceURL/STT` 기준으로 계산되는지 확인합니다.
 
 검증 명령:
 
@@ -1512,7 +1522,7 @@ uv run pytest tests/test_report_api.py::test_web_daily_report_create_uses_report
 4. macOS harness 검증이 통과하는지 확인합니다.
 5. signed build는 Apple Development 인증서와 Team ID
    `XMP48Q3KXN` 기준으로만 내부 QA에 사용합니다.
-6. `~/Applications/MwohamMac.app`의 bundle identifier가
+6. 검증 대상 `MwohamMac.app`의 bundle identifier가
    `com.ing2720.MwohamMac`인지 확인합니다.
 7. `codesign --verify --deep --strict`와 `codesign -dv --verbose=4`로
    Identifier, TeamIdentifier, Authority를 확인합니다.

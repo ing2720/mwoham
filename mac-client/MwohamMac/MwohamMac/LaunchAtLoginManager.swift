@@ -78,17 +78,25 @@ struct LaunchAtLoginDiagnostics: Equatable {
     static func current(rawStatus: String) -> LaunchAtLoginDiagnostics {
         let bundle = Bundle.main
         let appURL = bundle.bundleURL.standardizedFileURL
-        let expectedStableURL = FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent("Applications/MwohamMac.app")
-            .standardizedFileURL
 
         return LaunchAtLoginDiagnostics(
             rawStatus: rawStatus,
             bundleIdentifier: bundle.bundleIdentifier ?? "unknown",
             appPath: appURL.path,
-            isStableAppPath: appURL.path == expectedStableURL.path
+            isStableAppPath: Self.isRunnableAppBundleURL(appURL)
         )
+    }
+
+    private static func isRunnableAppBundleURL(_ appURL: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        let path = appURL.path
+        return appURL.pathExtension == "app"
+            && !path.contains("/AppTranslocation/")
+            && FileManager.default.fileExists(
+                atPath: path,
+                isDirectory: &isDirectory
+            )
+            && isDirectory.boolValue
     }
 }
 

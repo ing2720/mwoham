@@ -164,8 +164,24 @@ write_install_readme() {
 # Mwoham 설치 안내
 
 1. DMG 안의 `MwohamMac.app`을 `Applications` 바로가기로 드래그합니다.
-2. `/Applications/MwohamMac.app`을 실행합니다.
+2. DMG 내부에서 바로 실행하지 말고, Applications 폴더로 옮긴 앱을 실행합니다.
 3. 첫 실행 후 macOS 시스템 설정에서 필요한 권한을 허용합니다.
+
+앱이 열리지 않는 경우:
+
+1. `MwohamMac.app`을 Applications 폴더로 옮깁니다.
+2. 한 번 실행을 시도합니다.
+3. 차단되면 시스템 설정 → 개인정보 보호 및 보안으로 이동합니다.
+4. 아래쪽 보안 영역에서 `MwohamMac.app` 차단 메시지를 찾습니다.
+5. “그래도 열기” 또는 “Open Anyway”를 누릅니다.
+6. 다시 앱을 실행합니다.
+
+터미널 방식:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MwohamMac.app
+open /Applications/MwohamMac.app
+```
 
 필요 권한:
 
@@ -188,9 +204,9 @@ AI 리포트:
 
 주의:
 
-- 이 1차 DMG는 내부 QA용 빌드입니다.
-- Developer ID signing과 notarization은 별도 Release 단계에서 다룹니다.
-- Gatekeeper 경고가 표시될 수 있습니다.
+- 본 DMG는 내부 QA/포트폴리오 시연용입니다.
+- Developer ID signing/notarization이 적용되지 않아 Gatekeeper 경고가 표시될 수 있습니다.
+- 앱은 반드시 DMG 내부에서 바로 실행하지 말고 Applications 폴더로 옮긴 뒤 실행해야 합니다.
 EOF
 }
 

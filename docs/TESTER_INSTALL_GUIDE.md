@@ -21,15 +21,33 @@ Local Whisper STT 실행 파일과 `large-v3-turbo` 모델은 DMG의 앱 번들�
 개발자가 전달한 `Mwoham-0.1.0.dmg`를 엽니다.
 
 1. DMG 안의 `MwohamMac.app`을 `Applications` 바로가기로 드래그합니다.
-2. `/Applications/MwohamMac.app`을 실행합니다.
+2. DMG 내부에서 바로 실행하지 말고, Applications 폴더로 옮긴 앱을 실행합니다.
 3. macOS가 확인되지 않은 앱 경고를 표시하면, 내부 QA 빌드임을 확인한 뒤 시스템
    설정에서 실행을 허용합니다.
 4. 첫 실행 후 접근성, 마이크, 음성 인식, 화면 기록 권한을 허용합니다.
 5. 권한을 허용한 뒤 앱을 완전히 종료하고 다시 실행합니다.
 
-이 DMG는 Apple Development 또는 ad-hoc internal QA build일 수 있습니다. 일반
-외부 배포용 Developer ID notarized app이 아니므로 Gatekeeper 경고가 표시될 수
-있습니다.
+앱이 열리지 않는 경우:
+
+1. `MwohamMac.app`을 Applications 폴더로 옮깁니다.
+2. 한 번 실행을 시도합니다.
+3. 차단되면 시스템 설정 → 개인정보 보호 및 보안으로 이동합니다.
+4. 아래쪽 보안 영역에서 `MwohamMac.app` 차단 메시지를 찾습니다.
+5. “그래도 열기” 또는 “Open Anyway”를 누릅니다.
+6. 다시 앱을 실행합니다.
+
+터미널 방식:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MwohamMac.app
+open /Applications/MwohamMac.app
+```
+
+주의:
+
+- 본 DMG는 내부 QA/포트폴리오 시연용입니다.
+- Developer ID signing/notarization이 적용되지 않아 Gatekeeper 경고가 표시될 수 있습니다.
+- 앱은 반드시 DMG 내부에서 바로 실행하지 말고 Applications 폴더로 옮긴 뒤 실행해야 합니다.
 
 ### Xcode가 없는 테스터
 

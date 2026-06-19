@@ -37,9 +37,10 @@ and rewrites install names with `install_name_tool`.
 ## Automatic Verification
 
 ```bash
-./scripts/check_release_stt_resources.sh "$HOME/Applications/MwohamMac.app"
-codesign -dv --verbose=4 "$HOME/Applications/MwohamMac.app" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority|Runtime|Signature"
-codesign --verify --deep --strict --verbose=2 "$HOME/Applications/MwohamMac.app"
+APP="/Applications/MwohamMac.app"
+./scripts/check_release_stt_resources.sh "$APP"
+codesign -dv --verbose=4 "$APP" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority|Runtime|Signature"
+codesign --verify --deep --strict --verbose=2 "$APP"
 hdiutil verify dist/Mwoham-0.1.0.dmg
 ```
 
@@ -49,7 +50,7 @@ Also run the focused app/backend regression checks listed in `docs/QA_CHECKLIST.
 
 1. Mount `dist/Mwoham-0.1.0.dmg`.
 2. Drag `MwohamMac.app` to `Applications`.
-3. Launch `/Applications/MwohamMac.app`.
+3. Launch the copied app from Applications, not from inside the DMG.
 4. Confirm `/health`.
 5. Confirm Local Whisper bundled runtime and bundled model in Settings.
 6. Confirm meeting transcription can start and save transcript text.
@@ -57,6 +58,8 @@ Also run the focused app/backend regression checks listed in `docs/QA_CHECKLIST.
 8. Confirm fallback report when no AI Provider key is configured.
 9. Confirm AI report when a valid Gemini/OpenAI key is configured.
 10. Confirm menu bar, floating widget, and Launch at Login behavior remain unchanged.
+11. If right-click > Open is blocked, allow the app with System Settings > Privacy & Security > Open Anyway and launch again.
+12. Confirm STT/backend resources resolve from the running bundle or Application Support even when the displayed app path is not `/Applications`.
 
 ## Public Release Follow-ups
 
