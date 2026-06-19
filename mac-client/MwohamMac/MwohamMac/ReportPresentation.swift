@@ -69,6 +69,7 @@ enum ReportMode: String, CaseIterable, Identifiable, StatusPresentable {
 
 enum ReportCreator: String, StatusPresentable {
     case ai
+    case fallback
     case system
     case user
     case other
@@ -77,6 +78,8 @@ enum ReportCreator: String, StatusPresentable {
         switch apiValue {
         case "ai":
             self = .ai
+        case "fallback":
+            self = .fallback
         case "system":
             self = .system
         case "user":
@@ -90,6 +93,8 @@ enum ReportCreator: String, StatusPresentable {
         switch self {
         case .ai:
             return "AI 생성"
+        case .fallback:
+            return "Fallback 생성"
         case .system:
             return "시스템 생성"
         case .user:
@@ -111,6 +116,8 @@ enum ReportCreator: String, StatusPresentable {
         switch self {
         case .ai:
             return "sparkles"
+        case .fallback:
+            return "arrow.triangle.2.circlepath"
         case .system:
             return "gearshape"
         case .user:
@@ -125,6 +132,7 @@ struct ReportListItem: Identifiable, Equatable {
     let id: Int
     let dateText: String
     let mode: ReportMode
+    let creator: ReportCreator
     let title: String
     let preview: String
     let createdAtText: String
@@ -145,6 +153,7 @@ struct ReportPresentationInput: Identifiable, Equatable {
     let id: Int
     let date: String?
     let mode: String
+    let createdBy: String
     let title: String?
     let content: String
     let createdAt: String
@@ -168,6 +177,7 @@ enum ReportPresentationBuilder {
                 id: report.id,
                 dateText: dateText(for: report),
                 mode: ReportMode(apiValue: report.mode),
+                creator: ReportCreator(apiValue: report.createdBy),
                 title: clean(report.title) ?? "제목 없음",
                 preview: preview(report.content),
                 createdAtText: ReportDisplayDateFormatter.display(

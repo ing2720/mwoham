@@ -168,6 +168,7 @@ final class ReportViewModel: ObservableObject {
                     id: $0.id,
                     date: $0.date,
                     mode: $0.mode,
+                    createdBy: $0.createdBy,
                     title: $0.title,
                     content: $0.content,
                     createdAt: $0.createdAt,

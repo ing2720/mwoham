@@ -29,6 +29,12 @@ func makeDate(_ hour: Int, _ minute: Int = 0) -> Date {
     return components.date!
 }
 
+func kstComponents(_ date: Date) -> DateComponents {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+    return calendar.dateComponents([.hour, .minute, .second], from: date)
+}
+
 func item(
     _ id: String,
     hour: Int,
@@ -63,6 +69,18 @@ func item(
         detailLines: []
     )
 }
+
+let backendTimestamp = TimelineDateParser.parse("2026-06-19T00:23:46.506000")
+expect(backendTimestamp != nil, "backend fractional timestamp without timezone parses")
+let backendComponents = kstComponents(backendTimestamp!)
+expect(backendComponents.hour == 9, "backend timestamp is interpreted as UTC and displayed in KST")
+expect(backendComponents.minute == 23, "backend timestamp minute is preserved")
+
+let backendWholeSecondTimestamp = TimelineDateParser.parse("2026-06-19T00:21:30")
+expect(backendWholeSecondTimestamp != nil, "backend whole-second timestamp without timezone parses")
+let backendWholeSecondComponents = kstComponents(backendWholeSecondTimestamp!)
+expect(backendWholeSecondComponents.hour == 9, "whole-second backend timestamp uses UTC")
+expect(backendWholeSecondComponents.second == 30, "whole-second backend timestamp preserves seconds")
 
 let items = [
     item(
@@ -156,8 +174,62 @@ let refinedHidden = item(
 )
 let refinedGroups = TimelinePresentationBuilder.groups(for: [refinedHidden], filter: .all)
 expect(
-    refinedGroups[0].foldedItems.first?.id == "activity-refined-backend-hidden",
-    "backend hidden_by_default hint folds activity"
+    refinedGroups[0].items.first?.id == "activity-refined-backend-hidden",
+    "hidden-only groups still show a representative activity"
+)
+expect(
+    refinedGroups[0].foldedItems.isEmpty,
+    "single hidden-only group does not duplicate the representative activity"
+)
+
+let hiddenOnlyItems = [
+    refinedHidden,
+    item(
+        "activity-refined-backend-hidden-2",
+        hour: 15,
+        minute: 7,
+        category: .appActivity,
+        title: "Safari",
+        duration: 15,
+        appName: "Safari",
+        hiddenByDefault: true,
+        noiseReason: "낮은 신호"
+    ),
+    item(
+        "activity-refined-backend-hidden-3",
+        hour: 15,
+        minute: 8,
+        category: .appActivity,
+        title: "Terminal",
+        duration: 10,
+        appName: "Terminal",
+        hiddenByDefault: true,
+        noiseReason: "짧은 앱 전환"
+    ),
+    item(
+        "activity-refined-backend-hidden-4",
+        hour: 15,
+        minute: 9,
+        category: .appActivity,
+        title: "Finder",
+        duration: 8,
+        appName: "Finder",
+        hiddenByDefault: true,
+        noiseReason: "낮은 신호"
+    ),
+]
+let hiddenOnlyGroups = TimelinePresentationBuilder.groups(for: hiddenOnlyItems, filter: .all)
+expect(
+    hiddenOnlyGroups[0].items.map(\.id) == [
+        "activity-refined-backend-hidden",
+        "activity-refined-backend-hidden-2",
+        "activity-refined-backend-hidden-3",
+    ],
+    "hidden-only groups promote a chronological preview"
+)
+expect(
+    hiddenOnlyGroups[0].foldedItems.map(\.id) == ["activity-refined-backend-hidden-4"],
+    "remaining hidden-only items stay expandable"
 )
 
 let memoGroups = TimelinePresentationBuilder.groups(for: items, filter: .memo)

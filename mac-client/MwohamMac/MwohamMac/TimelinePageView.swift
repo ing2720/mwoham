@@ -3,6 +3,7 @@
 //  MwohamMac
 //
 
+import Combine
 import SwiftUI
 
 struct TimelinePageView: View {
@@ -37,6 +38,20 @@ struct TimelinePageView: View {
         }
         .task {
             if !viewModel.hasLoadedItems {
+                await viewModel.refresh()
+            }
+        }
+        .onReceive(
+            Timer.publish(
+                every: TimelinePageAutoRefresh.intervalSeconds,
+                on: .main,
+                in: .common
+            ).autoconnect()
+        ) { _ in
+            guard isBackendConnected else {
+                return
+            }
+            Task {
                 await viewModel.refresh()
             }
         }
@@ -110,6 +125,10 @@ struct TimelinePageView: View {
     }
 }
 
+private enum TimelinePageAutoRefresh {
+    static let intervalSeconds: TimeInterval = 30
+}
+
 private struct TimelineGroupCard: View {
     let group: TimelineDisplayGroup
 
@@ -141,7 +160,7 @@ private struct TimelineGroupCard: View {
                 }
 
                 if group.items.isEmpty {
-                    Text("주요 이벤트는 없고 접힌 이벤트만 있습니다.")
+                    Text("이 시간대는 접힌 보조 이벤트만 있습니다. 접힌 이벤트를 열어 세부 흐름을 확인하세요.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else {

@@ -1602,6 +1602,112 @@ def test_prompt_builder_prioritizes_failed_terminal_commands() -> None:
     assert "tracking_mode=command_hook" not in dev_event_section
 
 
+def test_prompt_builder_keeps_priority_dev_events_chronological() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=3,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 5, 25, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="uv run pytest",
+                content="명령 실패: uv run pytest exit_code=1",
+                details_json={"exit_code": 1},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 2, 31, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run python scripts/run_dev_checks.py --no-record",
+                content="명령 성공: uv run python scripts/run_dev_checks.py --no-record",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 4, 33, tzinfo=UTC),
+                event_type="test_result",
+                source="script",
+                status="success",
+                content="release QA 통과",
+                details_json={"exit_code": 0},
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    dev_event_section = _prompt_section(
+        prompt,
+        "PRIORITY_DEV_EVENTS:",
+        "PRIORITY_COMMAND_FLOWS:",
+    )
+
+    assert "timestamp순을 유지하세요" in prompt
+    assert dev_event_section.index("time=2026-05-26 11:31") < dev_event_section.index(
+        "time=2026-05-26 13:33"
+    )
+    assert dev_event_section.index("time=2026-05-26 13:33") < dev_event_section.index(
+        "time=2026-05-26 14:25"
+    )
+
+
+def test_prompt_builder_demotes_failed_git_switch_from_troubleshooting_flow() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=2,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="git switch feature/missing-branch",
+                content="명령 실패: git switch feature/missing-branch exit_code=1",
+                details_json={"exit_code": 1},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 1, 5, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run pytest tests/test_ai_components.py",
+                content="명령 성공: uv run pytest tests/test_ai_components.py",
+                details_json={"exit_code": 0},
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    dev_event_section = _prompt_section(
+        prompt,
+        "PRIORITY_DEV_EVENTS:",
+        "PRIORITY_COMMAND_FLOWS:",
+    )
+    command_flow_section = _prompt_section(
+        prompt,
+        "PRIORITY_COMMAND_FLOWS:",
+        "WORK_EVIDENCE_BY_TIME:",
+    )
+
+    assert "트러블슈팅으로 올리지 마세요" in prompt
+    assert "git switch feature/missing-branch" not in dev_event_section
+    assert "flow_type=failed_only" not in command_flow_section
+    assert "flow_type=failed_to_success" not in command_flow_section
+    assert "flow_type=inspection" in command_flow_section
+    assert "inspection/setup commands summarized" in command_flow_section
+
+
 def test_prompt_builder_adds_command_flow_hints_for_failed_then_success() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),
@@ -2112,6 +2218,29 @@ def test_gemini_client_returns_none_without_api_key() -> None:
     assert client.generate_text_result("hello").error_reason == "api_key_missing"
 
 
+def test_prompt_builder_truncates_oversized_report_context() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=140,
+        items=[
+            TimelineItem(
+                type="event",
+                id=index,
+                timestamp=datetime(2026, 5, 26, 1, index % 60, tzinfo=UTC),
+                source="window",
+                app_name="VSCode",
+                content="report latency stabilization evidence " + ("x" * 500),
+            )
+            for index in range(140)
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+
+    assert "REPORT_CONTEXT_TRUNCATED" in prompt
+    assert prompt.count("report latency stabilization evidence") < 140
+
+
 def test_ai_provider_defaults_to_gemini_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in [
         "AI_PROVIDER",
@@ -2272,6 +2401,29 @@ def test_openai_client_classifies_quota_response(
     assert result.status_code == 429
 
 
+def test_openai_client_uses_configured_timeout_and_classifies_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeout = None
+
+    def fake_post(*args, **kwargs):
+        nonlocal observed_timeout
+        observed_timeout = kwargs.get("timeout")
+        raise httpx.TimeoutException("timed out")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = OpenAIClient(
+        api_key="test-openai-key",
+        model="gpt-test-mini",
+        timeout_seconds=7.5,
+    ).generate_text_result("hello")
+
+    assert observed_timeout == 7.5
+    assert result.text is None
+    assert result.error_reason == "timeout"
+
+
 def test_report_service_uses_openai_client_when_provider_is_openai(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2383,6 +2535,29 @@ def test_gemini_client_classifies_quota_exceeded_response(
     assert result.text is None
     assert result.error_reason == "quota_exceeded"
     assert result.status_code == 429
+
+
+def test_gemini_client_uses_configured_timeout_and_classifies_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeout = None
+
+    def fake_post(*args, **kwargs):
+        nonlocal observed_timeout
+        observed_timeout = kwargs.get("timeout")
+        raise httpx.TimeoutException("timed out")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = GeminiClient(
+        api_key="test-api-key",
+        model="gemini-2.5-flash",
+        timeout_seconds=6.5,
+    ).generate_text_result("hello")
+
+    assert observed_timeout == 6.5
+    assert result.text is None
+    assert result.error_reason == "timeout"
 
 
 def test_gemini_client_handles_json_parse_error(
