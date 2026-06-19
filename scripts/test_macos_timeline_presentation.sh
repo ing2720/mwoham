@@ -147,11 +147,11 @@ let items = [
 
 let allGroups = TimelinePresentationBuilder.groups(for: items, filter: .all)
 expect(allGroups.count == 3, "items are grouped into morning, afternoon, evening")
-expect(allGroups[0].title == "오전", "morning group is first")
-expect(allGroups[1].title == "오후", "afternoon group is second")
-expect(allGroups[2].title == "저녁", "evening group is third")
+expect(allGroups[0].title == "저녁", "evening group is first in descending display order")
+expect(allGroups[1].title == "오후", "afternoon group is second in descending display order")
+expect(allGroups[2].title == "오전", "morning group is third in descending display order")
 expect(
-    allGroups[0].foldedItems.contains { $0.id == "activity-short" },
+    allGroups[2].foldedItems.contains { $0.id == "activity-short" },
     "short activity is folded as noise"
 )
 expect(
@@ -221,11 +221,11 @@ let hiddenOnlyItems = [
 let hiddenOnlyGroups = TimelinePresentationBuilder.groups(for: hiddenOnlyItems, filter: .all)
 expect(
     hiddenOnlyGroups[0].items.map(\.id) == [
-        "activity-refined-backend-hidden",
-        "activity-refined-backend-hidden-2",
         "activity-refined-backend-hidden-3",
+        "activity-refined-backend-hidden-2",
+        "activity-refined-backend-hidden",
     ],
-    "hidden-only groups promote a chronological preview"
+    "hidden-only groups promote a descending preview"
 )
 expect(
     hiddenOnlyGroups[0].foldedItems.map(\.id) == ["activity-refined-backend-hidden-4"],
