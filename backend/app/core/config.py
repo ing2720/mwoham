@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash-lite"
     gemini_max_output_tokens: int = 8192
-    ai_report_timeout_seconds: float = 25.0
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.2-mini"
     enable_screen_observation_ai_inference: bool = False

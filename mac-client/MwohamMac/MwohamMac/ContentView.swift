@@ -664,13 +664,7 @@ private struct SettingsView: View {
 
             AIProviderSettingsSectionView(
                 store: aiProviderStore,
-                keyStore: aiProviderKeyStore,
-                canRestartBackend:
-                    viewModel.backendLifecycle.ownsBackendProcess
-                    && !viewModel.backendLifecycle.isBusy,
-                restartBackend: {
-                    await viewModel.restartBackend()
-                }
+                keyStore: aiProviderKeyStore
             )
 
             StatusCard("Local Whisper", systemImage: "cpu") {

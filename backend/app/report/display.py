@@ -3,7 +3,6 @@ from zoneinfo import ZoneInfo
 
 CREATED_BY_LABELS = {
     "ai": "AI",
-    "fallback": "Fallback",
     "system": "시스템",
     "user": "사용자",
 }
