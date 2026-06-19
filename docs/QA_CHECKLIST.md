@@ -16,11 +16,12 @@ DMG/ZIP packaging, 배포용 `spctl` 기준 확정은 다음 packaging 단계에
 4. Meeting transcription: 마이크, 시스템 오디오, 회의 전체, Local Whisper fallback
 5. Timeline: 기본/상세/API/web 정렬과 filter
 6. Reports: 생성, 편집, Markdown/PDF export, fallback report
-7. Floating Widget: resize, responsive layout, 설정 저장/로드/reset
-8. Menu Bar: 상태 표시와 빠른 액션
-9. Launch at Login: 앱 자동 실행 등록/해제, recording 자동 시작 없음
-10. Permissions: 접근성, 화면 기록, 마이크, 음성 인식
-11. Packaging pre-check: signed Release 내부 QA, notarization/DMG는 다음 단계로 보류
+7. AI Provider: Keychain 저장, 모델 조회, provider/model 선택, fallback
+8. Floating Widget: resize, responsive layout, 설정 저장/로드/reset
+9. Menu Bar: 상태 표시와 빠른 액션
+10. Launch at Login: 앱 자동 실행 등록/해제, recording 자동 시작 없음
+11. Permissions: 접근성, 화면 기록, 마이크, 음성 인식
+12. Packaging pre-check: signed Release 내부 QA, notarization/DMG는 다음 단계로 보류
 
 ## 사전 준비
 
@@ -31,7 +32,7 @@ DMG/ZIP packaging, 배포용 `spctl` 기준 확정은 다음 packaging 단계에
   - 마이크: 음성 인식, 마이크
   - 시스템 오디오: 음성 인식, 화면 기록
   - 회의 전체: 음성 인식, 마이크, 화면 기록
-- 실제 Gemini 호출은 quota를 소모합니다. 기본 정책상 개별 ScreenObservation AI 해석은 비활성화되어 있고, 일일 리포트 생성에 Gemini 호출을 우선 사용합니다.
+- 실제 AI Provider 호출은 quota를 소모합니다. 기본 정책상 개별 ScreenObservation AI 해석은 비활성화되어 있고, 일일 리포트 생성은 설정된 provider를 우선 사용한 뒤 실패 시 fallback을 사용합니다.
 - `LOCAL_API_TOKEN`을 설정한 경우 모든 보호 API 호출에 `Authorization: Bearer <token>` 헤더를 추가합니다.
 
 ## 1. 백엔드 실행
@@ -639,8 +640,8 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 
 정상 기대 결과:
 
-- Gemini 호출에 성공하면 `created_by="ai"`입니다.
-- Gemini API key가 없거나 quota 초과면 `created_by="system"` fallback 리포트가 생성됩니다.
+- AI Provider 호출에 성공하면 `created_by="ai"`입니다.
+- API key가 없거나 invalid key/API/quota/network 실패가 발생하면 `created_by="system"` fallback 리포트가 생성됩니다.
 - 같은 `date + mode + project_id`로 `/reports/daily`를 여러 번 실행해도 새 row가
   계속 늘지 않고 기존 리포트가 갱신됩니다.
 - `/reports/today`는 list schema를 유지하면서 오늘 날짜 최신 리포트 1개를 맨 위
@@ -685,9 +686,9 @@ curl "http://127.0.0.1:8765/reports/today?date=$(date +%F)"
 
 실패 시 의심 원인:
 
-- `GEMINI_API_KEY`가 없습니다.
-- Gemini quota가 초과되었습니다.
-- Gemini 모델명이 잘못되었습니다.
+- AI Provider API Key가 없습니다.
+- Provider quota가 초과되었습니다.
+- 선택한 모델을 계정에서 사용할 수 없습니다.
 - 타임라인에 리포트에 넣을 데이터가 거의 없습니다.
 
 ## 13. PDF 다운로드 확인
@@ -743,28 +744,28 @@ git status --short
 - 외부 캡처 도구가 파일을 저장했습니다.
 - 앱 코드가 아닌 별도 디버깅 스크립트가 이미지를 저장했습니다.
 
-## 15. Gemini quota 초과 fallback 확인
+## 15. AI Provider fallback 확인
 
 확인 명령:
 
 ```bash
 cd backend
-uv run python -c "from app.ai.gemini_client import GeminiClient; from app.core.config import settings; c=GeminiClient(api_key=settings.gemini_api_key, model=settings.gemini_model, max_output_tokens=128); r=c.generate_text_result('한국어 한 문장으로 답하세요.'); print({'has_text': bool(r.text), 'error_reason': r.error_reason, 'status_code': r.status_code, 'finish_reason': r.finish_reason})"
+uv run python -c "from app.ai.provider import resolve_ai_provider_config; from app.core.config import settings; c=resolve_ai_provider_config(settings); print({'provider': c.provider.value, 'model': c.model, 'has_key': bool(c.api_key)})"
 ```
 
 정상 기대 결과:
 
-- quota가 충분하면 `has_text=True`입니다.
-- quota 초과 시 `error_reason='quota_exceeded'`, `status_code=429`가 확인됩니다.
-- `/reports/daily`는 실패 reason을 로그에 남기고 `created_by="system"` fallback 리포트를 생성합니다.
+- provider와 model이 설정 화면 또는 개발용 `.env`와 일치합니다.
+- key가 없으면 `has_key=False`이고 `/reports/daily`는 `created_by="system"` fallback 리포트를 생성합니다.
+- invalid key, quota 초과, 네트워크 실패 시 `/reports/daily`는 실패 reason을 로그에 남기고 fallback 리포트를 생성합니다.
 - API key 값은 로그와 응답에 출력되지 않습니다.
 
 실패 시 의심 원인:
 
-- `.env`가 로드되지 않았습니다.
+- 앱이 시작한 backend를 재시작하지 않아 Settings의 provider/model/key가 아직 process environment에 반영되지 않았습니다.
 - API key가 잘못되었습니다.
-- `GEMINI_MODEL`이 계정에서 사용할 수 없는 모델입니다.
-- 네트워크 연결 또는 Google API 접근이 실패했습니다.
+- 선택한 모델이 계정에서 사용할 수 없는 모델입니다.
+- 네트워크 연결 또는 provider API 접근이 실패했습니다.
 
 ## 16. Local Whisper 회의 전체 오디오 품질 확인
 
@@ -1333,7 +1334,45 @@ git diff --check
 git diff --check
 ```
 
-## 21. Packaging pre-check
+## 21. AI Provider 설정 QA
+
+확인:
+
+1. 설정 화면에 `AI 리포트 설정` 카드가 표시되는지 확인합니다.
+2. Provider Picker에서 Gemini와 OpenAI를 선택할 수 있는지 확인합니다.
+3. API Key 입력 필드는 SecureField이며 저장 후 전체 key가 다시 표시되지 않는지
+   확인합니다.
+4. API Key 저장 후 상태가 `설정됨` 또는 `••••1234` 형태로 표시되는지
+   확인합니다.
+5. 앱 재시작 후 같은 provider의 key 설정 상태가 유지되는지 확인합니다.
+6. Gemini key 저장 후 Gemini 모델 목록을 불러오고 dropdown에서 모델을 선택할 수
+   있는지 확인합니다.
+7. OpenAI key 저장 후 OpenAI 모델 목록을 불러오고 dropdown에서 모델을 선택할 수
+   있는지 확인합니다.
+8. 모델 목록에는 embedding, image, audio, moderation 전용 모델이 표시되지 않는지
+   확인합니다.
+9. provider/model 선택값은 앱 재시작 후 유지되는지 확인합니다.
+10. 현재 provider의 API Key 삭제 버튼을 누르면 해당 provider key만 삭제되고 다른
+    provider key는 유지되는지 확인합니다.
+11. key가 없는 상태에서도 backend가 시작되고 `/health`가 통과하는지 확인합니다.
+12. key가 없는 상태에서 report 생성 시 fallback 리포트가 생성되는지 확인합니다.
+13. invalid key 또는 quota 초과 상태에서도 앱 전체 오류 없이 연결 실패 안내 또는
+    fallback 리포트가 동작하는지 확인합니다.
+14. Settings 변경 후 앱이 시작한 backend를 재시작해야 provider/model/key가 반영되는
+    정책이 화면 설명과 일치하는지 확인합니다.
+15. `git diff`, backend log, macOS diagnostic UI, docs/portfolio_logs에 실제 API Key가
+    노출되지 않는지 확인합니다.
+16. `.env`가 없어도 dashboard, recording, timeline, report fallback이 동작하는지
+    확인합니다.
+
+검증 명령:
+
+```bash
+./scripts/test_macos_ai_provider_settings.sh
+uv run pytest tests/test_ai_components.py -q
+```
+
+## 22. Packaging pre-check
 
 확인:
 
@@ -1361,6 +1400,7 @@ git diff --check
 cd /Users/a/Projects/mwoham
 
 ./scripts/test_macos_floating_widget_settings.sh
+./scripts/test_macos_ai_provider_settings.sh
 ./scripts/test_macos_floating_widget_responsive.sh
 ./scripts/test_macos_menu_bar_floating_presentation.sh
 ./scripts/test_macos_launch_at_login.sh

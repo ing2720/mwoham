@@ -641,6 +641,8 @@ private struct SettingsView: View {
     @ObservedObject var meetingViewModel: MeetingTranscriptionViewModel
     @ObservedObject var activityViewModel: ActivityTrackingViewModel
     @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
+    @StateObject private var aiProviderStore = AIProviderSettingsStore()
+    private let aiProviderKeyStore = AIProviderKeychainStore()
     let showPermissionOnboarding: () -> Void
 
     init(
@@ -659,6 +661,11 @@ private struct SettingsView: View {
             Text("설정")
                 .font(.title2)
                 .fontWeight(.semibold)
+
+            AIProviderSettingsSectionView(
+                store: aiProviderStore,
+                keyStore: aiProviderKeyStore
+            )
 
             StatusCard("Local Whisper", systemImage: "cpu") {
                 VStack(alignment: .leading, spacing: 10) {

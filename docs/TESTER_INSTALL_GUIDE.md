@@ -7,7 +7,7 @@
 ## 구성
 
 - `MwohamMac.app`: macOS SwiftUI 앱입니다. 메뉴바, 플로팅 위젯, OCR 수집, 회의 전사, 기록 제어를 담당합니다.
-- `backend`: FastAPI 로컬 서버입니다. SQLite 저장, 회의 transcript 저장, DevEvent 저장, Gemini 리포트, PDF export, 웹 대시보드를 담당합니다.
+- `backend`: FastAPI 로컬 서버입니다. SQLite 저장, 회의 transcript 저장, DevEvent 저장, AI/fallback 리포트, PDF export, 웹 대시보드를 담당합니다.
 - backend 기본 주소: `http://127.0.0.1:8765`
 
 ## 앱 준비 방식
@@ -52,7 +52,7 @@ chmod +x scripts/build_macos_release.sh
 - uv
 - backend 소스 폴더
 - 전달받은 `MwohamMac.app`
-- 선택 사항: Gemini API key
+- 선택 사항: Gemini 또는 OpenAI API key
 
 Xcode가 없는 테스터는 개발자에게 `MwohamMacTesterBundle.zip`을 직접 받아서 사용합니다. 저장소를 직접 받아 `scripts/package_tester_bundle.sh`로 앱을 생성하려면 full Xcode가 필요합니다.
 
@@ -150,23 +150,32 @@ OCR, 활성 창 추적, 회의 전사 검증을 위해 권한 허용이 필요�
 
 backend watcher는 raw git diff 본문이나 파일 내용을 저장하지 않습니다. DevEvent에는 Git 상태 요약과 diff_summary 같은 안전한 메타데이터만 저장합니다.
 
-## Gemini 설정
+## AI Provider 설정
 
-backend는 `backend/.env`를 읽습니다. Gemini API key가 없으면 Gemini 호출 없이 system fallback 리포트가 생성될 수 있습니다.
+Release 앱에서는 설정 화면에서 AI Provider를 선택하고 API Key를 입력합니다.
+API Key는 macOS Keychain에 저장되며 앱 번들에는 포함되지 않습니다. 연결 테스트
+후 사용 가능한 모델 목록을 불러오고, 사용자는 dropdown에서 모델을 선택합니다.
+API Key가 없으면 AI 호출 없이 system fallback 리포트가 생성될 수 있습니다.
+
+개발 환경에서는 `backend/.env`로 provider 설정을 override할 수 있습니다.
 
 예시:
 
 ```env
+AI_PROVIDER="gemini"
+AI_MODEL=""
 GEMINI_API_KEY="your-api-key"
 GEMINI_MODEL="gemini-2.5-flash-lite"
+OPENAI_API_KEY=""
+OPENAI_MODEL="gpt-5.2-mini"
 GEMINI_MAX_OUTPUT_TOKENS="8192"
 ```
 
 주의:
 
 - API key를 다른 사람에게 공유하지 않습니다.
-- 무료 quota를 초과하면 Gemini 리포트가 placeholder/fallback으로 생성될 수 있습니다.
-- 현재 기본 모델은 `gemini-2.5-flash-lite`입니다.
+- 무료 quota를 초과하거나 API 호출에 실패하면 리포트가 placeholder/fallback으로 생성될 수 있습니다.
+- `.env`는 개발용 옵션이며 Release 앱 번들에는 실제 API Key를 포함하지 않습니다.
 - 개별 화면 관찰 AI 해석은 quota 절약을 위해 기본 비활성화되어 있습니다.
 
 ## Local API Token
@@ -227,9 +236,9 @@ OCR이 저장되지 않음:
 
 리포트가 system fallback으로 생성됨:
 
-- `GEMINI_API_KEY`가 없거나 잘못됐을 수 있습니다.
-- Gemini 무료 quota를 초과했을 수 있습니다.
-- `GEMINI_MODEL`이 계정에서 사용할 수 없는 모델일 수 있습니다.
+- API Key가 없거나 잘못됐을 수 있습니다.
+- Provider 무료 quota를 초과했을 수 있습니다.
+- 선택한 모델을 계정에서 사용할 수 없을 수 있습니다.
 
 Dev Tracking 오류:
 

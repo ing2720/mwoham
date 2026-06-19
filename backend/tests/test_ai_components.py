@@ -7,11 +7,15 @@ import pytest
 
 from app.ai.gemini_client import GeminiClient
 from app.ai.git_diff_context import GitDiffContext, GitDiffContextBuilder
+from app.ai.openai_client import OpenAIClient
 from app.ai.prompt_builder import PromptBuilder
+from app.ai.provider import AIProvider, resolve_ai_provider_config
 from app.ai.report_content_cleaner import ReportContentCleaner
 from app.ai.summarizer import GeminiSummarizer
+from app.core.config import Settings, settings
 from app.schemas.timeline import TimelineItem, TimelineResponse
 from app.services.privacy_filter import PrivacyFilter
+from app.services.report_service import get_report_service
 from app.services.screen_observation_summarizer import (
     SAFE_UNCLEAR_INFERENCE,
     ScreenObservationSummarizer,
@@ -2106,6 +2110,214 @@ def test_gemini_client_returns_none_without_api_key() -> None:
 
     assert client.generate_text("hello") is None
     assert client.generate_text_result("hello").error_reason == "api_key_missing"
+
+
+def test_ai_provider_defaults_to_gemini_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in [
+        "AI_PROVIDER",
+        "AI_MODEL",
+        "GEMINI_API_KEY",
+        "GEMINI_MODEL",
+        "OPENAI_API_KEY",
+        "OPENAI_MODEL",
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+    provider_config = resolve_ai_provider_config(Settings(_env_file=None))
+
+    assert provider_config.provider == AIProvider.GEMINI
+    assert provider_config.api_key is None
+    assert provider_config.model == "gemini-2.5-flash-lite"
+
+
+def test_ai_provider_uses_openai_when_selected() -> None:
+    provider_config = resolve_ai_provider_config(
+        Settings(
+            ai_provider="openai",
+            ai_model="gpt-test-mini",
+            openai_api_key="test-openai-key",
+            gemini_api_key="test-gemini-key",
+        )
+    )
+
+    assert provider_config.provider == AIProvider.OPENAI
+    assert provider_config.api_key == "test-openai-key"
+    assert provider_config.model == "gpt-test-mini"
+
+
+def test_ai_provider_keeps_gemini_env_compatibility() -> None:
+    provider_config = resolve_ai_provider_config(
+        Settings(
+            gemini_api_key="test-gemini-key",
+            gemini_model="gemini-test-model",
+        )
+    )
+
+    assert provider_config.provider == AIProvider.GEMINI
+    assert provider_config.api_key == "test-gemini-key"
+    assert provider_config.model == "gemini-test-model"
+
+
+def test_ai_provider_can_infer_openai_when_only_openai_key_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    provider_config = resolve_ai_provider_config(
+        Settings(
+            _env_file=None,
+            openai_api_key="test-openai-key",
+            openai_model="gpt-test-mini",
+        )
+    )
+
+    assert provider_config.provider == AIProvider.OPENAI
+    assert provider_config.api_key == "test-openai-key"
+    assert provider_config.model == "gpt-test-mini"
+
+
+def test_openai_client_returns_none_without_api_key() -> None:
+    client = OpenAIClient(api_key=None, model="gpt-test-mini")
+
+    assert client.generate_text("hello") is None
+    assert client.generate_text_result("hello").error_reason == "api_key_missing"
+
+
+def test_openai_client_extracts_output_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(*args, **kwargs):
+        return httpx.Response(
+            200,
+            json={"status": "completed", "output_text": "정상 응답입니다."},
+            request=httpx.Request("POST", "https://example.test"),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = OpenAIClient(api_key="test-openai-key", model="gpt-test-mini").generate_text_result(
+        "hello"
+    )
+
+    assert result.text == "정상 응답입니다."
+    assert result.finish_reason == "completed"
+
+
+def test_openai_client_extracts_nested_output_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(*args, **kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "output": [
+                    {
+                        "content": [
+                            {"type": "output_text", "text": "첫 줄"},
+                            {"type": "output_text", "text": "둘째 줄"},
+                        ]
+                    }
+                ],
+            },
+            request=httpx.Request("POST", "https://example.test"),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = OpenAIClient(api_key="test-openai-key", model="gpt-test-mini").generate_text_result(
+        "hello"
+    )
+
+    assert result.text == "첫 줄\n둘째 줄"
+
+
+def test_openai_client_classifies_invalid_key_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(*args, **kwargs):
+        return httpx.Response(
+            401,
+            json={"error": {"message": "invalid api key"}},
+            request=httpx.Request("POST", "https://example.test"),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = OpenAIClient(api_key="test-openai-key", model="gpt-test-mini").generate_text_result(
+        "hello"
+    )
+
+    assert result.text is None
+    assert result.error_reason == "invalid_api_key"
+    assert result.status_code == 401
+
+
+def test_openai_client_classifies_quota_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_post(*args, **kwargs):
+        return httpx.Response(
+            429,
+            json={"error": {"message": "quota exceeded"}},
+            request=httpx.Request("POST", "https://example.test"),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = OpenAIClient(api_key="test-openai-key", model="gpt-test-mini").generate_text_result(
+        "hello"
+    )
+
+    assert result.text is None
+    assert result.error_reason == "quota_exceeded"
+    assert result.status_code == 429
+
+
+def test_report_service_uses_openai_client_when_provider_is_openai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_values = {
+        "ai_provider": settings.ai_provider,
+        "ai_model": settings.ai_model,
+        "openai_api_key": settings.openai_api_key,
+        "gemini_api_key": settings.gemini_api_key,
+    }
+    monkeypatch.setattr(settings, "ai_provider", "openai")
+    monkeypatch.setattr(settings, "ai_model", "gpt-test-mini")
+    monkeypatch.setattr(settings, "openai_api_key", "test-openai-key")
+    monkeypatch.setattr(settings, "gemini_api_key", None)
+    try:
+        service = get_report_service()
+    finally:
+        for key, value in original_values.items():
+            monkeypatch.setattr(settings, key, value)
+
+    assert isinstance(service.summarizer.client, OpenAIClient)
+    assert service.summarizer.client.model == "gpt-test-mini"
+
+
+def test_report_service_defaults_to_gemini_client_without_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_values = {
+        "ai_provider": settings.ai_provider,
+        "ai_model": settings.ai_model,
+        "openai_api_key": settings.openai_api_key,
+        "gemini_api_key": settings.gemini_api_key,
+        "gemini_model": settings.gemini_model,
+    }
+    monkeypatch.setattr(settings, "ai_provider", None)
+    monkeypatch.setattr(settings, "ai_model", None)
+    monkeypatch.setattr(settings, "openai_api_key", None)
+    monkeypatch.setattr(settings, "gemini_api_key", None)
+    monkeypatch.setattr(settings, "gemini_model", "gemini-test-model")
+    try:
+        service = get_report_service()
+    finally:
+        for key, value in original_values.items():
+            monkeypatch.setattr(settings, key, value)
+
+    assert isinstance(service.summarizer.client, GeminiClient)
+    assert service.summarizer.client.model == "gemini-test-model"
 
 
 def test_gemini_client_generate_text_keeps_existing_text_interface(

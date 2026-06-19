@@ -8,17 +8,14 @@ from app.ai.text_generation import TextGenerationResult
 logger = logging.getLogger(__name__)
 
 
-GeminiTextResult = TextGenerationResult
-
-
-class GeminiClient:
+class OpenAIClient:
     def __init__(
         self,
         *,
         api_key: str | None,
         model: str,
         max_output_tokens: int = 8192,
-        timeout_seconds: float = 20.0,
+        timeout_seconds: float = 30.0,
     ) -> None:
         self.api_key = api_key
         self.model = model
@@ -32,30 +29,23 @@ class GeminiClient:
     def generate_text(self, prompt: str) -> str | None:
         return self.generate_text_result(prompt).text
 
-    def generate_text_result(self, prompt: str) -> GeminiTextResult:
+    def generate_text_result(self, prompt: str) -> TextGenerationResult:
         if not self.api_key:
             return self._empty_result(error_reason="api_key_missing")
 
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        )
         payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": prompt}],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": self.max_output_tokens,
-            },
+            "model": self.model,
+            "input": prompt,
+            "max_output_tokens": self.max_output_tokens,
         }
 
         try:
             response = httpx.post(
-                url,
-                headers={"x-goog-api-key": self.api_key},
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
                 json=payload,
                 timeout=self.timeout_seconds,
             )
@@ -63,7 +53,7 @@ class GeminiClient:
         except httpx.HTTPStatusError as exc:
             raw_error = self._safe_response_text(exc.response)
             return self._empty_result(
-                error_reason=self._http_error_reason(exc.response, raw_error),
+                error_reason=self._http_error_reason(exc.response),
                 status_code=exc.response.status_code,
                 raw_error=raw_error,
             )
@@ -84,7 +74,7 @@ class GeminiClient:
         result = self._extract_result(payload)
         if result.text is None:
             return self._log_empty_result(
-                GeminiTextResult(
+                TextGenerationResult(
                     text=None,
                     finish_reason=result.finish_reason,
                     error_reason=result.error_reason or "text_missing",
@@ -92,66 +82,51 @@ class GeminiClient:
                     raw_error=result.raw_error,
                 )
             )
-        if result.finish_reason and result.finish_reason != "STOP":
-            logger.warning(
-                "Gemini response finishReason is not STOP: reason=%s model=%s finish_reason=%s",
-                result.error_reason or "non_stop_finish_reason",
-                self.model,
-                result.finish_reason,
-            )
-
         return result
 
-    def _extract_text(self, payload: dict[str, Any]) -> str | None:
-        return self._extract_result(payload).text
-
-    def _extract_result(self, payload: dict[str, Any]) -> GeminiTextResult:
-        prompt_feedback = payload.get("promptFeedback") or {}
-        block_reason = prompt_feedback.get("blockReason")
-        if block_reason:
-            return GeminiTextResult(
-                text=None,
-                error_reason="safety_block",
-                raw_error=f"blockReason={block_reason}",
+    def _extract_result(self, payload: dict[str, Any]) -> TextGenerationResult:
+        output_text = payload.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return TextGenerationResult(
+                text=output_text.strip(),
+                finish_reason=self._finish_reason(payload),
             )
 
-        candidates = payload.get("candidates") or []
-        if not candidates:
-            return GeminiTextResult(text=None, error_reason="candidates_missing")
-        candidate = candidates[0]
-        finish_reason = candidate.get("finishReason")
-        if finish_reason and finish_reason != "STOP":
-            error_reason = "non_stop_finish_reason"
-            if finish_reason in {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST"}:
-                error_reason = "safety_block"
-        else:
-            error_reason = None
+        output = payload.get("output") or []
+        text_parts: list[str] = []
+        if isinstance(output, list):
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                content = item.get("content") or []
+                if not isinstance(content, list):
+                    continue
+                for content_item in content:
+                    if not isinstance(content_item, dict):
+                        continue
+                    text = content_item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        text_parts.append(text.strip())
 
-        content = candidate.get("content")
-        if not isinstance(content, dict):
-            return GeminiTextResult(
-                text=None,
-                finish_reason=finish_reason,
-                error_reason="content_missing",
-            )
-
-        parts = content.get("parts") or []
-        if not parts:
-            return GeminiTextResult(
-                text=None,
-                finish_reason=finish_reason,
-                error_reason="parts_missing",
-            )
-
-        text_parts = [part.get("text", "") for part in parts if part.get("text")]
         text = "\n".join(text_parts).strip()
         if not text:
-            return GeminiTextResult(
+            return TextGenerationResult(
                 text=None,
-                finish_reason=finish_reason,
+                finish_reason=self._finish_reason(payload),
                 error_reason="text_missing",
             )
-        return GeminiTextResult(text=text, finish_reason=finish_reason, error_reason=error_reason)
+        return TextGenerationResult(text=text, finish_reason=self._finish_reason(payload))
+
+    def _finish_reason(self, payload: dict[str, Any]) -> str | None:
+        status = payload.get("status")
+        if isinstance(status, str) and status != "completed":
+            return status
+        incomplete_details = payload.get("incomplete_details")
+        if isinstance(incomplete_details, dict):
+            reason = incomplete_details.get("reason")
+            if isinstance(reason, str):
+                return reason
+        return status if isinstance(status, str) else None
 
     def _empty_result(
         self,
@@ -159,9 +134,9 @@ class GeminiClient:
         error_reason: str,
         status_code: int | None = None,
         raw_error: str | None = None,
-    ) -> GeminiTextResult:
+    ) -> TextGenerationResult:
         return self._log_empty_result(
-            GeminiTextResult(
+            TextGenerationResult(
                 text=None,
                 error_reason=error_reason,
                 status_code=status_code,
@@ -169,9 +144,9 @@ class GeminiClient:
             )
         )
 
-    def _log_empty_result(self, result: GeminiTextResult) -> GeminiTextResult:
+    def _log_empty_result(self, result: TextGenerationResult) -> TextGenerationResult:
         logger.warning(
-            "Gemini generate_text returned empty: reason=%s model=%s status_code=%s "
+            "OpenAI generate_text returned empty: reason=%s model=%s status_code=%s "
             "finish_reason=%s raw_error=%s",
             result.error_reason,
             self.model,
@@ -187,8 +162,10 @@ class GeminiClient:
         except RuntimeError:
             return "<response body unavailable>"
 
-    def _http_error_reason(self, response: httpx.Response, raw_error: str) -> str:
-        if response.status_code == 429 or "RESOURCE_EXHAUSTED" in raw_error:
+    def _http_error_reason(self, response: httpx.Response) -> str:
+        if response.status_code == 401:
+            return "invalid_api_key"
+        if response.status_code == 429:
             return "quota_exceeded"
         return "http_status_error"
 
