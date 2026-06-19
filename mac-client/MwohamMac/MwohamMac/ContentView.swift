@@ -907,7 +907,10 @@ private struct SettingsView: View {
                         }
 
                         PrimaryActionButton(
-                            title: "backend 시작",
+                            title:
+                                viewModel.backendLifecycle.state == .connected
+                                ? "backend 실행 중"
+                                : "backend 시작",
                             systemImage: "play.circle",
                             isDisabled:
                                 viewModel.backendLifecycle.isBusy
@@ -945,6 +948,15 @@ private struct SettingsView: View {
                         } label: {
                             Label("대시보드 열기", systemImage: "safari")
                         }
+                    }
+
+                    if !viewModel.backendLifecycle.ownsBackendProcess,
+                       viewModel.backendLifecycle.state == .connected {
+                        WarningBanner(
+                            message:
+                                "현재 backend는 앱이 시작한 프로세스가 아니라 외부에서 실행 중인 프로세스로 판단됩니다. 앱은 외부 backend를 강제로 재시작하거나 중지하지 않습니다. 앱에서 시작/재시작/중지 버튼을 사용하려면 외부 backend를 종료한 뒤 backend 다시 확인 또는 앱 재실행으로 앱이 backend를 시작하게 해 주세요.",
+                            title: "외부 backend 사용 중"
+                        )
                     }
 
                     if let lifecycleError =
