@@ -18,7 +18,7 @@ from app.services.report_service import ReportService, get_report_service
 from app.services.timeline_builder import get_timeline_builder
 
 FALLBACK_EVIDENCE_MESSAGE = (
-    "Gemini 응답을 사용할 수 없어 정제된 작업 evidence와 검증 결과 중심으로 정리했습니다."
+    "AI Provider 응답을 사용할 수 없어 정제된 작업 evidence와 검증 결과 중심으로 정리했습니다."
 )
 
 
@@ -573,7 +573,8 @@ def test_fallback_report_hides_git_inspection_and_keeps_validation_separate() ->
         assert "prompt_builder.py" not in content
     assert "macOS 타임라인 표시 정책 harness 통과" in detailed
     assert "macOS 타임라인 표시 정책 harness 통과" in simple
-    assert "13차 Launch at Login" in detailed
+    assert "Release packaging" in detailed
+    assert "13차 Launch at Login" not in detailed
     assert len([line for line in simple.splitlines() if line.startswith("- ")]) <= 10
 
 

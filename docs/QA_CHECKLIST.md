@@ -961,12 +961,18 @@ git diff --check
    표시되는지 확인합니다.
 7. 수동 메모, 회의 전사, Dev Tracking 이벤트는 Activity Event 정제 때문에
    숨겨지지 않는지 확인합니다.
-8. `/activity-segments?date=YYYY-MM-DD` 원본 목록에는 원본 segment가 삭제되지 않고
+8. 중요한 이벤트가 없어도 전체 탭에는 일반 작업 흐름 또는 low-signal 대표 항목이
+   빈 화면처럼 보이지 않고 시간순으로 표시되는지 확인합니다.
+9. low-signal/접힌 이벤트만 있는 시간대는 대표 항목 일부가 보이고, 나머지는
+   `접힌 이벤트` disclosure에서 펼쳐 볼 수 있는지 확인합니다.
+10. 앱 활동/개발 이벤트/메모/회의 필터가 각각 해당 category만 보여주고, 해당 데이터가
+    없을 때는 필터 결과 없음 상태와 중요 이벤트 없음 상태가 섞이지 않는지 확인합니다.
+11. `/activity-segments?date=YYYY-MM-DD` 원본 목록에는 원본 segment가 삭제되지 않고
    남아 있는지 확인합니다.
-9. `/timeline/today/detail?date=YYYY-MM-DD` 응답의 activity item에 `display_title`,
+12. `/timeline/today/detail?date=YYYY-MM-DD` 응답의 activity item에 `display_title`,
    `signal_level`, `hidden_by_default`, `noise_reason`, `event_count`가 내려오는지
    확인합니다.
-10. 리포트 조회/편집, backend lifecycle, 메뉴바, 플로팅 위젯 동작이 기존과 같은지
+13. 리포트 조회/편집, backend lifecycle, 메뉴바, 플로팅 위젯 동작이 기존과 같은지
     확인합니다.
 
 정상 기대 결과:
@@ -1009,7 +1015,8 @@ uv run pytest -q
    핵심 작업 요약으로 승격되지 않는지 확인합니다.
 8. `high_signal` 또는 `medium_signal` activity는 작업 환경 근거로만 보조 반영되는지
    확인합니다.
-9. Gemini 호출 실패 fallback 리포트에서도 Git 파일 나열 대신 작업 후보와 검증 결과가
+9. AI Provider key 없음, invalid key, quota/network 실패 fallback 리포트에서도 Git 파일
+   나열 대신 작업 후보와 검증 결과가
    분리되는지 확인합니다.
 10. 타임라인 화면, 리포트 편집 화면, 웹 reports 화면이 기존처럼 동작하는지 확인합니다.
 
@@ -1052,14 +1059,21 @@ git diff --check
 7. `pytest`, `run_dev_checks.py`, `build_macos_app.sh`, `test_macos_timeline_presentation.sh`,
    `test_macos_report_presentation.sh`, `git diff --check`는 테스트/검증 결과 섹션으로
    분리되는지 확인합니다.
-8. 다음 작업 후보가 완료한 파일명/테스트명 대신 로드맵 중심으로 제안되는지 확인합니다.
-   - 13차 Launch at Login
-   - 14차 메뉴바/플로팅 위젯 리팩토링
-   - 15차 Release 패키징
-9. simple 리포트는 짧은 업무 보고 형태로 유지되는지 확인합니다.
-10. detailed 리포트는 변경 이유, 변경 전 문제, 변경 후 동작, 관련 영역, 검증 결과,
+8. 시간대별 작업 흐름은 evidence timestamp 오름차순을 유지하는지 확인합니다.
+   예: 11:31 근거가 13:33, 14:25 근거 뒤에 나오지 않아야 합니다.
+9. `git switch`, `git checkout` 실패는 반복 실패, build/test/API 실패, 사용자 메모와
+   연결된 경우가 아니면 주요 트러블슈팅으로 과대평가되지 않는지 확인합니다.
+10. 테스트/검증 결과는 실제 validation command evidence가 있을 때 통과/실패를 명확히
+    쓰고, evidence가 없을 때 `명시되지 않음` 같은 문구를 반복하지 않는지 확인합니다.
+11. 영향 없는 범위는 변경 범위와 QA evidence 기준으로 DB/schema, backend API, recording,
+    Dev Tracking, STT, Launch at Login, AI Provider key handling 등 미변경 정책을
+    보수적으로 설명하는지 확인합니다.
+12. 다음 작업 후보가 완료한 파일명/테스트명 대신 현재 후속 단계인 Release packaging
+    중심으로 제안되는지 확인합니다.
+13. simple 리포트는 짧은 업무 보고 형태로 유지되는지 확인합니다.
+14. detailed 리포트는 변경 이유, 변경 전 문제, 변경 후 동작, 관련 영역, 검증 결과,
     영향 없는 범위, 다음 작업 연결을 충분히 설명하는지 확인합니다.
-11. Gemini 호출 실패 fallback에서도 동일한 노출 제한과 검증 분리 정책이 적용되는지
+15. AI Provider 호출 실패 fallback에서도 동일한 노출 제한과 검증 분리 정책이 적용되는지
     확인합니다.
 
 정상 기대 결과:

@@ -141,7 +141,7 @@ private struct TimelineGroupCard: View {
                 }
 
                 if group.items.isEmpty {
-                    Text("주요 이벤트는 없고 접힌 이벤트만 있습니다.")
+                    Text("이 시간대는 접힌 보조 이벤트만 있습니다. 접힌 이벤트를 열어 세부 흐름을 확인하세요.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else {

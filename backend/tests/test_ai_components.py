@@ -1602,6 +1602,112 @@ def test_prompt_builder_prioritizes_failed_terminal_commands() -> None:
     assert "tracking_mode=command_hook" not in dev_event_section
 
 
+def test_prompt_builder_keeps_priority_dev_events_chronological() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=3,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 5, 25, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="uv run pytest",
+                content="명령 실패: uv run pytest exit_code=1",
+                details_json={"exit_code": 1},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 2, 31, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run python scripts/run_dev_checks.py --no-record",
+                content="명령 성공: uv run python scripts/run_dev_checks.py --no-record",
+                details_json={"exit_code": 0},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=3,
+                timestamp=datetime(2026, 5, 26, 4, 33, tzinfo=UTC),
+                event_type="test_result",
+                source="script",
+                status="success",
+                content="release QA 통과",
+                details_json={"exit_code": 0},
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    dev_event_section = _prompt_section(
+        prompt,
+        "PRIORITY_DEV_EVENTS:",
+        "PRIORITY_COMMAND_FLOWS:",
+    )
+
+    assert "timestamp순을 유지하세요" in prompt
+    assert dev_event_section.index("time=2026-05-26 11:31") < dev_event_section.index(
+        "time=2026-05-26 13:33"
+    )
+    assert dev_event_section.index("time=2026-05-26 13:33") < dev_event_section.index(
+        "time=2026-05-26 14:25"
+    )
+
+
+def test_prompt_builder_demotes_failed_git_switch_from_troubleshooting_flow() -> None:
+    timeline = TimelineResponse(
+        date=date(2026, 5, 26),
+        total=2,
+        items=[
+            TimelineItem(
+                type="dev_event",
+                id=1,
+                timestamp=datetime(2026, 5, 26, 1, 0, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="failed",
+                command="git switch feature/missing-branch",
+                content="명령 실패: git switch feature/missing-branch exit_code=1",
+                details_json={"exit_code": 1},
+            ),
+            TimelineItem(
+                type="dev_event",
+                id=2,
+                timestamp=datetime(2026, 5, 26, 1, 5, tzinfo=UTC),
+                event_type="command_result",
+                source="terminal",
+                status="success",
+                command="uv run pytest tests/test_ai_components.py",
+                content="명령 성공: uv run pytest tests/test_ai_components.py",
+                details_json={"exit_code": 0},
+            ),
+        ],
+    )
+
+    prompt = PromptBuilder(privacy_filter=PrivacyFilter()).build_daily_report_prompt(timeline)
+    dev_event_section = _prompt_section(
+        prompt,
+        "PRIORITY_DEV_EVENTS:",
+        "PRIORITY_COMMAND_FLOWS:",
+    )
+    command_flow_section = _prompt_section(
+        prompt,
+        "PRIORITY_COMMAND_FLOWS:",
+        "WORK_EVIDENCE_BY_TIME:",
+    )
+
+    assert "트러블슈팅으로 올리지 마세요" in prompt
+    assert "git switch feature/missing-branch" not in dev_event_section
+    assert "flow_type=failed_only" not in command_flow_section
+    assert "flow_type=failed_to_success" not in command_flow_section
+    assert "flow_type=inspection" in command_flow_section
+    assert "inspection/setup commands summarized" in command_flow_section
+
+
 def test_prompt_builder_adds_command_flow_hints_for_failed_then_success() -> None:
     timeline = TimelineResponse(
         date=date(2026, 5, 26),

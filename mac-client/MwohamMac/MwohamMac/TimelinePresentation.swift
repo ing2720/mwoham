@@ -187,8 +187,7 @@ enum TimelinePresentationBuilder {
             guard let periodItems = grouped[period], !periodItems.isEmpty else {
                 return nil
             }
-            let visible = periodItems.filter { !$0.isFoldedNoise }
-            let folded = periodItems.filter(\.isFoldedNoise)
+            let splitItems = splitVisibleAndFoldedItems(periodItems)
             let importantCount = periodItems.filter(\.isImportant).count
             let isReportCandidate =
                 importantCount > 0
@@ -201,8 +200,8 @@ enum TimelinePresentationBuilder {
                 id: period.rawValue,
                 title: period.title,
                 systemImage: period.systemImage,
-                items: visible,
-                foldedItems: folded,
+                items: splitItems.visible,
+                foldedItems: splitItems.folded,
                 totalCount: periodItems.count,
                 importantCount: importantCount,
                 isReportCandidate: isReportCandidate
@@ -264,6 +263,20 @@ enum TimelinePresentationBuilder {
             previousDate = item.timestamp
             return copy
         }
+    }
+
+    private static func splitVisibleAndFoldedItems(
+        _ periodItems: [TimelineDisplayItem]
+    ) -> (visible: [TimelineDisplayItem], folded: [TimelineDisplayItem]) {
+        let visible = periodItems.filter { !$0.isFoldedNoise }
+        let folded = periodItems.filter(\.isFoldedNoise)
+        guard visible.isEmpty, !folded.isEmpty else {
+            return (visible, folded)
+        }
+
+        let previewItems = Array(folded.prefix(3))
+        let remainingFoldedItems = Array(folded.dropFirst(previewItems.count))
+        return (previewItems, remainingFoldedItems)
     }
 
     private static func isShortActivity(_ item: TimelineDisplayItem) -> Bool {

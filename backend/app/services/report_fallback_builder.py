@@ -67,7 +67,7 @@ class ReportFallbackBuilder:
             "## 요약",
             f"- 오늘 수집된 타임라인 항목은 총 {timeline.total}개입니다.",
             (
-                "- Gemini 응답을 사용할 수 없어 정제된 작업 evidence와 "
+                "- AI Provider 응답을 사용할 수 없어 정제된 작업 evidence와 "
                 "검증 결과 중심으로 정리했습니다."
             ),
             (
@@ -106,9 +106,9 @@ class ReportFallbackBuilder:
                 ),
                 "",
                 "## 다음 작업 후보",
-                "- 13차 Launch at Login",
-                "- 14차 메뉴바/플로팅 위젯 리팩토링",
-                "- 15차 Release 패키징",
+                "- Timeline/Report 실제 데이터 기준 수동 QA",
+                "- Release packaging 전 최종 검증",
+                "- Release packaging",
             ]
         )
 
@@ -144,7 +144,7 @@ class ReportFallbackBuilder:
             "",
             "## 오늘 한 일 요약",
             f"- 오늘 수집된 타임라인 항목은 총 {timeline.total}개입니다.",
-            "- Gemini 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다.",
+            "- AI Provider 응답을 사용할 수 없어 핵심 항목만 간단히 정리했습니다.",
             "",
             "## 완료한 작업",
         ]
@@ -152,11 +152,16 @@ class ReportFallbackBuilder:
             lines.extend(f"- {candidate}" for candidate in completed_candidates[:5])
         else:
             lines.append("- 확인된 핵심 작업 없음")
+        next_action = (
+            "- Release packaging"
+            if completed_candidates or validation_candidates
+            else "- 확인된 내용 없음."
+        )
         lines.extend(
             [
                 "",
                 "## 다음 작업",
-                "- 확인된 내용 없음.",
+                next_action,
                 "",
                 "## 테스트/검증 결과",
             ]
@@ -297,6 +302,8 @@ class ReportFallbackBuilder:
 
     def _is_high_confidence_dev_event(self, item) -> bool:
         if item.event_type in {"git_snapshot", "command_result", "test_result"}:
+            if item.event_type == "command_result" and self._is_git_inspection_event(item):
+                return False
             return True
         content = item.content or ""
         if self._extract_work_keywords(content):
