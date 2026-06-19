@@ -90,61 +90,42 @@ struct WhisperSettingsInspection: Equatable {
     let binaryIsExecutable: Bool
     let modelExists: Bool
     let modelFileSizeBytes: Int64?
+    let binarySourceLabel: String
+    let modelSourceLabel: String
+    let runtimeStatus: STTRuntimeStatus
 
     static func inspect(
         binaryPath: String,
         modelPath: String,
         fileManager: FileManager = .default
     ) -> WhisperSettingsInspection {
-        let normalizedBinaryPath = normalizedPath(binaryPath)
-        let normalizedModelPath = normalizedPath(modelPath)
-        var binaryIsDirectory: ObjCBool = false
-        let binaryExists = !normalizedBinaryPath.isEmpty
-            && fileManager.fileExists(
-                atPath: normalizedBinaryPath,
-                isDirectory: &binaryIsDirectory
-            )
-            && !binaryIsDirectory.boolValue
-        var modelIsDirectory: ObjCBool = false
-        let modelExists = !normalizedModelPath.isEmpty
-            && fileManager.fileExists(
-                atPath: normalizedModelPath,
-                isDirectory: &modelIsDirectory
-            )
-            && !modelIsDirectory.boolValue
-        let attributes = modelExists
-            ? try? fileManager.attributesOfItem(atPath: normalizedModelPath)
-            : nil
-        let fileSize = (attributes?[.size] as? NSNumber)?.int64Value
+        let readiness = STTRuntimeResolver(
+            configuredWhisperCLIPath: binaryPath,
+            configuredModelPath: modelPath,
+            fileManager: fileManager
+        ).resolve()
 
         return WhisperSettingsInspection(
-            binaryPath: normalizedBinaryPath,
-            modelPath: normalizedModelPath,
-            binaryExists: binaryExists,
-            binaryIsExecutable: binaryExists
-                && fileManager.isExecutableFile(atPath: normalizedBinaryPath),
-            modelExists: modelExists,
-            modelFileSizeBytes: fileSize
+            binaryPath: readiness.whisperCLI.url?.path ?? "",
+            modelPath: readiness.model.url?.path ?? "",
+            binaryExists: readiness.whisperCLI.exists,
+            binaryIsExecutable: readiness.whisperCLI.isExecutable,
+            modelExists: readiness.model.exists,
+            modelFileSizeBytes: readiness.model.fileSizeBytes,
+            binarySourceLabel: readiness.whisperCLI.source.label,
+            modelSourceLabel: readiness.model.source.label,
+            runtimeStatus: readiness.status
         )
     }
 
     var state: STTDisplayState {
-        if binaryPath.isEmpty {
-            return .configurationRequired("Whisper 실행 파일 경로를 입력해 주세요.")
+        switch runtimeStatus {
+        case .ready:
+            return .localWhisperAvailable
+        case .missingWhisperCLI, .missingModel, .whisperCLINotExecutable,
+             .missingMicrophonePermission, .unknownError:
+            return .configurationRequired(runtimeStatus.detail)
         }
-        if !binaryExists {
-            return .configurationRequired("Whisper 실행 파일을 찾을 수 없습니다.")
-        }
-        if !binaryIsExecutable {
-            return .configurationRequired("Whisper 실행 파일에 실행 권한이 없습니다.")
-        }
-        if modelPath.isEmpty {
-            return .configurationRequired("Whisper 모델 경로를 입력해 주세요.")
-        }
-        if !modelExists {
-            return .configurationRequired("Whisper 모델 파일을 찾을 수 없습니다.")
-        }
-        return .localWhisperAvailable
     }
 
     var modelFileSizeText: String {
@@ -157,13 +138,6 @@ struct WhisperSettingsInspection: Equatable {
         )
     }
 
-    private static func normalizedPath(_ path: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return ""
-        }
-        return NSString(string: trimmed).expandingTildeInPath
-    }
 }
 
 struct PermissionIssue: Identifiable, Equatable {

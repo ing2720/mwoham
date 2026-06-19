@@ -142,6 +142,23 @@ macOS 접근성, 화면 기록, 마이크 권한은 앱이 자동 허용할 수 
 - 마이크: 마이크 전사와 회의 전체 전사
 - 음성 인식: Apple Speech 기반 전사
 
+## Local Whisper STT runtime
+
+Mwoham의 회의 전사는 로컬 Whisper runtime을 사용합니다. Release DMG에는
+`MwohamMac.app/Contents/Resources/STT/whisper-cli`와
+`Contents/Resources/STT/models/ggml-large-v3-turbo.bin`을 포함하는 것을
+기본 정책으로 하며, 일반 사용자는 별도 STT API key나 모델 설치 없이 사용할 수
+있습니다.
+
+앱은 bundled resource를 먼저 찾고, 개발/override 용도로
+`~/Library/Application Support/Mwoham` 아래의 runtime/model 경로를 fallback으로
+확인합니다. 개발 환경에서는 `/opt/homebrew/bin/whisper-cli`를 fallback으로 사용할
+수 있지만 production 기본 경로로 의존하지 않습니다. 모델 파일과 `whisper-cli`
+바이너리는 배포 정책 확인 전까지 git에 포함하지 않습니다.
+
+runtime 또는 `large-v3-turbo` 모델이 없거나 `whisper-cli` 실행 권한이 없으면
+회의 전체 전사를 시작하지 않고 앱 설정과 전사 화면에서 안내를 표시합니다.
+
 ## 환경 설정
 
 백엔드는 `backend/.env`를 읽습니다. 실제 `.env`는 git에 포함하지 않습니다. 예시는 [backend/.env.example](backend/.env.example)을 참고하세요.

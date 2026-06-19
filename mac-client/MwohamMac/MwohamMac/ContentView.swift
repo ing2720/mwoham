@@ -675,12 +675,63 @@ private struct SettingsView: View {
 
             StatusCard("Local Whisper", systemImage: "cpu") {
                 VStack(alignment: .leading, spacing: 10) {
+                    Text("Mwoham은 로컬 Whisper STT를 사용합니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Text(
+                        "일반 사용자는 별도 모델 설치가 필요 없습니다. "
+                            + "배포판에는 large-v3-turbo 모델이 포함될 예정입니다."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
                     LabeledContent("사용 상태") {
                         StatusBadge(
                             state: meetingViewModel
                                 .whisperSettingsInspection.state,
                             compact: true
                         )
+                    }
+
+                    LabeledContent("Whisper CLI 상태") {
+                        Text(
+                            meetingViewModel.whisperSettingsInspection
+                                .binarySourceLabel
+                        )
+                    }
+
+                    LabeledContent("Whisper 모델 상태") {
+                        Text(
+                            meetingViewModel.whisperSettingsInspection
+                                .modelSourceLabel
+                        )
+                    }
+
+                    LabeledContent("사용할 실행 파일") {
+                        Text(
+                            meetingViewModel.whisperSettingsInspection
+                                .binaryPath.isEmpty
+                                ? "-"
+                                : meetingViewModel.whisperSettingsInspection
+                                    .binaryPath
+                        )
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    }
+
+                    LabeledContent("사용할 모델") {
+                        Text(
+                            meetingViewModel.whisperSettingsInspection
+                                .modelPath.isEmpty
+                                ? "-"
+                                : meetingViewModel.whisperSettingsInspection
+                                    .modelPath
+                        )
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
                     }
 
                     LabeledContent("Whisper 실행 파일") {
@@ -731,8 +782,9 @@ private struct SettingsView: View {
                     )
 
                     Text(
-                        "경로와 debug 옵션은 다음 회의 시작부터 적용됩니다. "
-                            + "기본 임시 오디오는 처리 후 삭제됩니다."
+                        "번들된 STT 리소스가 있으면 우선 사용합니다. "
+                            + "경로 override와 debug 옵션은 다음 회의 시작부터 적용됩니다. "
+                            + "모델 파일이 없으면 회의 전사를 시작할 수 없습니다."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
