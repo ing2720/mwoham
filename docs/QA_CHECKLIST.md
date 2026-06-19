@@ -823,20 +823,26 @@ debug 오디오 확인:
 
 1. macOS 앱을 실행하고 왼쪽 내비게이션에서 `타임라인`을 엽니다.
 2. backend가 연결된 상태에서 `타임라인 새로고침`을 누릅니다.
-3. 오늘 기록이 오전/오후/저녁/밤 시간대 카드로 묶여 보이는지 확인합니다.
-4. 각 시간대 카드에 이벤트 개수, 중요 이벤트 개수, 리포트 후보 표시가
+3. `scripts/smoke_timeline_report_runtime.sh` 또는 `/timeline/today/detail`로
+   실제 API item count와 type 분포를 먼저 확인합니다.
+4. API count가 있는데 macOS 화면이 비면 timezone 없는 fractional timestamp
+   parsing/decoding 문제로 판단하고, 해당 timestamp가 표시되는지 확인합니다.
+5. 오늘 기록이 오전/오후/저녁/밤 시간대 카드로 묶여 보이는지 확인합니다.
+6. 각 시간대 카드에 이벤트 개수, 중요 이벤트 개수, 리포트 후보 표시가
    자연스럽게 나타나는지 확인합니다.
-5. 앱 활동, 메모, 회의, 개발 이벤트가 각 카드에서 타입 badge로 구분되는지
+7. 앱 활동, 메모, 회의, 개발 이벤트가 각 카드에서 타입 badge로 구분되는지
    확인합니다.
-6. 필터를 `전체`, `앱 활동`, `메모`, `회의`, `개발 이벤트`, `중요 이벤트`로
+8. 필터를 `전체`, `앱 활동`, `메모`, `회의`, `개발 이벤트`, `중요 이벤트`로
    바꿔 결과가 즉시 바뀌는지 확인합니다.
-7. 짧은 앱 전환이나 5분 안에 반복된 동일 앱/창 이벤트가 `접힌 이벤트` 아래로
+9. 짧은 앱 전환이나 5분 안에 반복된 동일 앱/창 이벤트가 `접힌 이벤트` 아래로
    접히는지 확인합니다.
-8. backend를 끄거나 `/health` 실패 상태를 만든 뒤 타임라인 화면에 오류 banner가
+10. 접힌 이벤트만 있는 시간대도 대표 preview가 보이고 나머지를 disclosure에서
+    펼쳐 볼 수 있는지 확인합니다.
+11. backend를 끄거나 `/health` 실패 상태를 만든 뒤 타임라인 화면에 오류 banner가
    표시되는지 확인합니다.
-9. 기록이 없는 날짜 또는 빈 DB 상태에서 `오늘 기록 없음` 빈 상태가 표시되는지
+12. 기록이 없는 날짜 또는 빈 DB 상태에서 `오늘 기록 없음` 빈 상태가 표시되는지
    확인합니다.
-10. 필터 결과가 없는 경우 `필터 결과 없음` 빈 상태가 표시되는지 확인합니다.
+13. 필터 결과가 없는 경우 `필터 결과 없음` 빈 상태가 표시되는지 확인합니다.
 
 정상 기대 결과:
 
@@ -851,6 +857,7 @@ debug 오디오 확인:
 
 ```bash
 ./scripts/test_macos_timeline_presentation.sh
+./scripts/smoke_timeline_report_runtime.sh
 ./scripts/build_macos_app.sh --open
 git diff --check
 ```
@@ -1372,18 +1379,25 @@ git diff --check
 12. key가 없는 상태에서 report 생성 시 fallback 리포트가 생성되는지 확인합니다.
 13. invalid key 또는 quota 초과 상태에서도 앱 전체 오류 없이 연결 실패 안내 또는
     fallback 리포트가 동작하는지 확인합니다.
-14. Settings 변경 후 앱이 시작한 backend를 재시작해야 provider/model/key가 반영되는
-    정책이 화면 설명과 일치하는지 확인합니다.
-15. `git diff`, backend log, macOS diagnostic UI, docs/portfolio_logs에 실제 API Key가
+14. Settings 변경 후 `backend 재시작 적용` 버튼이 표시되고, 앱이 시작한 backend에서
+    버튼이 활성화되는지 확인합니다.
+15. 외부에서 실행한 backend는 설정 화면 안내대로 직접 재시작해야 provider/model/key가
+    web report AI 생성에 반영되는지 확인합니다.
+16. backend 재시작 후 web dashboard의 report 생성과 `/reports/daily` API 생성이 같은
+    AI/fallback 정책을 쓰는지 확인합니다.
+17. `git diff`, backend log, macOS diagnostic UI, docs/portfolio_logs에 실제 API Key가
     노출되지 않는지 확인합니다.
-16. `.env`가 없어도 dashboard, recording, timeline, report fallback이 동작하는지
+18. `.env`가 없어도 dashboard, recording, timeline, report fallback이 동작하는지
     확인합니다.
 
 검증 명령:
 
 ```bash
 ./scripts/test_macos_ai_provider_settings.sh
+./scripts/smoke_timeline_report_runtime.sh
 uv run pytest tests/test_ai_components.py -q
+cd backend
+uv run pytest tests/test_report_api.py::test_web_daily_report_create_uses_report_service_ai_policy -q
 ```
 
 ## 22. Packaging pre-check

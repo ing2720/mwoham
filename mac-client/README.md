@@ -117,6 +117,11 @@ API Key 전체 값은 저장 후 다시 표시하지 않고 `••••1234` �
 표시합니다. 모델명은 직접 입력하지 않고 provider API에서 조회된 compatible
 model 목록에서 선택합니다.
 
+Provider/model/API Key 변경은 backend 프로세스가 다음에 시작되거나 재시작될 때
+환경변수로 주입됩니다. 앱이 시작한 backend는 설정 화면의 `backend 재시작 적용`
+버튼으로 갱신할 수 있고, 외부에서 실행한 backend는 사용자가 직접 재시작해야 web
+report AI 생성에도 새 설정이 반영됩니다.
+
 앱이 backend를 새로 시작할 때 선택한 provider/model/key를 process environment에
 주입합니다. 이미 외부에서 실행 중인 backend에는 자동으로 주입되지 않으므로,
 설정 변경 후 앱이 시작한 backend를 재시작하거나 외부 backend를 다시 실행해야

@@ -291,9 +291,10 @@ UserDefaults, repo, 문서에는 포함되지 않습니다.
 - 키 없음, invalid key, 네트워크/API/quota 실패: 로컬 fallback 리포트 생성
 - `.env`: 개발용 override로만 유지
 
-Provider/model 변경은 다음 backend 시작 또는 앱이 시작한 backend 재시작부터
-적용됩니다. 외부에서 이미 실행 중인 backend는 해당 프로세스의 환경 변수를
-사용합니다.
+Provider/model/API Key 변경은 다음 backend 시작 또는 재시작부터 적용됩니다.
+앱이 시작한 backend는 설정 화면의 `backend 재시작 적용` 버튼으로 새 환경변수를
+주입할 수 있습니다. 외부에서 이미 실행 중인 backend는 해당 프로세스의 환경 변수를
+사용하므로 직접 재시작해야 web report AI 생성에도 반영됩니다.
 
 ## Command Tracking
 

@@ -29,6 +29,12 @@ func makeDate(_ hour: Int, _ minute: Int = 0) -> Date {
     return components.date!
 }
 
+func kstComponents(_ date: Date) -> DateComponents {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+    return calendar.dateComponents([.hour, .minute, .second], from: date)
+}
+
 func item(
     _ id: String,
     hour: Int,
@@ -63,6 +69,18 @@ func item(
         detailLines: []
     )
 }
+
+let backendTimestamp = TimelineDateParser.parse("2026-06-19T00:23:46.506000")
+expect(backendTimestamp != nil, "backend fractional timestamp without timezone parses")
+let backendComponents = kstComponents(backendTimestamp!)
+expect(backendComponents.hour == 9, "backend timestamp is interpreted as UTC and displayed in KST")
+expect(backendComponents.minute == 23, "backend timestamp minute is preserved")
+
+let backendWholeSecondTimestamp = TimelineDateParser.parse("2026-06-19T00:21:30")
+expect(backendWholeSecondTimestamp != nil, "backend whole-second timestamp without timezone parses")
+let backendWholeSecondComponents = kstComponents(backendWholeSecondTimestamp!)
+expect(backendWholeSecondComponents.hour == 9, "whole-second backend timestamp uses UTC")
+expect(backendWholeSecondComponents.second == 30, "whole-second backend timestamp preserves seconds")
 
 let items = [
     item(

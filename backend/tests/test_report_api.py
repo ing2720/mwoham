@@ -169,6 +169,34 @@ def test_daily_report_api_generates_detailed_mode_report(client: TestClient) -> 
     assert summarizer.modes == ["detailed"]
 
 
+def test_web_daily_report_create_uses_report_service_ai_policy(
+    client: TestClient,
+) -> None:
+    original_override = app.dependency_overrides.get(get_report_service)
+    summarizer = StubSummarizer("## 오늘 한 일 요약\nweb AI 리포트 생성")
+    service = ReportService(
+        repository=ReportRepository(),
+        timeline_builder=get_timeline_builder(),
+        summarizer=summarizer,
+    )
+    app.dependency_overrides[get_report_service] = lambda: service
+    try:
+        response = client.post(
+            "/reports/daily/create?mode=detailed",
+            follow_redirects=False,
+        )
+    finally:
+        if original_override is None:
+            app.dependency_overrides.pop(get_report_service, None)
+        else:
+            app.dependency_overrides[get_report_service] = original_override
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/reports/")
+    assert summarizer.calls == 1
+    assert summarizer.modes == ["detailed"]
+
+
 def test_daily_report_api_generates_simple_mode_report(client: TestClient) -> None:
     original_override = app.dependency_overrides.get(get_report_service)
     summarizer = StubSummarizer("## 오늘 한 일 요약\n- 간단 리포트 생성")
