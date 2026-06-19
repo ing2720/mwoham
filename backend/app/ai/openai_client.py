@@ -163,7 +163,7 @@ class OpenAIClient:
             return "<response body unavailable>"
 
     def _http_error_reason(self, response: httpx.Response) -> str:
-        if response.status_code == 401:
+        if response.status_code in {401, 403}:
             return "invalid_api_key"
         if response.status_code == 429:
             return "quota_exceeded"
@@ -172,6 +172,8 @@ class OpenAIClient:
     def _truncate_log_value(self, value: str | None, limit: int = 500) -> str | None:
         if value is None:
             return None
+        if self.api_key:
+            value = value.replace(self.api_key, "<redacted-api-key>")
         if len(value) <= limit:
             return value
         return value[:limit] + "...<truncated>"

@@ -144,6 +144,7 @@ private struct ReportCard: View {
         Button(action: open) {
             HStack(alignment: .top, spacing: 10) {
                 StatusBadge(state: item.mode, compact: true)
+                StatusBadge(state: item.creator, compact: true)
 
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 8) {
@@ -230,6 +231,13 @@ private struct ReportDetailSheet: View {
                 WarningBanner(
                     message: "저장하지 않은 변경사항이 있습니다.",
                     title: "편집 중"
+                )
+            }
+
+            if currentReport.createdBy == "fallback" {
+                WarningBanner(
+                    message: fallbackReasonText(currentReport.fallbackReason),
+                    title: "Fallback 리포트"
                 )
             }
 
@@ -328,6 +336,23 @@ private struct ReportDetailSheet: View {
             "생성 \(ReportDisplayDateFormatter.display(currentReport.createdAt))",
             "수정 \(ReportDisplayDateFormatter.display(currentReport.updatedAt))",
         ].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func fallbackReasonText(_ reason: String?) -> String {
+        switch reason {
+        case "api_key_missing":
+            return "AI Provider 키가 적용되지 않아 로컬 fallback 리포트로 생성되었습니다."
+        case "invalid_api_key":
+            return "AI Provider 인증에 실패해 로컬 fallback 리포트로 생성되었습니다."
+        case "quota_exceeded":
+            return "AI Provider 사용량 제한으로 로컬 fallback 리포트로 생성되었습니다."
+        case "timeout":
+            return "AI 호출이 지연되어 로컬 fallback 리포트로 생성되었습니다."
+        case "network_error":
+            return "AI Provider 네트워크 호출에 실패해 로컬 fallback 리포트로 생성되었습니다."
+        default:
+            return "AI 응답을 사용할 수 없어 로컬 fallback 리포트로 생성되었습니다."
+        }
     }
 
     private var editor: some View {

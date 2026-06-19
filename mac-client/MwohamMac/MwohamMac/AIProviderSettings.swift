@@ -50,6 +50,29 @@ enum AIProviderOperationStatus: Equatable {
     }
 }
 
+enum AIProviderBackendApplyPolicy {
+    static func message(
+        hasPendingBackendRestart: Bool,
+        canRestartBackend: Bool
+    ) -> String {
+        if hasPendingBackendRestart {
+            if canRestartBackend {
+                return "저장된 AI Provider 설정은 backend 재시작 후 web report 생성에도 적용됩니다."
+            }
+            return "저장된 AI Provider 설정은 다음 backend 시작 또는 외부 backend 재시작 후 적용됩니다."
+        }
+        return "Provider와 모델 변경은 다음 backend 시작 또는 재시작부터 적용됩니다."
+    }
+
+    static func isRestartDisabled(
+        hasPendingBackendRestart: Bool,
+        canRestartBackend: Bool,
+        isBusy: Bool
+    ) -> Bool {
+        isBusy || !hasPendingBackendRestart || !canRestartBackend
+    }
+}
+
 struct AIProviderSettings: Codable, Equatable {
     static let defaults = AIProviderSettings()
 
