@@ -4,9 +4,7 @@
 //
 
 import AppKit
-import AVFoundation
 import Foundation
-import Speech
 
 @MainActor
 protocol SpeechPermissionServicing {
@@ -22,22 +20,22 @@ protocol SpeechPermissionServicing {
 @MainActor
 final class SpeechPermissionService: SpeechPermissionServicing {
     func requestAuthorization() async throws {
-        try await requestSpeechRecognitionAuthorization()
-
-        let microphoneAllowed = await AVCaptureDevice.requestAccess(for: .audio)
+        let speechAllowed = await PermissionSettingsOpener
+            .requestSpeechRecognitionAccess()
+        guard speechAllowed else {
+            throw SpeechTranscriptionError.speechRecognitionDenied
+        }
+        let microphoneAllowed = await PermissionSettingsOpener
+            .requestMicrophoneAccess()
         guard microphoneAllowed else {
             throw SpeechTranscriptionError.microphoneDenied
         }
     }
 
     func requestSpeechRecognitionAuthorization() async throws {
-        let speechStatus = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status)
-            }
-        }
-
-        guard speechStatus == .authorized else {
+        let speechAllowed = await PermissionSettingsOpener
+            .requestSpeechRecognitionAccess()
+        guard speechAllowed else {
             throw SpeechTranscriptionError.speechRecognitionDenied
         }
     }
@@ -53,15 +51,15 @@ final class SpeechPermissionService: SpeechPermissionServicing {
     }
 
     func openSpeechRecognitionSettings() {
-        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")
+        PermissionSettingsOpener.openSpeechRecognitionSettings()
     }
 
     func openMicrophoneSettings() {
-        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        PermissionSettingsOpener.openMicrophoneSettings()
     }
 
     func openScreenRecordingSettings() {
-        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        PermissionSettingsOpener.openScreenRecordingSettings()
     }
 
     func showPermissionAlert() {
@@ -81,12 +79,5 @@ final class SpeechPermissionService: SpeechPermissionServicing {
         default:
             break
         }
-    }
-
-    private func openSystemSettingsPane(_ urlString: String) {
-        guard let url = URL(string: urlString) else {
-            return
-        }
-        NSWorkspace.shared.open(url)
     }
 }
