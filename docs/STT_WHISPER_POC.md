@@ -179,16 +179,16 @@ cmake --build ~/src/whisper.cpp/build --config Release
 준비합니다. 예시 경로:
 
 ```text
-~/Library/Application Support/Mwoham/models/ggml-large-v3-turbo.bin
+~/Library/Application Support/Mwoham/stt/models/ggml-large-v3-turbo.bin
 ```
 
 소스 checkout의 공식 download script를 직접 실행하는 예시:
 
 ```bash
-mkdir -p "$HOME/Library/Application Support/Mwoham/models"
+mkdir -p "$HOME/Library/Application Support/Mwoham/stt/models"
 sh ~/src/whisper.cpp/models/download-ggml-model.sh \
   large-v3-turbo \
-  "$HOME/Library/Application Support/Mwoham/models"
+  "$HOME/Library/Application Support/Mwoham/stt/models"
 ```
 
 참고:
@@ -208,7 +208,7 @@ python3 scripts/compare_local_stt.py \
   --input "/absolute/path/to/korean-meeting-sample.wav" \
   --language ko \
   --apple-locale ko-KR \
-  --model "$HOME/Library/Application Support/Mwoham/models/ggml-large-v3-turbo.bin" \
+  --model "$HOME/Library/Application Support/Mwoham/stt/models/ggml-large-v3-turbo.bin" \
   --whisper-bin "$(command -v whisper-cli)"
 ```
 

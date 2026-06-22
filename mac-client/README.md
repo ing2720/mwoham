@@ -23,6 +23,9 @@ MwohamMac/
   BackendLifecycleManager.swift      backend health/start/stop/restart
   MeetingTranscriptionViewModel.swift
   STTRuntimeResolver.swift
+  MwohamPaths.swift
+  ComponentManifest.swift
+  ComponentInstaller.swift
   LocalWhisperMeetingTranscriber.swift
   PermissionOnboardingView.swift
   PermissionSettingsOpener.swift
@@ -69,8 +72,8 @@ backend directory 탐색:
 
 1. UserDefaults/AppStorage override
 2. `MWOHAM_BACKEND_DIRECTORY`
-3. `Bundle.main.resourceURL/backend`
-4. `~/Library/Application Support/Mwoham/backend`
+3. `~/Library/Application Support/Mwoham/backend`
+4. `Bundle.main.resourceURL/backend`
 5. debug build fallback
 
 앱은 자신이 시작한 backend process만 종료/재시작합니다. 외부에서 이미 실행 중인 backend는 사용자가 직접 관리합니다.
@@ -164,27 +167,57 @@ DMG 내부 앱을 바로 실행하거나 quarantine 상태의 앱을 실행하�
 - runtime/resource는 고정 앱 경로가 아니라 `Bundle.main.resourceURL` 기준으로 계산합니다.
 - backend/STT path에 개발자 개인 경로를 production default로 넣지 않습니다.
 
-## STT bundled runtime
+## Component Installer
 
-Release DMG는 앱 번들 안에 Local Whisper runtime을 포함합니다.
+앱 시작 시 `ComponentInstaller`가 사용자별 Application Support 위치를 준비합니다. 앱 번들 Resources는 읽기 전용 설치 원본으로만 보고, 실제 실행 파일과 모델은 Application Support 아래에서 우선 사용합니다.
 
 ```text
-MwohamMac.app/Contents/Resources/STT/whisper-cli
-MwohamMac.app/Contents/Resources/STT/models/ggml-large-v3-turbo.bin
-MwohamMac.app/Contents/Resources/STT/lib/*.dylib
+~/Library/Application Support/Mwoham/
+  backend/
+  stt/
+    bin/
+    lib/
+    models/
+  logs/
+  data/
+  component_manifest.json
+```
+
+설치/검증 순서:
+
+1. `MwohamPaths.ensureDirectories()`
+2. `component_manifest.json` load or create
+3. backend resolve/copy
+4. STT CLI resolve/copy
+5. STT model existence check
+6. manifest update
+7. backend lifecycle start
+8. `/health` readiness check
+
+현재 zip payload 자동 해제와 원격 다운로드는 구현하지 않았습니다. `backend_payload.zip`, `stt_cli_payload.zip`, lite/full DMG 분리는 향후 확장 지점입니다.
+
+## STT runtime
+
+Release DMG는 Local Whisper runtime을 앱 번들에 설치 원본으로 포함할 수 있습니다. 실행 시에는 Application Support에 설치된 runtime을 우선 사용합니다.
+
+```text
+~/Library/Application Support/Mwoham/stt/bin/whisper-cli
+~/Library/Application Support/Mwoham/stt/models/ggml-large-v3-turbo.bin
+~/Library/Application Support/Mwoham/stt/lib/*.dylib
 ```
 
 runtime 탐색 순서:
 
-1. bundled resource
+1. Application Support
 2. 사용자 설정 override
-3. Application Support fallback
+3. bundled resource fallback
 4. 개발환경 fallback
 
 STT 정책:
 
 - 일반 테스터는 별도 STT API key가 필요 없습니다.
 - 모델 파일, `whisper-cli`, dylib 원본은 repo에 커밋하지 않습니다.
+- 모델이 없으면 앱 전체를 종료하지 않고 Local Whisper 상태에 모델 미설치로 표시합니다.
 - 원본 오디오는 영구 저장하지 않습니다.
 - Local Whisper용 임시 파일은 처리 후 삭제합니다.
 - backend에는 transcript text만 저장합니다.

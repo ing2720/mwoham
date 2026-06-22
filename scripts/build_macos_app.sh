@@ -85,6 +85,90 @@ validate_app_path() {
   fi
 }
 
+copy_backend_resources() {
+  local app_path="$1"
+  local source_dir="${ROOT_DIR}/backend"
+  local target_dir="${app_path}/Contents/Resources/backend"
+
+  if [[ ! -d "${source_dir}" ]]; then
+    echo "Warning: backend source directory not found: ${source_dir}" >&2
+    return
+  fi
+  if ! command -v rsync >/dev/null 2>&1; then
+    echo "rsync not found; cannot bundle backend resources." >&2
+    exit 1
+  fi
+
+  echo "Bundling backend resources..."
+  echo "Backend source: ${source_dir}"
+  echo "Backend target: ${target_dir}"
+  mkdir -p "$(dirname "${target_dir}")"
+  rsync -a --delete \
+    --exclude='.venv' \
+    --exclude='__pycache__' \
+    --exclude='.pytest_cache' \
+    --exclude='.ruff_cache' \
+    --exclude='.mypy_cache' \
+    --exclude='.coverage' \
+    --exclude='htmlcov' \
+    --exclude='*.db' \
+    --exclude='*.sqlite3' \
+    --exclude='logs' \
+    --exclude='data' \
+    --exclude='.env' \
+    "${source_dir}/" \
+    "${target_dir}/"
+}
+
+stt_resource_source_candidates() {
+  if [[ -n "${MWOHAM_STT_RESOURCE_SOURCE:-}" ]]; then
+    printf '%s\n' "$(absolute_path "${MWOHAM_STT_RESOURCE_SOURCE}")"
+  fi
+  printf '%s\n' \
+    "${ROOT_DIR}/dist/release/MwohamMac.app/Contents/Resources/STT" \
+    "${ROOT_DIR}/dist/dmg-staging/MwohamMac.app/Contents/Resources/STT"
+}
+
+resolve_stt_resource_source() {
+  local candidate
+  while IFS= read -r candidate; do
+    if [[ -d "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <(stt_resource_source_candidates)
+  return 1
+}
+
+copy_stt_resources() {
+  local app_path="$1"
+  local source_dir
+  local target_dir="${app_path}/Contents/Resources/STT"
+
+  if ! source_dir="$(resolve_stt_resource_source)"; then
+    echo "Warning: STT resource source not found; skipping STT bundle copy." >&2
+    echo "Warning: checked MWOHAM_STT_RESOURCE_SOURCE, dist/release, dist/dmg-staging." >&2
+    return
+  fi
+
+  echo "Bundling STT resources..."
+  echo "STT source: ${source_dir}"
+  echo "STT target: ${target_dir}"
+  rm -rf "${target_dir}"
+  mkdir -p "$(dirname "${target_dir}")"
+  ditto "${source_dir}" "${target_dir}"
+
+  if [[ ! -x "${target_dir}/whisper-cli" ]]; then
+    echo "Warning: bundled STT whisper-cli missing or not executable: ${target_dir}/whisper-cli" >&2
+  fi
+  if [[ ! -f "${target_dir}/models/ggml-large-v3-turbo.bin" ]]; then
+    echo "Warning: bundled STT model missing: ${target_dir}/models/ggml-large-v3-turbo.bin" >&2
+  fi
+  if ! compgen -G "${target_dir}/lib/*.dylib" >/dev/null; then
+    echo "Warning: bundled STT dylib files missing: ${target_dir}/lib/*.dylib" >&2
+  fi
+}
+
 available_signing_identities() {
   if [[ -n "${MWOHAM_SECURITY_IDENTITIES+x}" ]]; then
     printf '%s\n' "${MWOHAM_SECURITY_IDENTITIES}"
@@ -349,7 +433,7 @@ if [[ ! -d "${BUILT_APP_PATH}" ]]; then
 fi
 
 echo "Installing MwohamMac..."
-echo "1/5 Stopping the existing MwohamMac process if present..."
+echo "1/6 Stopping the existing MwohamMac process if present..."
 pkill -x MwohamMac 2>/dev/null || true
 for _ in {1..30}; do
   if ! pgrep -x MwohamMac >/dev/null 2>&1; then
@@ -362,12 +446,16 @@ if pgrep -x MwohamMac >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "2/5 Replacing the installed app bundle..."
+echo "2/6 Replacing the installed app bundle..."
 echo "From: ${BUILT_APP_PATH}"
 echo "To:   ${APP_PATH}"
 mkdir -p "$(dirname "${APP_PATH}")"
 rm -rf "${APP_PATH}"
 ditto "${BUILT_APP_PATH}" "${APP_PATH}"
+
+echo "3/6 Bundling installable backend/STT components..."
+copy_backend_resources "${APP_PATH}"
+copy_stt_resources "${APP_PATH}"
 
 ACTUAL_BUNDLE_IDENTIFIER="$(
   /usr/libexec/PlistBuddy \
@@ -404,7 +492,8 @@ BUILD_NUMBER="$(
 )"
 
 if [[ "${ALLOW_UNSIGNED}" -eq 0 ]]; then
-  echo "3/5 Verifying the signed app bundle..."
+  echo "4/6 Re-signing and verifying the installed app bundle..."
+  codesign --force --deep --sign "${RESOLVED_SIGNING_IDENTITY_HASH}" "${APP_PATH}"
   codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
   SIGNING_DETAILS="$(codesign -dv --verbose=4 "${APP_PATH}" 2>&1)"
   if grep -Fq "Signature=adhoc" <<<"${SIGNING_DETAILS}"; then
@@ -419,18 +508,18 @@ if [[ "${ALLOW_UNSIGNED}" -eq 0 ]]; then
     | grep -E "^(Identifier|Authority|TeamIdentifier|Signature)="
   codesign -d -r- "${APP_PATH}" 2>&1
 else
-  echo "3/5 Skipping codesign identity verification for explicit unsigned mode."
+  echo "4/6 Skipping codesign identity verification for explicit unsigned mode."
 fi
 
 if [[ "${MWOHAM_SKIP_LSREGISTER:-0}" == "1" ]]; then
-  echo "4/5 Skipping LaunchServices registration."
+  echo "5/6 Skipping LaunchServices registration."
 else
-  echo "4/5 Registering the installed app with LaunchServices..."
+  echo "5/6 Registering the installed app with LaunchServices..."
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister" \
     -f "${APP_PATH}"
 fi
 
-echo "5/5 Installation complete."
+echo "6/6 Installation complete."
 echo "Installed app: ${APP_PATH}"
 echo "Display name: ${ACTUAL_DISPLAY_NAME}"
 echo "Bundle ID: ${ACTUAL_BUNDLE_IDENTIFIER}"

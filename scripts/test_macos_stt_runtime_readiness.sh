@@ -6,6 +6,24 @@ APP_DIR="$ROOT_DIR/mac-client/MwohamMac/MwohamMac"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mwoham-stt-runtime.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
+assert_absent_fixed_string() {
+  local needle="$1"
+  local status
+  shift
+
+  grep -F -n -- "$needle" "$@"
+  status=$?
+  if [[ "$status" -eq 0 ]]; then
+    return 1
+  fi
+  if [[ "$status" -eq 1 ]]; then
+    return 0
+  fi
+
+  echo "grep failed while checking for: $needle" >&2
+  return "$status"
+}
+
 cat > "$WORK_DIR/main.swift" <<'SWIFT'
 import Foundation
 
@@ -34,6 +52,10 @@ func writeFile(_ url: URL, executable: Bool = false) {
     }
 }
 
+func sourceNames(_ candidates: [STTRuntimeResourceCandidate]) -> String {
+    candidates.map(\.source.rawValue).joined(separator: ",")
+}
+
 let root = URL(fileURLWithPath: CommandLine.arguments[1])
 let bundledRoot = root.appendingPathComponent("bundle")
 let appSupportRoot = root.appendingPathComponent("Application Support/Mwoham")
@@ -47,8 +69,10 @@ let bundledModel = bundledRoot
     .appendingPathComponent("ggml-large-v3-turbo.bin")
 let appSupportCLI = appSupportRoot
     .appendingPathComponent("stt")
+    .appendingPathComponent("bin")
     .appendingPathComponent("whisper-cli")
 let appSupportModel = appSupportRoot
+    .appendingPathComponent("stt")
     .appendingPathComponent("models")
     .appendingPathComponent("ggml-large-v3-turbo.bin")
 let devCLI = devRoot.appendingPathComponent("whisper-cli")
@@ -134,12 +158,14 @@ var candidates = STTRuntimeResolver(
     allowsDevFallback: false
 ).discoveredCandidates()
 expect(
-    candidates.whisperCLI.map(\.source) == [.bundled, .applicationSupport],
-    "CLI candidates should preserve resolver priority"
+    candidates.whisperCLI.first?.source == .applicationSupport
+        && candidates.whisperCLI.dropFirst().allSatisfy { $0.source == .bundled },
+    "CLI candidates should preserve resolver priority: \(sourceNames(candidates.whisperCLI))"
 )
 expect(
-    candidates.model.map(\.source) == [.bundled, .applicationSupport],
-    "model candidates should preserve resolver priority"
+    candidates.model.first?.source == .applicationSupport
+        && candidates.model.dropFirst().allSatisfy { $0.source == .bundled },
+    "model candidates should preserve resolver priority: \(sourceNames(candidates.model))"
 )
 
 writeFile(devCLI, executable: true)
@@ -189,23 +215,26 @@ let env = STTRuntimeResolver(
     devModelPath: nil,
     allowsDevFallback: false
 ).backendEnvironmentValues()
-expect(env["STT_WHISPER_CLI_PATH"] == bundledCLI.path, "backend env includes CLI path")
-expect(env["STT_MODEL_PATH"] == bundledModel.path, "backend env includes model path")
+expect(env["STT_WHISPER_CLI_PATH"] == appSupportCLI.path, "backend env includes CLI path")
+expect(env["STT_MODEL_PATH"] == appSupportModel.path, "backend env includes model path")
 
-print("macOS STT runtime readiness tests passed")
 SWIFT
 
 swiftc \
     -module-cache-path "$WORK_DIR/module-cache" \
     "$WORK_DIR/main.swift" \
     "$APP_DIR/StatusTypes.swift" \
+    "$APP_DIR/MwohamPaths.swift" \
     "$APP_DIR/LocalWhisperSettings.swift" \
     "$APP_DIR/STTRuntimeResolver.swift" \
     -o "$WORK_DIR/stt_runtime_readiness_harness"
 
 "$WORK_DIR/stt_runtime_readiness_harness" "$WORK_DIR"
 
-if rg -n '"/Users/a/Library/Application Support/Mwoham/models/ggml-large-v3-turbo.bin"' \
+# Regression guard: this intentionally contains the old user-specific model
+# path so production defaults cannot fall back to the pre-ComponentInstaller
+# Application Support layout.
+if ! assert_absent_fixed_string '"/Users/a/Library/Application Support/Mwoham/models/ggml-large-v3-turbo.bin"' \
     "$APP_DIR/STTRuntimeResolver.swift" "$APP_DIR/LocalWhisperSettings.swift"; then
   echo "user-specific model path must not be a production default" >&2
   exit 1
@@ -218,8 +247,10 @@ FIXED_APP_PATH_PATTERNS=(
   '"MwohamMac.app/''Contents'
 )
 for pattern in "${FIXED_APP_PATH_PATTERNS[@]}"; do
-  if rg -n "$pattern" "$APP_DIR/STTRuntimeResolver.swift" "$APP_DIR/LocalWhisperSettings.swift"; then
+  if ! assert_absent_fixed_string "$pattern" "$APP_DIR/STTRuntimeResolver.swift" "$APP_DIR/LocalWhisperSettings.swift"; then
     echo "STT runtime must resolve resources from Bundle.main.resourceURL, not a fixed app path" >&2
     exit 1
   fi
 done
+
+echo "macOS STT runtime readiness tests passed"

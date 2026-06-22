@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="0.1.0"
+VERSION="0.1.1"
 APP_PATH=""
 OUTPUT_DIR="${ROOT_DIR}/dist"
 WHISPER_CLI_PATH="/opt/homebrew/bin/whisper-cli"
-STT_MODEL_PATH="${HOME}/Library/Application Support/Mwoham/models/ggml-large-v3-turbo.bin"
+STT_MODEL_PATH=""
 SKIP_BUILD=0
 SKIP_SIGN=0
 INTERNAL_QA=0
@@ -18,13 +18,13 @@ MIN_MODEL_BYTES=$((100 * 1024 * 1024))
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/package_macos_dmg.sh [--version 0.1.0] [--internal-qa]
+  ./scripts/package_macos_dmg.sh [--version 0.1.1] [--internal-qa]
 
 Options:
   --app-path PATH             Existing MwohamMac.app path. Default: ~/Applications/MwohamMac.app
-  --version VERSION           DMG version. Default: 0.1.0
+  --version VERSION           DMG version. Default: 0.1.1
   --whisper-cli-path PATH     whisper-cli source path. Default: /opt/homebrew/bin/whisper-cli
-  --stt-model-path PATH       GGML model source path.
+  --stt-model-path PATH       GGML model source path. Default: existing app bundle model.
   --output-dir DIR            Output directory. Default: dist
   --skip-build                Reuse --app-path instead of building the app.
   --skip-sign                 Do not re-sign the app after resource injection.
@@ -127,24 +127,28 @@ bundle_stt_resources() {
   local app_path="$1"
   local stt_dir="${app_path}/Contents/Resources/STT"
   local model_dir="${stt_dir}/models"
+  local bundled_model_path="${model_dir}/${MODEL_NAME}"
   local lib_dir="${stt_dir}/lib"
+  local model_source="${STT_MODEL_PATH:-${bundled_model_path}}"
   local model_bytes
 
   require_file "${WHISPER_CLI_PATH}" "whisper-cli"
-  require_file "${STT_MODEL_PATH}" "STT model"
+  require_file "${model_source}" "STT model"
   require_bundle_dylib "/opt/homebrew/opt/whisper-cpp/lib/libwhisper.1.dylib" "whisper-cpp"
   require_bundle_dylib "/opt/homebrew/opt/ggml/lib/libggml.0.dylib" "ggml"
   require_bundle_dylib "/opt/homebrew/opt/ggml/lib/libggml-base.0.dylib" "ggml-base"
   require_bundle_dylib "/opt/homebrew/opt/libomp/lib/libomp.dylib" "libomp"
 
-  model_bytes="$(stat -f%z "${STT_MODEL_PATH}")"
+  model_bytes="$(stat -f%z "${model_source}")"
   if [[ "${model_bytes}" -lt "${MIN_MODEL_BYTES}" ]]; then
-    fail "STT model file is too small: ${STT_MODEL_PATH} (${model_bytes} bytes)"
+    fail "STT model file is too small: ${model_source} (${model_bytes} bytes)"
   fi
 
   mkdir -p "${model_dir}" "${lib_dir}"
   copy_executable "${WHISPER_CLI_PATH}" "${stt_dir}/whisper-cli"
-  cp -p "${STT_MODEL_PATH}" "${model_dir}/${MODEL_NAME}"
+  if [[ "${model_source}" != "${bundled_model_path}" ]]; then
+    cp -p "${model_source}" "${bundled_model_path}"
+  fi
 
   copy_dylib "/opt/homebrew/opt/whisper-cpp/lib/libwhisper.1.dylib" \
     "${lib_dir}/libwhisper.1.dylib"

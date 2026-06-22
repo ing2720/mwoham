@@ -11,6 +11,7 @@
 - 내부 QA DMG: `dist/Mwoham-0.1.1.dmg` 또는 최신 `dist/Mwoham-*.dmg`
 - 개발/권한 QA stable path: `~/Applications/MwohamMac.app`
 - DMG 설치 path: `/Applications/MwohamMac.app`
+- component install path: `~/Library/Application Support/Mwoham`
 - 공개 배포용 Developer ID signing/notarization은 현재 범위 밖
 - Gatekeeper 경고는 발생 가능
 
@@ -19,6 +20,7 @@
 macOS focused checks:
 
 ```bash
+./scripts/test_macos_component_installer.sh
 ./scripts/test_macos_stt_runtime_readiness.sh
 ./scripts/test_macos_ai_provider_settings.sh
 ./scripts/test_macos_report_presentation.sh
@@ -79,6 +81,8 @@ tccutil reset All com.ing2720.MwohamMac
 ## Backend
 
 - [ ] 앱 설정에서 backend 상태가 `연결됨`으로 표시된다.
+- [ ] `~/Library/Application Support/Mwoham/backend`가 있으면 우선 사용한다.
+- [ ] `component_manifest.json`에 backend status/path가 기록된다.
 - [ ] `curl http://127.0.0.1:8765/health`가 정상 응답한다.
 - [ ] 앱이 시작한 backend만 앱에서 중지/재시작할 수 있다.
 - [ ] 외부 backend가 이미 실행 중이면 앱이 임의로 종료하지 않는다.
@@ -185,10 +189,12 @@ lsof -ti :8765
 ## STT
 
 - [ ] Settings의 Local Whisper 상태 카드가 표시된다.
-- [ ] bundled `whisper-cli` source가 표시된다.
-- [ ] bundled `ggml-large-v3-turbo` model source가 표시된다.
-- [ ] 필요한 dylib가 앱 번들에 포함되어 있다.
+- [ ] Application Support `whisper-cli` source가 우선 표시된다.
+- [ ] Application Support `ggml-large-v3-turbo` model source가 우선 표시된다.
+- [ ] 필요한 dylib가 앱 번들 설치 원본 또는 Application Support runtime에 있다.
+- [ ] `component_manifest.json`에 STT CLI/model status/path가 기록된다.
 - [ ] `whisper-cli` 실행 권한이 있다.
+- [ ] 모델이 없으면 앱 전체가 종료되지 않고 모델 미설치 상태가 표시된다.
 - [ ] 마이크 전사가 동작한다.
 - [ ] 시스템 오디오 전사가 동작한다.
 - [ ] 회의 전체 전사가 동작한다.
@@ -245,6 +251,8 @@ APP="/Applications/MwohamMac.app"
 - [ ] Applications symlink가 있다.
 - [ ] `README_INSTALL.md`가 있다.
 - [ ] STT model/runtime/dylib가 app bundle에 있다.
+- [ ] 앱 실행 후 Application Support component manifest가 생성된다.
+- [ ] backend/STT runtime이 앱 번들 내부를 쓰기 위치로 사용하지 않는다.
 - [ ] Homebrew absolute dylib dependency가 남지 않는다.
 - [ ] Gatekeeper 경고 가능성과 Open Anyway 안내가 포함된다.
 

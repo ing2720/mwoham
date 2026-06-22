@@ -8,7 +8,8 @@
 - 앱: `MwohamMac.app`
 - Bundle ID: `com.ing2720.MwohamMac`
 - backend: 앱이 로컬 `http://127.0.0.1:8765`에서 사용
-- STT: 앱 번들에 포함된 Local Whisper
+- 설치 컴포넌트 위치: `~/Library/Application Support/Mwoham`
+- STT: Application Support에 설치된 Local Whisper 우선 사용
 - AI Report: Gemini/OpenAI API Key를 설정한 경우 provider 사용, 없거나 실패하면 fallback report
 
 ## 설치
@@ -75,13 +76,15 @@ tccutil reset All com.ing2720.MwohamMac
 
 일반 테스터는 별도 STT API Key, Homebrew 설치, 모델 다운로드가 필요 없습니다.
 
-DMG 안의 앱 번들에는 다음이 포함됩니다.
+앱은 첫 실행 시 Application Support 아래에 설치된 STT runtime을 우선 확인합니다.
 
 ```text
-MwohamMac.app/Contents/Resources/STT/whisper-cli
-MwohamMac.app/Contents/Resources/STT/models/ggml-large-v3-turbo.bin
-MwohamMac.app/Contents/Resources/STT/lib/*.dylib
+~/Library/Application Support/Mwoham/stt/bin/whisper-cli
+~/Library/Application Support/Mwoham/stt/models/ggml-large-v3-turbo.bin
+~/Library/Application Support/Mwoham/stt/lib/*.dylib
 ```
+
+DMG에 STT runtime이 포함된 경우 앱 번들의 `Resources/STT` 또는 `Resources/stt`는 설치 원본으로 사용됩니다. 모델이 없는 lite 배포판에서는 앱이 바로 종료되지 않고 설정 화면의 Local Whisper 상태에 모델 미설치로 표시됩니다.
 
 회의 전사 정책:
 
@@ -89,6 +92,30 @@ MwohamMac.app/Contents/Resources/STT/lib/*.dylib
 - Local Whisper 처리용 임시 파일은 처리 후 삭제합니다.
 - backend에는 transcript text만 저장합니다.
 - STT resource가 없거나 실행 권한이 없으면 설정 화면의 Local Whisper 상태 카드에 표시됩니다.
+
+## 설치 컴포넌트와 복구
+
+MwohamMac 앱 본체와 runtime component는 분리되어 있습니다. 앱 본체는 `/Applications/MwohamMac.app`에 있고, backend/STT/data/log/manifest는 사용자 계정의 Application Support 아래에 준비됩니다.
+
+```text
+~/Library/Application Support/Mwoham/
+  backend/
+  stt/
+    bin/
+    lib/
+    models/
+  logs/
+  data/
+  component_manifest.json
+```
+
+문제가 있을 때 확인할 파일:
+
+- `component_manifest.json`: backend, STT CLI, STT model의 `missing/installed/invalid` 상태
+- `logs/`: 앱이 시작한 backend/runtime 로그 위치
+- `data/`: 로컬 DB/export 등 runtime data 위치
+
+복구가 필요하면 앱을 종료한 뒤 최신 DMG에서 앱을 다시 설치하고 실행합니다. 내부 QA에서 Application Support component를 완전히 초기화해야 할 때만 개발자 안내에 따라 `~/Library/Application Support/Mwoham` 하위 component를 삭제한 뒤 재실행합니다.
 
 ## AI Report
 
@@ -132,6 +159,7 @@ AI Report를 사용하려면 앱 설정에서 Gemini 또는 OpenAI Provider를 �
 ### backend 연결 실패
 
 - 앱 설정의 backend 상태와 최근 로그를 확인합니다.
+- `~/Library/Application Support/Mwoham/component_manifest.json`에서 backend status를 확인합니다.
 - 포트 `8765`가 다른 프로세스에 사용 중인지 확인합니다.
 
 ```bash
@@ -153,7 +181,8 @@ lsof -ti :8765 | xargs kill -9
 ### STT 사용 불가
 
 - 설정 > Local Whisper 상태를 확인합니다.
-- `whisper-cli` 또는 `large-v3-turbo` 모델 없음으로 표시되면 최신 DMG를 다시 설치합니다.
+- `~/Library/Application Support/Mwoham/component_manifest.json`에서 STT CLI/model status를 확인합니다.
+- `whisper-cli` 또는 `large-v3-turbo` 모델 없음으로 표시되면 최신 DMG를 다시 설치하거나 모델 포함 배포판을 사용합니다.
 - `whisper-cli` 실행 권한 없음으로 표시되면 배포 파일이 손상됐을 수 있습니다.
 
 ### Report가 fallback으로 생성됨
@@ -184,3 +213,5 @@ curl http://127.0.0.1:8765/health
 - Gatekeeper 경고가 표시될 수 있습니다.
 - 자동 업데이트는 없습니다.
 - 권한 허용 후 앱 재시작이 필요할 수 있습니다.
+- 현재 원격 추가 다운로드 UI는 없습니다.
+- lite/full DMG 분리는 향후 개선 항목입니다.

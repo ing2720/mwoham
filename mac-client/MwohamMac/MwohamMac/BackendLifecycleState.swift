@@ -13,6 +13,7 @@ enum BackendLifecycleState: Equatable, StatusPresentable {
     case portConflict
     case backendPathError
     case uvExecutionFailed
+    case migrationFailed
     case stopped
 
     var label: String {
@@ -31,6 +32,8 @@ enum BackendLifecycleState: Equatable, StatusPresentable {
             return "backend 경로 오류"
         case .uvExecutionFailed:
             return "uv 실행 실패"
+        case .migrationFailed:
+            return "DB migration 실패"
         case .stopped:
             return "중지됨"
         }
@@ -43,7 +46,7 @@ enum BackendLifecycleState: Equatable, StatusPresentable {
     var isError: Bool {
         switch self {
         case .connectionFailed, .portConflict, .backendPathError,
-             .uvExecutionFailed:
+             .uvExecutionFailed, .migrationFailed:
             return true
         default:
             return false
@@ -66,6 +69,8 @@ enum BackendLifecycleState: Equatable, StatusPresentable {
             return "folder.badge.questionmark"
         case .uvExecutionFailed:
             return "terminal.fill"
+        case .migrationFailed:
+            return "externaldrive.badge.xmark"
         case .stopped:
             return "stop.circle"
         }
@@ -105,4 +110,3 @@ enum BackendLifecyclePolicy {
         isOwnedByApp
     }
 }
-
