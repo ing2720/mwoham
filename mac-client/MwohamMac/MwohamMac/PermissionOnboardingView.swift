@@ -9,10 +9,10 @@ struct PermissionOnboardingView: View {
     let snapshot: PermissionOnboardingSnapshot
     let isRefreshing: Bool
     let refresh: () async -> Void
-    let openMicrophoneSettings: () -> Void
-    let openSpeechRecognitionSettings: () -> Void
-    let openScreenRecordingSettings: () -> Void
-    let openAccessibilitySettings: () -> Void
+    let requestMicrophoneAccess: () async -> Void
+    let requestSpeechRecognitionAccess: () async -> Void
+    let requestScreenRecordingAccess: () async -> Void
+    let requestAccessibilityAccess: () async -> Void
     let setDebugAudioEnabled: (Bool) -> Void
     let setDevTrackingEnabled: (Bool) -> Void
     let dismiss: () -> Void
@@ -40,7 +40,7 @@ struct PermissionOnboardingView: View {
                 .fontWeight(.semibold)
             Text(
                 "Mwoham의 기록과 회의 전사에 필요한 권한을 확인합니다. "
-                    + "앱은 macOS 권한을 자동으로 허용하지 않습니다."
+                    + "먼저 앱에서 바로 요청할 수 있는 권한부터 진행합니다."
             )
             .foregroundStyle(.secondary)
         }
@@ -79,8 +79,8 @@ struct PermissionOnboardingView: View {
                 status: snapshot.microphoneStatus,
                 reason: "회의 음성을 수집해 전사하기 위해 필요합니다.",
                 limitation: "허용하지 않으면 마이크 기반 회의 전사를 시작할 수 없습니다.",
-                actionTitle: "마이크 설정 열기",
-                action: openMicrophoneSettings
+                actionTitle: snapshot.microphoneAuthorized ? nil : "마이크 허용",
+                action: requestMicrophoneAccess
             )
             PermissionOnboardingCard(
                 title: "음성 인식",
@@ -88,8 +88,8 @@ struct PermissionOnboardingView: View {
                 status: snapshot.speechRecognitionStatus,
                 reason: "Apple Speech 실시간 전사와 fallback에 사용합니다.",
                 limitation: "허용하지 않으면 Apple Speech 실시간 전사와 fallback이 제한됩니다.",
-                actionTitle: "음성 인식 설정 열기",
-                action: openSpeechRecognitionSettings
+                actionTitle: snapshot.speechRecognitionAuthorized ? nil : "음성 인식 허용",
+                action: requestSpeechRecognitionAccess
             )
         }
     }
@@ -102,8 +102,8 @@ struct PermissionOnboardingView: View {
                 status: snapshot.screenRecordingStatus,
                 reason: "시스템 오디오와 화면 기반 OCR을 수집하기 위해 사용합니다.",
                 limitation: "없어도 마이크 전사는 가능하지만 시스템 오디오와 OCR이 제한됩니다.",
-                actionTitle: "화면 기록 설정 열기",
-                action: openScreenRecordingSettings
+                actionTitle: snapshot.screenRecordingAuthorized ? nil : "화면 기록 허용",
+                action: requestScreenRecordingAccess
             )
             PermissionOnboardingCard(
                 title: "접근성",
@@ -111,8 +111,8 @@ struct PermissionOnboardingView: View {
                 status: snapshot.accessibilityStatus,
                 reason: "활성 앱과 창 제목 추적 정확도를 높이기 위해 사용합니다.",
                 limitation: "없어도 앱을 사용할 수 있으며, 일부 창 정보가 비거나 부정확할 수 있습니다.",
-                actionTitle: "접근성 설정 열기",
-                action: openAccessibilitySettings
+                actionTitle: snapshot.accessibilityAuthorized ? nil : "접근성 허용",
+                action: requestAccessibilityAccess
             )
         }
     }
@@ -178,7 +178,7 @@ private struct PermissionOnboardingCard<State: StatusPresentable>: View {
     let reason: String
     let limitation: String
     var actionTitle: String?
-    var action: (() -> Void)?
+    var action: (() async -> Void)?
     var isOn: Bool?
     var setEnabled: ((Bool) -> Void)?
 
@@ -201,7 +201,11 @@ private struct PermissionOnboardingCard<State: StatusPresentable>: View {
                 .foregroundStyle(.secondary)
 
             if let actionTitle, let action {
-                Button(action: action) {
+                Button {
+                    Task {
+                        await action()
+                    }
+                } label: {
                     Label(actionTitle, systemImage: "gearshape")
                 }
                 .accessibilityLabel(actionTitle)

@@ -395,16 +395,18 @@ struct ContentView: View {
                 refresh: {
                     await viewModel.refresh()
                 },
-                openMicrophoneSettings: {
-                    viewModel.meetingTranscription.openMicrophoneSettings()
+                requestMicrophoneAccess: {
+                    await requestMicrophoneAccess()
                 },
-                openSpeechRecognitionSettings: {
-                    viewModel.meetingTranscription.openSpeechRecognitionSettings()
+                requestSpeechRecognitionAccess: {
+                    await requestSpeechRecognitionAccess()
                 },
-                openScreenRecordingSettings: {
-                    viewModel.meetingTranscription.openScreenRecordingSettings()
+                requestScreenRecordingAccess: {
+                    await requestScreenRecordingAccess()
                 },
-                openAccessibilitySettings: openAccessibilitySettings,
+                requestAccessibilityAccess: {
+                    await requestAccessibilityAccess()
+                },
                 setDebugAudioEnabled: { isEnabled in
                     viewModel.meetingTranscription
                         .whisperDebugAudioExportEnabled = isEnabled
@@ -499,12 +501,27 @@ struct ContentView: View {
     }
 
     private func openAccessibilitySettings() {
-        guard let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-        ) else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        PermissionSettingsOpener.openAccessibilitySettings()
+    }
+
+    private func requestMicrophoneAccess() async {
+        _ = await PermissionSettingsOpener.requestMicrophoneAccess()
+        await viewModel.refresh()
+    }
+
+    private func requestSpeechRecognitionAccess() async {
+        _ = await PermissionSettingsOpener.requestSpeechRecognitionAccess()
+        await viewModel.refresh()
+    }
+
+    private func requestScreenRecordingAccess() async {
+        _ = PermissionSettingsOpener.requestScreenRecordingAccess()
+        await viewModel.refresh()
+    }
+
+    private func requestAccessibilityAccess() async {
+        _ = PermissionSettingsOpener.requestAccessibilityAccess()
+        await viewModel.refresh()
     }
 
 }
@@ -1119,12 +1136,7 @@ private struct SettingsView: View {
     }
 
     private func openAccessibilitySettings() {
-        guard let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-        ) else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        PermissionSettingsOpener.openAccessibilitySettings()
     }
 
     private func chooseBackendDirectory() {
