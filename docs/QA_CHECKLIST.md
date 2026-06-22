@@ -8,7 +8,7 @@
 - Bundle ID: `com.ing2720.MwohamMac`
 - backend: `http://127.0.0.1:8765`
 - health: `GET /health`
-- 내부 QA DMG: `dist/Mwoham-0.1.1.dmg` 또는 최신 `dist/Mwoham-*.dmg`
+- 내부 QA DMG: `dist/Mwoham-1.1.0.dmg` 또는 최신 `dist/Mwoham-*.dmg`
 - 개발/권한 QA stable path: `~/Applications/MwohamMac.app`
 - DMG 설치 path: `/Applications/MwohamMac.app`
 - component install path: `~/Library/Application Support/Mwoham`
@@ -244,7 +244,7 @@ APP="/Applications/MwohamMac.app"
 
 ## DMG Packaging
 
-- [ ] `./scripts/package_macos_dmg.sh --version 0.1.1 --internal-qa`가 성공한다.
+- [ ] `./scripts/package_macos_dmg.sh --version 1.1.0 --internal-qa`가 성공한다.
 - [ ] 최신 `dist/Mwoham-*.dmg`가 생성된다.
 - [ ] `hdiutil verify`가 성공한다.
 - [ ] DMG mount/detach가 가능하다.

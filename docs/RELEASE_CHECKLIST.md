@@ -43,7 +43,7 @@ git diff --check
 현재 내부 QA 기준:
 
 ```bash
-./scripts/package_macos_dmg.sh --version 0.1.1 --internal-qa
+./scripts/package_macos_dmg.sh --version 1.1.0 --internal-qa
 ```
 
 최신 버전을 만들 때는 `--version`만 올립니다.
@@ -51,7 +51,7 @@ git diff --check
 예상 산출물:
 
 ```text
-dist/Mwoham-0.1.1.dmg
+dist/Mwoham-1.1.0.dmg
 ```
 
 또는 최신:
@@ -118,7 +118,7 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 DMG 검증:
 
 ```bash
-hdiutil verify dist/Mwoham-0.1.1.dmg
+hdiutil verify dist/Mwoham-1.1.0.dmg
 ```
 
 최신 DMG를 자동 선택하려면:
@@ -190,7 +190,7 @@ uv run pytest -q
 
 내부 QA/포트폴리오 시연용으로 GitHub Release를 만들 경우:
 
-1. tag를 생성합니다. 예: `v0.1.1-internal`
+1. tag를 생성합니다. 예: `v1.1.0-internal`
 2. Release title에 internal QA 성격을 명시합니다.
 3. `dist/Mwoham-*.dmg`를 첨부합니다.
 4. release note에 Developer ID/notarization 미적용과 Gatekeeper 경고 가능성을 명시합니다.
