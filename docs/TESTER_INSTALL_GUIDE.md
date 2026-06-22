@@ -159,8 +159,16 @@ AI Report를 사용하려면 앱 설정에서 Gemini 또는 OpenAI Provider를 �
 ### backend 연결 실패
 
 - 앱 설정의 backend 상태와 최근 로그를 확인합니다.
+- 앱 설정의 backend 진단에서 `uv path`가 `uv missing`인지 확인합니다.
 - `~/Library/Application Support/Mwoham/component_manifest.json`에서 backend status를 확인합니다.
 - 포트 `8765`가 다른 프로세스에 사용 중인지 확인합니다.
+- packaged `.venv`가 없는 내부 QA 빌드는 backend 실행에 `uv`가 필요할 수 있습니다. Finder로 실행한 앱은 터미널 shell PATH를 그대로 상속하지 않을 수 있어 앱이 common path resolver로 `uv`를 다시 찾습니다.
+
+```bash
+brew install uv
+which uv
+uv --version
+```
 
 ```bash
 lsof -ti :8765

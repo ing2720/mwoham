@@ -21,6 +21,7 @@ macOS focused checks:
 
 ```bash
 ./scripts/test_macos_component_installer.sh
+./scripts/test_macos_backend_runtime_resolver.sh
 ./scripts/test_macos_stt_runtime_readiness.sh
 ./scripts/test_macos_ai_provider_settings.sh
 ./scripts/test_macos_report_presentation.sh
@@ -84,6 +85,10 @@ tccutil reset All com.ing2720.MwohamMac
 - [ ] `~/Library/Application Support/Mwoham/backend`가 있으면 우선 사용한다.
 - [ ] `component_manifest.json`에 backend status/path가 기록된다.
 - [ ] `curl http://127.0.0.1:8765/health`가 정상 응답한다.
+- [ ] backend 진단에 `uv path`가 absolute path 또는 `uv missing`으로 표시된다.
+- [ ] `.venv/bin/python`, `.venv/bin/alembic`이 있으면 `uv` 없이 backend/migration command가 구성된다.
+- [ ] `.venv`가 없으면 resolved absolute `uv` path로 `uv run ...`을 실행한다.
+- [ ] Finder 실행처럼 PATH가 제한되어도 `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, Python framework 후보에서 `uv`를 찾는다.
 - [ ] 앱이 시작한 backend만 앱에서 중지/재시작할 수 있다.
 - [ ] 외부 backend가 이미 실행 중이면 앱이 임의로 종료하지 않는다.
 - [ ] backend directory 자동 탐색 설명이 설정 화면과 문서에 맞다.

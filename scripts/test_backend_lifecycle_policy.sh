@@ -47,6 +47,16 @@ expect(
 expect(
     BackendLifecyclePolicy.preflight(
         healthAvailable: false,
+        portInUse: false,
+        backendDirectoryExists: true,
+        uvExecutablePath: nil,
+        canRunWithoutUV: true
+    ) == .ready(""),
+    "packaged venv command can run without uv"
+)
+expect(
+    BackendLifecyclePolicy.preflight(
+        healthAvailable: false,
         portInUse: true,
         backendDirectoryExists: true,
         uvExecutablePath: "/opt/homebrew/bin/uv"
@@ -73,4 +83,3 @@ CLANG_MODULE_CACHE_PATH="$WORK_DIR/module-cache" swiftc \
     "$LIFECYCLE_STATE" \
     -o "$WORK_DIR/harness"
 "$WORK_DIR/harness"
-

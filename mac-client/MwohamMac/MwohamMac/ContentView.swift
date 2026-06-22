@@ -1045,6 +1045,13 @@ private struct SettingsView: View {
                                 )
                                 .textSelection(.enabled)
                             }
+                            LabeledContent("uv path") {
+                                Text(
+                                    viewModel.backendLifecycle
+                                        .uvExecutablePathText
+                                )
+                                .textSelection(.enabled)
+                            }
                             if !viewModel.componentInstallationMessages.isEmpty {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("컴포넌트 설치 상태")
