@@ -1,28 +1,67 @@
 # Release Checklist
 
-This checklist tracks the first macOS DMG packaging flow for Mwoham 0.1.0.
+이 문서는 Mwoham v0.1.x 내부 QA/포트폴리오 시연용 DMG를 다시 만들고 검증하는 절차입니다. 현재 릴리즈는 공개 배포용 Developer ID signing/notarization을 포함하지 않습니다.
 
-## Scope
+## 범위
 
-- Build `MwohamMac.app` in Release configuration.
-- Bundle Local Whisper STT runtime resources into the app.
-- Package `MwohamMac.app`, an `Applications` symlink, and install instructions in a DMG.
-- Do not change app features, backend APIs, DB schema, recording policy, Dev Tracking policy, AI Provider Keychain policy, Timeline/Report semantics, Launch at Login policy, or menu bar/floating widget UX.
-- Do not include real API keys, `.env`, or local model/runtime binaries in git.
+이번 릴리즈 절차가 하는 일:
 
-## Packaging Command
+- `MwohamMac.app` Release build 생성
+- Local Whisper runtime/model/dylib를 앱 번들에 포함
+- `MwohamMac.app`, `Applications` symlink, `README_INSTALL.md`를 DMG에 포함
+- STT resource 검증
+- app signing/ad-hoc internal QA 처리
+- DMG 생성 및 verify
+
+이번 릴리즈 절차가 하지 않는 일:
+
+- backend API 변경
+- DB/schema/migration 변경
+- STT runtime resolver 정책 변경
+- AI Provider Keychain 정책 변경
+- recording/timeline/report semantics 변경
+- Launch at Login 정책 변경
+- 공개 배포용 Developer ID signing
+- notarization/stapling
+- 공개 스토어 배포
+
+## 사전 확인
+
+- 실제 API Key, `.env`, DB, export 산출물이 git에 들어가지 않았는지 확인
+- 모델 파일, `whisper-cli`, dylib 원본이 git 변경 목록에 들어가지 않았는지 확인
+- `dist/` 산출물은 git에 포함하지 않음
+- 변경 내용이 문서/패키징 의도와 맞는지 확인
 
 ```bash
-./scripts/package_macos_dmg.sh --version 0.1.0 --internal-qa
+git status --short
+git diff --check
 ```
 
-Use `--internal-qa` only for internal QA when Apple Development signing is not available.
-For a signed internal build, install an Apple Development certificate for Team ID
-`XMP48Q3KXN` and run without `--internal-qa`.
+## DMG 생성
+
+현재 내부 QA 기준:
+
+```bash
+./scripts/package_macos_dmg.sh --version 0.1.1 --internal-qa
+```
+
+최신 버전을 만들 때는 `--version`만 올립니다.
+
+예상 산출물:
+
+```text
+dist/Mwoham-0.1.1.dmg
+```
+
+또는 최신:
+
+```text
+dist/Mwoham-*.dmg
+```
 
 ## STT Runtime Policy
 
-The release app includes:
+Release app에는 다음 resource가 포함되어야 합니다.
 
 ```text
 MwohamMac.app/Contents/Resources/STT/whisper-cli
@@ -30,42 +69,108 @@ MwohamMac.app/Contents/Resources/STT/models/ggml-large-v3-turbo.bin
 MwohamMac.app/Contents/Resources/STT/lib/*.dylib
 ```
 
-The current Homebrew `whisper-cli` is not standalone. It references Homebrew
-`libwhisper`, `ggml`, and `libomp` dylib files, so packaging bundles those dylibs
-and rewrites install names with `install_name_tool`.
+Homebrew 기반 `whisper-cli`는 단독 실행 파일이 아니므로 필요한 `libwhisper`, `ggml`, `libomp` 계열 dylib를 앱 번들에 함께 넣고 `install_name_tool`로 bundle-local 경로를 사용하게 정리합니다.
 
-## Automatic Verification
+## 자동 검증
+
+설치된 앱 기준:
 
 ```bash
 APP="/Applications/MwohamMac.app"
 ./scripts/check_release_stt_resources.sh "$APP"
 codesign -dv --verbose=4 "$APP" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority|Runtime|Signature"
 codesign --verify --deep --strict --verbose=2 "$APP"
-hdiutil verify dist/Mwoham-0.1.0.dmg
 ```
 
-Also run the focused app/backend regression checks listed in `docs/QA_CHECKLIST.md`.
+DMG 검증:
 
-## Manual Install QA
+```bash
+hdiutil verify dist/Mwoham-0.1.1.dmg
+```
 
-1. Mount `dist/Mwoham-0.1.0.dmg`.
-2. Drag `MwohamMac.app` to `Applications`.
-3. Launch the copied app from Applications, not from inside the DMG.
-4. Confirm `/health`.
-5. Confirm Local Whisper bundled runtime and bundled model in Settings.
-6. Confirm meeting transcription can start and save transcript text.
-7. Confirm Timeline and Report screens.
-8. Confirm fallback report when no AI Provider key is configured.
-9. Confirm AI report when a valid Gemini/OpenAI key is configured.
-10. Confirm menu bar, floating widget, and Launch at Login behavior remain unchanged.
-11. If right-click > Open is blocked, allow the app with System Settings > Privacy & Security > Open Anyway and launch again.
-12. Confirm STT/backend resources resolve from the running bundle or Application Support even when the displayed app path is not `/Applications`.
+최신 DMG를 자동 선택하려면:
 
-## Public Release Follow-ups
+```bash
+DMG="$(ls -t dist/Mwoham-*.dmg | head -1)"
+hdiutil verify "$DMG"
+```
 
-- Developer ID Application signing.
-- Notarization and stapling.
-- `spctl --assess` acceptance criteria.
-- Auto-update channel.
-- Model download/replacement UI.
-- Public release guide.
+focused regression:
+
+```bash
+./scripts/test_macos_stt_runtime_readiness.sh
+./scripts/test_macos_ai_provider_settings.sh
+./scripts/test_macos_report_presentation.sh
+./scripts/test_macos_timeline_presentation.sh
+./scripts/test_macos_floating_widget_settings.sh
+./scripts/test_macos_floating_widget_responsive.sh
+./scripts/test_macos_menu_bar_floating_presentation.sh
+./scripts/test_macos_launch_at_login.sh
+./scripts/test_macos_permission_onboarding.sh
+```
+
+backend:
+
+```bash
+cd backend
+uv run python scripts/run_dev_checks.py --no-record
+uv run pytest -q
+```
+
+## DMG 수동 확인
+
+1. `dist/Mwoham-*.dmg` mount
+2. DMG 안에 `MwohamMac.app` 존재 확인
+3. DMG 안에 `Applications` symlink 존재 확인
+4. DMG 안에 `README_INSTALL.md` 존재 확인
+5. `MwohamMac.app`을 Applications로 드래그
+6. DMG 내부 앱이 아니라 복사된 앱 실행
+7. Gatekeeper 차단 시 시스템 설정 > 개인정보 보호 및 보안 > Open Anyway 확인
+8. 권한 온보딩 확인
+9. `/health` 연결 확인
+10. Settings에서 Local Whisper runtime/model source 확인
+11. 회의 전사 시작/저장 확인
+12. Timeline 화면 확인
+13. AI Key 없이 fallback report 생성 확인
+14. AI Key가 있으면 AI report 생성 확인
+15. Menu bar/Floating widget 확인
+16. Launch at Login toggle 확인
+17. 앱 종료/재실행 후 권한 상태가 유지되는지 확인
+
+## 배포 전 확인
+
+- DMG 파일명과 버전이 맞는지 확인
+- DMG 용량이 모델 포함 기준으로 비정상적으로 작지 않은지 확인
+- `README_INSTALL.md`가 포함되어 있는지 확인
+- Applications symlink가 포함되어 있는지 확인
+- STT model이 포함되어 있는지 확인
+- `whisper-cli` 실행 권한이 있는지 확인
+- Homebrew absolute dylib dependency가 남아 있지 않은지 확인
+- app bundle이 DMG 내부 실행이 아니라 복사 실행을 안내하는지 확인
+- Gatekeeper 경고와 Open Anyway 안내가 문서에 있는지 확인
+
+## GitHub Release 첨부
+
+내부 QA/포트폴리오 시연용으로 GitHub Release를 만들 경우:
+
+1. tag를 생성합니다. 예: `v0.1.1-internal`
+2. Release title에 internal QA 성격을 명시합니다.
+3. `dist/Mwoham-*.dmg`를 첨부합니다.
+4. release note에 Developer ID/notarization 미적용과 Gatekeeper 경고 가능성을 명시합니다.
+5. TESTER_INSTALL_GUIDE 링크를 포함합니다.
+
+## ad-hoc/internal QA 한계
+
+- `spctl --assess`는 Developer ID/notarized 배포 기준을 포함하므로 internal QA/ad-hoc build에서 거부될 수 있습니다.
+- 이 상태를 공개 배포 통과로 해석하지 않습니다.
+- Apple Developer Program 가입 전까지 Developer ID signing/notarization은 현재 범위 밖입니다.
+- Gatekeeper 경고는 정상적인 한계로 설치 가이드에서 안내합니다.
+
+## 향후 Public Release 후보
+
+- Developer ID Application signing
+- notarization/stapling
+- `spctl --assess` acceptance criteria
+- 자동 업데이트
+- STT 모델 다운로드/교체 UI
+- public release guide

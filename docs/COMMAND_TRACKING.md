@@ -1,6 +1,6 @@
 # 터미널 명령 자동 기록
 
-이 문서는 v0.7 기준 zsh 명령 자동 기록 설치와 저장 정책을 정리합니다.
+이 문서는 zsh 명령 자동 기록 설치와 저장 정책을 정리합니다.
 
 ## 목표
 
@@ -173,8 +173,8 @@ terminal command DevEvent는 report input의 `PRIORITY_DEV_EVENTS`와
 - `rm -rf` 같은 cleanup command는 `cleanup` 흐름으로 전달하되, 명령 원문을 길게 나열하지 않고 불필요한 앱/빌드 산출물 정리 정도로 간결하게 요약하도록 지시합니다.
 - 터미널 출력 전문은 없으므로 실패 원인은 command, exit_code, 주변 DevEvent, CURRENT_GIT_DIFF_CONTEXT 근거가 있을 때만 보수적으로 판단합니다.
 
-v0.9 report quality는 detailed report 개선만 포함합니다. summary/simple/compact 요약본 분리는
-아직 공식 기능이 아닙니다.
+현재 report 품질 정책은 detailed daily report 개선에 집중합니다. summary/simple/compact
+요약본 분리는 아직 공식 기능이 아닙니다.
 
 ## Timeline 표시
 
