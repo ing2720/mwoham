@@ -9,13 +9,15 @@ import Foundation
 
 @MainActor
 final class BackendLifecycleManager: ObservableObject {
+    nonisolated static let backendDirectoryPathKey = "mwohamBackendDirectoryPath"
+
     @Published private(set) var state: BackendLifecycleState = .checking
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var recentLogLines: [String] = []
     @Published private(set) var ownsBackendProcess = false
 
     private let localApiClient: LocalApiClient
-    private let backendDirectory: URL
+    private let backendDirectoryOverride: URL?
     private let fileManager: FileManager
     private var process: Process?
     private var standardOutput: Pipe?
@@ -26,11 +28,11 @@ final class BackendLifecycleManager: ObservableObject {
 
     init(
         localApiClient: LocalApiClient,
-        backendDirectory: URL = BackendLifecycleManager.defaultBackendDirectory(),
+        backendDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) {
         self.localApiClient = localApiClient
-        self.backendDirectory = backendDirectory
+        self.backendDirectoryOverride = backendDirectory
         self.fileManager = fileManager
     }
 
@@ -39,7 +41,14 @@ final class BackendLifecycleManager: ObservableObject {
     }
 
     var backendDirectoryPath: String {
-        backendDirectory.path
+        let resolved = backendDirectory
+        if directoryIsValid(resolved) {
+            return resolved.path
+        }
+        if let configured = Self.configuredBackendDirectory() {
+            return "수동 설정 경로를 찾을 수 없음: \(configured.path)"
+        }
+        return Self.backendDirectorySearchDescription
     }
 
     var recentLogText: String {
@@ -137,7 +146,8 @@ final class BackendLifecycleManager: ObservableObject {
     }
 
     private func startBackendAfterHealthFailure() async {
-        let directoryExists = directoryIsValid()
+        let backendDirectory = backendDirectory
+        let directoryExists = directoryIsValid(backendDirectory)
         let uvExecutable = Self.resolveUVExecutable()
         let preflight = BackendLifecyclePolicy.preflight(
             healthAvailable: false,
@@ -149,8 +159,13 @@ final class BackendLifecycleManager: ObservableObject {
         switch preflight {
         case .backendPathMissing:
             state = .backendPathError
-            lastErrorMessage =
-                "backend 경로를 찾을 수 없습니다: \(backendDirectory.path)"
+            if let configured = Self.configuredBackendDirectory() {
+                lastErrorMessage =
+                    "수동 설정한 backend 경로를 찾을 수 없습니다: \(configured.path)"
+            } else {
+                lastErrorMessage =
+                    "backend 경로를 찾을 수 없습니다. 앱 번들 또는 Application Support 기준으로 다시 확인해 주세요."
+            }
             return
         case .uvMissing:
             state = .uvExecutionFailed
@@ -163,7 +178,10 @@ final class BackendLifecycleManager: ObservableObject {
                 "포트 8765가 사용 중이지만 backend health check에 실패했습니다."
             return
         case let .ready(uvPath):
-            launchBackend(uvExecutablePath: uvPath)
+            launchBackend(
+                uvExecutablePath: uvPath,
+                backendDirectory: backendDirectory
+            )
         }
 
         guard ownsBackendProcess else {
@@ -187,7 +205,10 @@ final class BackendLifecycleManager: ObservableObject {
             "backend를 시작했지만 제한 시간 안에 health check가 성공하지 않았습니다."
     }
 
-    private func launchBackend(uvExecutablePath: String) {
+    private func launchBackend(
+        uvExecutablePath: String,
+        backendDirectory: URL
+    ) {
         guard process?.isRunning != true else {
             state = .starting
             return
@@ -298,7 +319,12 @@ final class BackendLifecycleManager: ObservableObject {
         }
     }
 
-    private func directoryIsValid() -> Bool {
+    private var backendDirectory: URL {
+        backendDirectoryOverride
+            ?? Self.defaultBackendDirectory(fileManager: fileManager)
+    }
+
+    private func directoryIsValid(_ backendDirectory: URL) -> Bool {
         var isDirectory: ObjCBool = false
         return fileManager.fileExists(
             atPath: backendDirectory.path,
@@ -355,6 +381,10 @@ final class BackendLifecycleManager: ObservableObject {
         fileManager: FileManager = .default,
         filePath: String = #filePath
     ) -> URL {
+        if let configured = configuredBackendDirectory() {
+            return configured
+        }
+
         let candidates = backendDirectoryCandidates(
             bundle: bundle,
             fileManager: fileManager,
@@ -382,10 +412,6 @@ final class BackendLifecycleManager: ObservableObject {
             )
         }
 
-        if let configured = configuredBackendDirectory() {
-            candidates.append(configured)
-        }
-
         candidates.append(
             defaultApplicationSupportURL(fileManager: fileManager)
                 .appendingPathComponent("backend", isDirectory: true)
@@ -400,7 +426,7 @@ final class BackendLifecycleManager: ObservableObject {
 
     nonisolated private static func configuredBackendDirectory() -> URL? {
         let userDefaultValue = UserDefaults.standard.string(
-            forKey: "mwohamBackendDirectoryPath"
+            forKey: backendDirectoryPathKey
         )
         let environmentValue = ProcessInfo.processInfo.environment[
             "MWOHAM_BACKEND_DIRECTORY"
@@ -444,6 +470,9 @@ final class BackendLifecycleManager: ObservableObject {
             seen.insert(url.standardizedFileURL.path).inserted
         }
     }
+
+    private static let backendDirectorySearchDescription =
+        "자동 탐색: Bundle.main.resourceURL/backend, 수동 설정, Application Support/Mwoham/backend"
 
     private static func processEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment

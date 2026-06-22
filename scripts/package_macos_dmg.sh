@@ -196,6 +196,22 @@ STT:
 - 이 DMG에는 `whisper-cli`와 `ggml-large-v3-turbo.bin` 모델이 포함되어 있습니다.
 - 별도 STT API key는 필요하지 않습니다.
 
+Backend 경로:
+
+- 앱은 backend를 고정 설치 경로로 찾지 않습니다.
+- backend가 앱에 포함된 배포판이면 현재 실행 중인 앱 기준
+  `MwohamMac.app/Contents/Resources/backend`를 자동으로 사용합니다.
+- backend가 앱에 포함되지 않은 내부 QA 빌드이면 앱 설정 > 백엔드에서
+  backend 폴더를 직접 선택합니다.
+- 개발/QA repo를 함께 받은 경우 일반적인 backend 폴더는 다음 경로입니다.
+
+```text
+/Users/a/Projects/mwoham/backend
+```
+
+- 설정에서 backend 경로를 비우고 `자동 탐색`을 누르면 앱은 현재 앱 번들,
+  Application Support, 개발 빌드 fallback 순서로 다시 확인합니다.
+
 AI 리포트:
 
 - AI 리포트 품질을 높이려면 앱 설정에서 Gemini 또는 OpenAI API Key를 입력합니다.
