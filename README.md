@@ -211,7 +211,7 @@ backend의 기본 흐름은 `router -> service -> repository`입니다. macOS �
 ## 릴리즈 상태
 
 - 대상: 내부 QA/포트폴리오 시연
-- 산출물: `dist/Mwoham-0.1.1.dmg` 또는 최신 `dist/Mwoham-*.dmg`
+- 산출물: `dist/Mwoham-1.1.0.dmg` 또는 최신 `dist/Mwoham-*.dmg`
 - Bundle ID: `com.ing2720.MwohamMac`
 - backend: `http://127.0.0.1:8765`
 - health check: `GET /health`
@@ -322,7 +322,7 @@ uv run pytest -q
 내부 QA/포트폴리오 시연용 DMG:
 
 ```bash
-./scripts/package_macos_dmg.sh --version 0.1.1 --internal-qa
+./scripts/package_macos_dmg.sh --version 1.1.0 --internal-qa
 ```
 
 검증 대상:

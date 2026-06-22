@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="0.1.1"
+VERSION="1.1.0"
 APP_PATH=""
 OUTPUT_DIR="${ROOT_DIR}/dist"
 WHISPER_CLI_PATH="/opt/homebrew/bin/whisper-cli"
@@ -18,11 +18,11 @@ MIN_MODEL_BYTES=$((100 * 1024 * 1024))
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/package_macos_dmg.sh [--version 0.1.1] [--internal-qa]
+  ./scripts/package_macos_dmg.sh [--version 1.1.0] [--internal-qa]
 
 Options:
   --app-path PATH             Existing MwohamMac.app path. Default: ~/Applications/MwohamMac.app
-  --version VERSION           DMG version. Default: 0.1.1
+  --version VERSION           DMG version. Default: 1.1.0
   --whisper-cli-path PATH     whisper-cli source path. Default: /opt/homebrew/bin/whisper-cli
   --stt-model-path PATH       GGML model source path. Default: existing app bundle model.
   --output-dir DIR            Output directory. Default: dist

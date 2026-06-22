@@ -4,7 +4,7 @@
 
 ## 테스트 대상
 
-- 최신 DMG: `dist/Mwoham-0.1.1.dmg` 또는 최신 `dist/Mwoham-*.dmg`
+- 최신 DMG: `dist/Mwoham-1.1.0.dmg` 또는 최신 `dist/Mwoham-*.dmg`
 - 앱: `MwohamMac.app`
 - Bundle ID: `com.ing2720.MwohamMac`
 - backend: 앱이 로컬 `http://127.0.0.1:8765`에서 사용

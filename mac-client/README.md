@@ -117,7 +117,7 @@ Release configuration 확인:
 내부 QA/포트폴리오 시연용 DMG는 repo root에서 생성합니다.
 
 ```bash
-./scripts/package_macos_dmg.sh --version 0.1.1 --internal-qa
+./scripts/package_macos_dmg.sh --version 1.1.0 --internal-qa
 ```
 
 package script는 다음을 처리합니다.
