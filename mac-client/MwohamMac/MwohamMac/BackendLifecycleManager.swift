@@ -178,6 +178,13 @@ final class BackendLifecycleManager: ObservableObject {
                 "포트 8765가 사용 중이지만 backend health check에 실패했습니다."
             return
         case let .ready(uvPath):
+            state = .starting
+            guard await runBackendMigrations(
+                uvExecutablePath: uvPath,
+                backendDirectory: backendDirectory
+            ) else {
+                return
+            }
             launchBackend(
                 uvExecutablePath: uvPath,
                 backendDirectory: backendDirectory
@@ -203,6 +210,50 @@ final class BackendLifecycleManager: ObservableObject {
         state = .connectionFailed
         lastErrorMessage =
             "backend를 시작했지만 제한 시간 안에 health check가 성공하지 않았습니다."
+    }
+
+    private func runBackendMigrations(
+        uvExecutablePath: String,
+        backendDirectory: URL
+    ) async -> Bool {
+        let paths = MwohamPaths()
+        do {
+            try paths.ensureDirectories(fileManager: fileManager)
+        } catch {
+            state = .migrationFailed
+            lastErrorMessage =
+                "DB migration 준비 실패: Application Support 디렉토리를 생성할 수 없습니다. \(error.localizedDescription)"
+            appendLog(lastErrorMessage ?? "")
+            return false
+        }
+
+        let environment = Self.processEnvironment()
+        let command = Self.migrationCommand(
+            backendDirectory: backendDirectory,
+            uvExecutablePath: uvExecutablePath,
+            fileManager: fileManager
+        )
+        appendLog("DB migration 시작: \(command.display)")
+        appendLog("DB migration DATABASE_URL: \(environment["DATABASE_URL"] ?? "unset")")
+
+        let result = await Self.runProcess(
+            executableURL: command.executableURL,
+            arguments: command.arguments,
+            currentDirectoryURL: backendDirectory,
+            environment: environment
+        )
+        result.outputLines.forEach { appendLog("migration: \($0)") }
+
+        guard result.exitCode == 0 else {
+            state = .migrationFailed
+            lastErrorMessage =
+                "DB migration 실패: \(command.display) 종료 코드 \(result.exitCode)"
+            appendLog(lastErrorMessage ?? "")
+            return false
+        }
+
+        appendLog("DB migration 완료")
+        return true
     }
 
     private func launchBackend(
@@ -376,15 +427,80 @@ final class BackendLifecycleManager: ObservableObject {
         }
     }
 
+    private static func migrationCommand(
+        backendDirectory: URL,
+        uvExecutablePath: String,
+        fileManager: FileManager
+    ) -> BackendMigrationCommand {
+        let venvAlembic = backendDirectory
+            .appendingPathComponent(".venv", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("alembic")
+        if fileManager.isExecutableFile(atPath: venvAlembic.path) {
+            return BackendMigrationCommand(
+                executableURL: venvAlembic,
+                arguments: ["upgrade", "head"],
+                display: "./.venv/bin/alembic upgrade head"
+            )
+        }
+        return BackendMigrationCommand(
+            executableURL: URL(fileURLWithPath: uvExecutablePath),
+            arguments: ["run", "alembic", "upgrade", "head"],
+            display: "uv run alembic upgrade head"
+        )
+    }
+
+    private static func runProcess(
+        executableURL: URL,
+        arguments: [String],
+        currentDirectoryURL: URL,
+        environment: [String: String]
+    ) async -> BackendProcessResult {
+        await Task.detached(priority: .utility) {
+            let process = Process()
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            process.executableURL = executableURL
+            process.arguments = arguments
+            process.currentDirectoryURL = currentDirectoryURL
+            process.environment = environment
+            process.standardOutput = outputPipe
+            process.standardError = errorPipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let output = outputPipe.fileHandleForReading
+                    .readDataToEndOfFile()
+                let error = errorPipe.fileHandleForReading
+                    .readDataToEndOfFile()
+                let text = [output, error]
+                    .compactMap { String(data: $0, encoding: .utf8) }
+                    .joined(separator: "\n")
+                return BackendProcessResult(
+                    exitCode: process.terminationStatus,
+                    outputLines: outputLines(from: text)
+                )
+            } catch {
+                return BackendProcessResult(
+                    exitCode: -1,
+                    outputLines: [error.localizedDescription]
+                )
+            }
+        }.value
+    }
+
+    nonisolated private static func outputLines(from text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     nonisolated private static func defaultBackendDirectory(
         bundle: Bundle = .main,
         fileManager: FileManager = .default,
         filePath: String = #filePath
     ) -> URL {
-        if let configured = configuredBackendDirectory() {
-            return configured
-        }
-
         let candidates = backendDirectoryCandidates(
             bundle: bundle,
             fileManager: fileManager,
@@ -406,16 +522,20 @@ final class BackendLifecycleManager: ObservableObject {
     ) -> [URL] {
         var candidates: [URL] = []
 
+        if let configured = configuredBackendDirectory() {
+            candidates.append(configured)
+        }
+
+        candidates.append(MwohamPaths.defaultAppSupportRoot().appendingPathComponent(
+            "backend",
+            isDirectory: true
+        ))
+
         if let resourceURL = bundle.resourceURL {
             candidates.append(
                 resourceURL.appendingPathComponent("backend", isDirectory: true)
             )
         }
-
-        candidates.append(
-            defaultApplicationSupportURL(fileManager: fileManager)
-                .appendingPathComponent("backend", isDirectory: true)
-        )
 
         if _isDebugAssertConfiguration() {
             candidates.append(devBackendDirectory(filePath: filePath))
@@ -443,18 +563,6 @@ final class BackendLifecycleManager: ObservableObject {
         )
     }
 
-    nonisolated private static func defaultApplicationSupportURL(
-        fileManager: FileManager
-    ) -> URL {
-        let baseURL = fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library")
-            .appendingPathComponent("Application Support")
-        return baseURL.appendingPathComponent("Mwoham", isDirectory: true)
-    }
-
     nonisolated private static func devBackendDirectory(filePath: String) -> URL {
         URL(fileURLWithPath: filePath)
             .deletingLastPathComponent()
@@ -472,10 +580,11 @@ final class BackendLifecycleManager: ObservableObject {
     }
 
     private static let backendDirectorySearchDescription =
-        "자동 탐색: Bundle.main.resourceURL/backend, 수동 설정, Application Support/Mwoham/backend"
+        "자동 탐색: 수동 설정, Application Support/Mwoham/backend, Bundle.main.resourceURL/backend, 개발 빌드 fallback"
 
     private static func processEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
+        let paths = MwohamPaths()
         let requiredPaths = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
@@ -487,6 +596,16 @@ final class BackendLifecycleManager: ObservableObject {
         let existingPath = environment["PATH"] ?? ""
         environment["PATH"] =
             (requiredPaths + [existingPath]).joined(separator: ":")
+        environment["DATABASE_URL"] = environment["DATABASE_URL"]
+            ?? "sqlite:///\(paths.dataDir.appendingPathComponent("mwoham.sqlite3").path)"
+        environment["REPORT_EXPORT_DIR"] = environment["REPORT_EXPORT_DIR"]
+            ?? paths.dataDir.appendingPathComponent("exports", isDirectory: true).path
+        environment["MWOHAM_LOG_DIR"] = environment["MWOHAM_LOG_DIR"]
+            ?? paths.logsDir.path
+        environment["UV_CACHE_DIR"] = environment["UV_CACHE_DIR"]
+            ?? paths.appSupportRoot
+                .appendingPathComponent("uv-cache", isDirectory: true)
+                .path
         STTRuntimeResolver().backendEnvironmentValues().forEach { key, value in
             environment[key] = value
         }
@@ -520,4 +639,15 @@ final class BackendLifecycleManager: ObservableObject {
             }
         }
     }
+}
+
+private struct BackendMigrationCommand: Sendable {
+    let executableURL: URL
+    let arguments: [String]
+    let display: String
+}
+
+private struct BackendProcessResult: Sendable {
+    let exitCode: Int32
+    let outputLines: [String]
 }

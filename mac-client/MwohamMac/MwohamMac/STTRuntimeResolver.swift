@@ -89,20 +89,20 @@ enum STTRuntimeStatus: Equatable, StatusPresentable {
 }
 
 enum STTRuntimeResourceSource: String, Equatable {
-    case bundled
-    case configuredOverride
     case applicationSupport
+    case configuredOverride
+    case bundled
     case devFallback
     case missing
 
     var label: String {
         switch self {
-        case .bundled:
-            return "번들됨"
-        case .configuredOverride:
-            return "사용자 설정"
         case .applicationSupport:
             return "Application Support"
+        case .configuredOverride:
+            return "사용자 설정"
+        case .bundled:
+            return "번들됨"
         case .devFallback:
             return "개발환경 fallback"
         case .missing:
@@ -181,11 +181,11 @@ struct STTRuntimeReadiness: Equatable {
 }
 
 struct STTRuntimeResolver {
-    static let sttDirectoryName = "STT"
-    static let whisperCLIFileName = "whisper-cli"
-    static let modelFileName = "ggml-large-v3-turbo.bin"
-    static let sttWhisperCLIPathEnvKey = "STT_WHISPER_CLI_PATH"
-    static let sttModelPathEnvKey = "STT_MODEL_PATH"
+    nonisolated static let sttDirectoryNames = ["stt", "STT"]
+    nonisolated static let whisperCLIFileName = "whisper-cli"
+    nonisolated static let modelFileName = "ggml-large-v3-turbo.bin"
+    nonisolated static let sttWhisperCLIPathEnvKey = "STT_WHISPER_CLI_PATH"
+    nonisolated static let sttModelPathEnvKey = "STT_MODEL_PATH"
 
     var resourceURL: URL?
     var applicationSupportURL: URL
@@ -198,7 +198,7 @@ struct STTRuntimeResolver {
 
     init(
         resourceURL: URL? = Bundle.main.resourceURL,
-        applicationSupportURL: URL = STTRuntimeResolver.defaultApplicationSupportURL(),
+        applicationSupportURL: URL = MwohamPaths.defaultAppSupportRoot(),
         configuredWhisperCLIPath: String? = UserDefaults.standard.string(forKey: LocalWhisperSettings.binaryPathKey),
         configuredModelPath: String? = UserDefaults.standard.string(forKey: LocalWhisperSettings.modelPathKey),
         devWhisperCLIPath: String? = "/opt/homebrew/bin/whisper-cli",
@@ -335,13 +335,13 @@ struct STTRuntimeResolver {
 
     private func whisperCLICandidates() -> [(STTRuntimeResourceSource, URL)] {
         var candidates: [(STTRuntimeResourceSource, URL)] = []
-        if let bundled = bundledWhisperCLIURL {
-            candidates.append((.bundled, bundled))
-        }
+        candidates.append((.applicationSupport, applicationSupportWhisperCLIURL))
         if let configured = normalizedURL(configuredWhisperCLIPath) {
             candidates.append((.configuredOverride, configured))
         }
-        candidates.append((.applicationSupport, applicationSupportWhisperCLIURL))
+        bundledWhisperCLIURLs.forEach {
+            candidates.append((.bundled, $0))
+        }
         if allowsDevFallback,
            let devWhisperCLIPath,
            let dev = normalizedURL(devWhisperCLIPath) {
@@ -352,13 +352,13 @@ struct STTRuntimeResolver {
 
     private func modelCandidates() -> [(STTRuntimeResourceSource, URL)] {
         var candidates: [(STTRuntimeResourceSource, URL)] = []
-        if let bundled = bundledModelURL {
-            candidates.append((.bundled, bundled))
-        }
+        candidates.append((.applicationSupport, applicationSupportModelURL))
         if let configured = normalizedURL(configuredModelPath) {
             candidates.append((.configuredOverride, configured))
         }
-        candidates.append((.applicationSupport, applicationSupportModelURL))
+        bundledModelURLs.forEach {
+            candidates.append((.bundled, $0))
+        }
         if allowsDevFallback,
            let devModelPath,
            let dev = normalizedURL(devModelPath) {
@@ -367,27 +367,48 @@ struct STTRuntimeResolver {
         return deduplicate(candidates)
     }
 
-    private var bundledWhisperCLIURL: URL? {
-        resourceURL?
-            .appendingPathComponent(Self.sttDirectoryName)
-            .appendingPathComponent(Self.whisperCLIFileName)
+    private var bundledWhisperCLIURLs: [URL] {
+        guard let resourceURL else {
+            return []
+        }
+        return Self.sttDirectoryNames.flatMap { directoryName in
+            let sttDirectory = resourceURL.appendingPathComponent(
+                directoryName,
+                isDirectory: true
+            )
+            return [
+                sttDirectory.appendingPathComponent(Self.whisperCLIFileName),
+                sttDirectory
+                    .appendingPathComponent("bin", isDirectory: true)
+                    .appendingPathComponent(Self.whisperCLIFileName),
+                sttDirectory.appendingPathComponent("whisper"),
+                sttDirectory.appendingPathComponent("main"),
+            ]
+        }
     }
 
-    private var bundledModelURL: URL? {
-        resourceURL?
-            .appendingPathComponent(Self.sttDirectoryName)
-            .appendingPathComponent("models")
-            .appendingPathComponent(Self.modelFileName)
+    private var bundledModelURLs: [URL] {
+        guard let resourceURL else {
+            return []
+        }
+        return Self.sttDirectoryNames.map { directoryName in
+            resourceURL
+                .appendingPathComponent(directoryName, isDirectory: true)
+                .appendingPathComponent("models", isDirectory: true)
+                .appendingPathComponent(Self.modelFileName)
+        }
     }
 
     private var applicationSupportWhisperCLIURL: URL {
         applicationSupportURL
             .appendingPathComponent("stt")
+            .appendingPathComponent("bin")
             .appendingPathComponent(Self.whisperCLIFileName)
     }
 
     private var applicationSupportModelURL: URL {
         applicationSupportURL
+            .appendingPathComponent("stt")
             .appendingPathComponent("models")
             .appendingPathComponent(Self.modelFileName)
     }
@@ -410,15 +431,5 @@ struct STTRuntimeResolver {
         return candidates.filter { candidate in
             seen.insert(candidate.1.standardizedFileURL.path).inserted
         }
-    }
-
-    static func defaultApplicationSupportURL() -> URL {
-        let baseURL = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library")
-            .appendingPathComponent("Application Support")
-        return baseURL.appendingPathComponent("Mwoham")
     }
 }

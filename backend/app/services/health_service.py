@@ -11,6 +11,12 @@ class HealthService:
 
     def check(self, db: Session) -> HealthResponse:
         self.repository.can_connect(db)
+        if not self.repository.has_required_tables(db):
+            return HealthResponse(
+                status="error",
+                version=settings.app_version,
+                database="missing_required_tables",
+            )
         return HealthResponse(status="ok", version=settings.app_version, database="ok")
 
 

@@ -14,6 +14,7 @@ final class BackendStatusViewModel: ObservableObject {
     @Published private(set) var connectionState: ConnectionState = .checking
     @Published private(set) var isRefreshing = false
     @Published private(set) var refreshErrorMessage: String?
+    @Published private(set) var componentInstallationMessages: [String] = []
     @Published private(set) var meetingMode = "-"
     @Published private(set) var currentMeeting: MeetingResponse?
     @Published var meetingTranscription: MeetingTranscriptionViewModel!
@@ -27,6 +28,7 @@ final class BackendStatusViewModel: ObservableObject {
     let launchAtLogin: LaunchAtLoginManager
 
     private let localApiClient: LocalApiClient
+    private let componentInstaller: ComponentInstaller
     private var childSubscriptions: Set<AnyCancellable> = []
 
     var isLoading: Bool {
@@ -112,9 +114,11 @@ final class BackendStatusViewModel: ObservableObject {
     init(
         localApiClient: LocalApiClient,
         speechTranscriptionProvider: SpeechTranscriptionProvider? = nil,
-        systemAudioTranscriptionProvider: SpeechTranscriptionProvider? = nil
+        systemAudioTranscriptionProvider: SpeechTranscriptionProvider? = nil,
+        componentInstaller: ComponentInstaller = ComponentInstaller()
     ) {
         self.localApiClient = localApiClient
+        self.componentInstaller = componentInstaller
         self.backendLifecycle = BackendLifecycleManager(
             localApiClient: localApiClient
         )
@@ -155,8 +159,21 @@ final class BackendStatusViewModel: ObservableObject {
     }
 
     func prepareBackend() async {
+        var componentErrorMessage: String?
+        do {
+            let result = try componentInstaller.installRequiredComponents()
+            componentInstallationMessages = result.messages
+        } catch {
+            componentInstallationMessages = [
+                "컴포넌트 설치 확인 실패: \(error.localizedDescription)"
+            ]
+            componentErrorMessage = error.localizedDescription
+        }
         await backendLifecycle.ensureBackendAvailable()
         await refresh()
+        if let componentErrorMessage {
+            refreshErrorMessage = componentErrorMessage
+        }
     }
 
     func checkBackendLifecycle() async {
@@ -700,8 +717,8 @@ private struct SettingsView: View {
                         .foregroundStyle(.secondary)
 
                     Text(
-                        "일반 사용자는 별도 모델 설치가 필요 없습니다. "
-                            + "배포판에는 large-v3-turbo 모델이 포함될 예정입니다."
+                        "Application Support/Mwoham/stt 아래 설치된 런타임을 우선 사용합니다. "
+                            + "모델이 없으면 STT 모델 미설치 상태로 표시됩니다."
                     )
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -766,7 +783,7 @@ private struct SettingsView: View {
                     )
 
                     Text(
-                        "번들된 STT 리소스가 있으면 우선 사용합니다. "
+                        "Application Support 설치 리소스를 우선 사용하고, 번들 리소스는 설치 원본 또는 fallback으로만 사용합니다. "
                             + "경로 override와 debug 옵션은 다음 회의 시작부터 적용됩니다. "
                             + "모델 파일이 없으면 회의 전사를 시작할 수 없습니다."
                     )
@@ -942,7 +959,7 @@ private struct SettingsView: View {
 
                         Text(
                             backendDirectoryPath.isEmpty
-                                ? "자동 탐색은 현재 앱 번들의 Resources/backend, Application Support/Mwoham/backend, 개발 빌드 fallback 순서로 확인합니다."
+                                ? "자동 탐색은 Application Support/Mwoham/backend, 현재 앱 번들의 Resources/backend, 개발 빌드 fallback 순서로 확인합니다."
                                 : "수동 설정 경로가 backend 실행 경로로 우선 사용됩니다."
                         )
                         .font(.footnote)
@@ -1027,6 +1044,20 @@ private struct SettingsView: View {
                                         .backendDirectoryPath
                                 )
                                 .textSelection(.enabled)
+                            }
+                            if !viewModel.componentInstallationMessages.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("컴포넌트 설치 상태")
+                                        .font(.caption.weight(.semibold))
+                                    ForEach(
+                                        viewModel.componentInstallationMessages,
+                                        id: \.self
+                                    ) { message in
+                                        Text(message)
+                                            .font(.caption.monospaced())
+                                            .textSelection(.enabled)
+                                    }
+                                }
                             }
                             Text(viewModel.backendLifecycle.recentLogText)
                                 .font(.caption.monospaced())

@@ -15,7 +15,8 @@ Mwoham은 macOS 개인 업무 기록, 회의 전사, 일일 리포트 생성을 
   - 시스템 오디오 입력
   - 마이크 + 시스템 오디오 회의 전체 처리
 - Local Whisper STT
-  - DMG 안의 `MwohamMac.app`에 `whisper-cli`, `large-v3-turbo` 모델, 필요한 dylib 포함
+  - 앱 시작 시 `~/Library/Application Support/Mwoham/stt` 기준으로 런타임 확인
+  - DMG 안의 resource는 설치 원본 또는 fallback으로 사용
   - 별도 STT API key 불필요
 - Dev Tracking
   - Git snapshot
@@ -101,7 +102,8 @@ Mwoham은 macOS 개인 업무 기록, 회의 전사, 일일 리포트 생성을 
 
 - Primary local STT: Local Whisper via `whisper-cli`
 - Model: `ggml-large-v3-turbo.bin`
-- Bundled runtime layout: `MwohamMac.app/Contents/Resources/STT`
+- Installed runtime layout: `~/Library/Application Support/Mwoham/stt`
+- Bundled install source: `MwohamMac.app/Contents/Resources/STT` 또는 `stt`
 - Bundled dynamic libraries: `libwhisper`, `ggml`, `libomp` 계열 dylib
 - Runtime dependency rewrite: `install_name_tool`
 - Apple Speech fallback: `SFSpeechRecognizer`, `SFSpeechAudioBufferRecognitionRequest`
@@ -167,7 +169,31 @@ Mwoham
     tester install, QA, release, tracking, STT notes
 ```
 
-backend의 기본 흐름은 `router -> service -> repository`입니다. macOS 앱은 `LocalApiClient`를 통해 backend API를 호출하고, backend lifecycle manager가 앱이 띄운 backend process만 관리합니다.
+backend의 기본 흐름은 `router -> service -> repository`입니다. macOS 앱은 `LocalApiClient`를 통해 backend API를 호출하고, component installer가 backend/STT resource를 Application Support 아래에 준비한 뒤 backend lifecycle manager가 앱이 띄운 backend process만 관리합니다.
+
+## 앱 설치 컴포넌트 구조
+
+앱 번들 내부 Resources는 읽기 전용 설치 원본으로 취급합니다. 실제 runtime, data, log 위치는 사용자별 Application Support 아래로 표준화합니다.
+
+```text
+~/Library/Application Support/Mwoham/
+  backend/
+  stt/
+    bin/
+    lib/
+    models/
+  logs/
+  data/
+  component_manifest.json
+```
+
+컴포넌트 처리 기준:
+
+- backend: Application Support의 `backend/`를 우선 사용하고, 없으면 번들 `Resources/backend`를 복사합니다.
+- STT CLI: Application Support의 `stt/bin/whisper-cli`를 우선 사용하고, 없으면 번들 `Resources/stt` 또는 `Resources/STT`에서 복사합니다.
+- STT model: Application Support의 `stt/models/ggml-large-v3-turbo.bin`을 확인합니다. 없으면 앱 전체를 종료하지 않고 STT 모델 미설치 상태로 표시합니다.
+- manifest: `component_manifest.json`에 backend, STT CLI, STT model의 `missing/installed/invalid` 상태와 resolved path를 기록합니다.
+- zip payload와 추가 다운로드 방식은 향후 `backend_payload.zip`, `stt_cli_payload.zip`, lite/full DMG 분리로 확장할 수 있도록 남겨둔 구조입니다.
 
 ## Privacy / Local-First 정책
 
@@ -176,7 +202,7 @@ backend의 기본 흐름은 `router -> service -> repository`입니다. macOS �
 - 원본 오디오와 raw audio buffer는 저장하지 않습니다.
 - Local Whisper 처리를 위한 임시 오디오 파일은 처리 후 삭제합니다.
 - backend에는 전사 text만 저장합니다.
-- STT는 외부 STT API가 아니라 로컬 Whisper를 우선 사용합니다.
+- STT는 외부 STT API가 아니라 Application Support에 설치된 로컬 Whisper를 우선 사용합니다.
 - AI 리포트는 사용자가 Gemini/OpenAI API Key를 입력한 경우에만 provider를 호출합니다.
 - AI API Key는 macOS Keychain에 저장하고 repo, `.env`, UserDefaults, 문서에 넣지 않습니다.
 - raw git diff, shell history, stdout/stderr 전체, 키 입력 내용은 DevEvent에 저장하지 않습니다.

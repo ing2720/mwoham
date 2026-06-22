@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Mwoham Backend"
-    app_version: str = "0.1.0"
+    app_version: str = "0.1.1"
     app_host: str = "127.0.0.1"
     app_port: int = 8765
     database_url: str = "sqlite:///./data/mwoham.sqlite3"
