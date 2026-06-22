@@ -122,6 +122,7 @@ APP="/Applications/MwohamMac.app"
 ./scripts/check_release_stt_resources.sh "$APP"
 codesign -dv --verbose=4 "$APP" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority|Runtime|Signature"
 codesign --verify --deep --strict --verbose=2 "$APP"
+codesign -d --entitlements :- "$APP" 2>/dev/null | grep com.apple.security.device.audio-input
 ```
 
 DMG 검증:

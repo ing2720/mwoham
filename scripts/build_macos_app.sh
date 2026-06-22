@@ -6,6 +6,7 @@ PROJECT_PATH="${ROOT_DIR}/mac-client/MwohamMac/MwohamMac.xcodeproj"
 SCHEME="MwohamMac"
 CONFIGURATION="Debug"
 DERIVED_DATA_PATH="${ROOT_DIR}/.derivedData/MwohamMac"
+ENTITLEMENTS_PATH="${ROOT_DIR}/mac-client/MwohamMac/MwohamMac/MwohamMac.entitlements"
 APP_PATH="${APP_PATH:-${HOME}/Applications/MwohamMac.app}"
 EXPECTED_BUNDLE_IDENTIFIER="com.ing2720.MwohamMac"
 EXPECTED_DISPLAY_NAME="MwohamMac"
@@ -493,8 +494,19 @@ BUILD_NUMBER="$(
 
 if [[ "${ALLOW_UNSIGNED}" -eq 0 ]]; then
   echo "4/6 Re-signing and verifying the installed app bundle..."
-  codesign --force --deep --sign "${RESOLVED_SIGNING_IDENTITY_HASH}" "${APP_PATH}"
+  codesign \
+    --force \
+    --deep \
+    --entitlements "${ENTITLEMENTS_PATH}" \
+    --sign "${RESOLVED_SIGNING_IDENTITY_HASH}" \
+    "${APP_PATH}"
   codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+  codesign -d --entitlements :- "${APP_PATH}" 2>/dev/null \
+    | grep -Fq "com.apple.security.device.audio-input" \
+    || {
+      echo "Signed app is missing microphone audio-input entitlement." >&2
+      exit 1
+    }
   SIGNING_DETAILS="$(codesign -dv --verbose=4 "${APP_PATH}" 2>&1)"
   if grep -Fq "Signature=adhoc" <<<"${SIGNING_DETAILS}"; then
     echo "Stable install must not use an ad-hoc signature." >&2

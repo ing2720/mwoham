@@ -279,6 +279,7 @@ uname -m
 sw_vers
 spctl --assess --verbose /Applications/MwohamMac.app
 codesign --verify --deep --strict --verbose=2 /Applications/MwohamMac.app
+codesign -d --entitlements :- /Applications/MwohamMac.app 2>/dev/null | grep com.apple.security.device.audio-input
 curl http://127.0.0.1:8765/health
 ```
 
