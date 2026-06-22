@@ -114,13 +114,7 @@ struct MenuBarStatusView: View {
     }
 
     private func restartApp() {
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.openApplication(
-            at: Bundle.main.bundleURL,
-            configuration: configuration
-        ) { _, _ in
-            NSApplication.shared.terminate(nil)
-        }
+        AppRelauncher.relaunch()
     }
 
 }
