@@ -177,6 +177,13 @@ lsof -ti :8765 | xargs kill -9
 - 이미 거부한 권한은 macOS가 팝업을 다시 띄우지 않을 수 있습니다.
 - 시스템 설정에서 직접 허용하거나 `tccutil reset All com.ing2720.MwohamMac` 후 다시 실행합니다.
 - 화면 기록/접근성은 허용 후 앱 재시작이 필요할 수 있습니다.
+- 마이크만 다시 요청하려면 개발/QA 환경에서 아래 명령을 사용할 수 있습니다.
+
+```bash
+tccutil reset Microphone com.ing2720.MwohamMac
+```
+
+- unsigned build, DerivedData 앱, DMG 내부 앱처럼 실행 경로/서명이 바뀌면 macOS가 같은 앱으로 인식하지 못할 수 있습니다. 권한 QA는 `/Users/a/Applications/MwohamMac.app` 또는 `/Applications/MwohamMac.app`처럼 고정된 앱 경로에서 확인합니다.
 
 ### STT 사용 불가
 

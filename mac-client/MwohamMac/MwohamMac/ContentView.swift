@@ -1123,34 +1123,50 @@ private struct SettingsView: View {
                         .disabled(viewModel.isLoading)
 
                         Button {
-                            meetingViewModel.openSpeechRecognitionSettings()
+                            Task {
+                                _ = await PermissionSettingsOpener
+                                    .requestSpeechRecognitionAccess()
+                                await viewModel.refresh()
+                            }
                         } label: {
-                            Label("음성 인식 설정", systemImage: "waveform")
+                            Label("음성 인식 허용/설정", systemImage: "waveform")
                         }
 
                         if meetingViewModel.selectedAudioSource
                             .requiresMicrophone {
                             Button {
-                                meetingViewModel.openMicrophoneSettings()
+                                Task {
+                                    _ = await PermissionSettingsOpener
+                                        .requestMicrophoneAccess()
+                                    await viewModel.refresh()
+                                }
                             } label: {
-                                Label("마이크 설정", systemImage: "mic")
+                                Label("마이크 허용/설정", systemImage: "mic")
                             }
                         }
 
                         if meetingViewModel.selectedAudioSource
                             .requiresSystemAudio {
                             Button {
-                                meetingViewModel.openScreenRecordingSettings()
+                                Task {
+                                    _ = PermissionSettingsOpener
+                                        .requestScreenRecordingAccess()
+                                    await viewModel.refresh()
+                                }
                             } label: {
-                                Label("화면 기록 설정", systemImage: "display")
+                                Label("화면 기록 허용/설정", systemImage: "display")
                             }
                         }
 
                         if !meetingViewModel.permissionInspection.accessibilityAuthorized {
                             Button {
-                                openAccessibilitySettings()
+                                Task {
+                                    _ = PermissionSettingsOpener
+                                        .requestAccessibilityAccess()
+                                    await viewModel.refresh()
+                                }
                             } label: {
-                                Label("접근성 설정", systemImage: "accessibility")
+                                Label("접근성 허용/설정", systemImage: "accessibility")
                             }
                         }
                     }
