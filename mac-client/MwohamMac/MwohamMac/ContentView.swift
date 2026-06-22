@@ -506,6 +506,7 @@ struct ContentView: View {
         }
         NSWorkspace.shared.open(url)
     }
+
 }
 
 private enum MainSection: String, CaseIterable, Identifiable {
@@ -642,6 +643,8 @@ private struct SettingsView: View {
     @ObservedObject var activityViewModel: ActivityTrackingViewModel
     @ObservedObject var launchAtLoginManager: LaunchAtLoginManager
     @StateObject private var aiProviderStore = AIProviderSettingsStore()
+    @AppStorage(BackendLifecycleManager.backendDirectoryPathKey)
+    private var backendDirectoryPath = ""
     private let aiProviderKeyStore = AIProviderKeychainStore()
     let showPermissionOnboarding: () -> Void
 
@@ -897,6 +900,38 @@ private struct SettingsView: View {
                             .textSelection(.enabled)
                     }
 
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField(
+                            "비워두면 앱이 backend 경로를 자동 탐색합니다.",
+                            text: $backendDirectoryPath
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .textSelection(.enabled)
+
+                        HStack {
+                            Button {
+                                chooseBackendDirectory()
+                            } label: {
+                                Label("backend 폴더 선택", systemImage: "folder")
+                            }
+
+                            Button {
+                                backendDirectoryPath = ""
+                            } label: {
+                                Label("자동 탐색", systemImage: "arrow.trianglehead.2.clockwise")
+                            }
+                            .disabled(backendDirectoryPath.isEmpty)
+                        }
+
+                        Text(
+                            backendDirectoryPath.isEmpty
+                                ? "자동 탐색은 현재 앱 번들의 Resources/backend, Application Support/Mwoham/backend, 개발 빌드 fallback 순서로 확인합니다."
+                                : "수동 설정 경로가 backend 실행 경로로 우선 사용됩니다."
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+
                     HStack {
                         PrimaryActionButton(
                             title: "backend 다시 확인",
@@ -1090,6 +1125,30 @@ private struct SettingsView: View {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    private func chooseBackendDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "backend 폴더 선택"
+        panel.message = "uv run uvicorn app.main:app를 실행할 backend 폴더를 선택하세요."
+        panel.prompt = "선택"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = true
+        let trimmedPath = backendDirectoryPath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPath.isEmpty {
+            panel.directoryURL = URL(
+                fileURLWithPath: NSString(string: trimmedPath).expandingTildeInPath,
+                isDirectory: true
+            )
+        }
+
+        if panel.runModal() == .OK,
+           let url = panel.url {
+            backendDirectoryPath = url.path
+        }
     }
 }
 
