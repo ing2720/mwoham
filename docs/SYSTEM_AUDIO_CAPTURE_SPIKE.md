@@ -1,8 +1,8 @@
 # 시스템 오디오 캡처/전사
 
-이 문서는 v0.5 기준 시스템 오디오 캡처와 Apple Speech 연결 구조를 정리합니다.
+이 문서는 시스템 오디오 캡처와 Apple Speech 연결 구조를 정리합니다.
 
-초기에는 기술 검증 spike로 시작했지만, 현재 구현에서는 마이크, 시스템 오디오, 회의 전체 전사 source가 macOS 앱의 회의 전사 흐름에 연결되어 있습니다. Whisper/OpenAI STT, 화자 분리, 고급 회의 요약은 포함하지 않습니다.
+초기에는 기술 검증 spike로 시작했지만, 현재 구현에서는 마이크, 시스템 오디오, 회의 전체 전사 source가 macOS 앱의 회의 전사 흐름에 연결되어 있습니다. 회의 전체 종료 후 최종 전사는 Local Whisper를 우선 사용하고, Apple Speech는 실시간 fallback으로 유지합니다. 화자 분리와 고급 오디오 믹싱은 현재 범위 밖입니다.
 
 ## 목표
 
@@ -16,6 +16,7 @@
 - backend로 audio data 전송 금지
 - transcript text만 backend에 저장
 - 기존 Apple Speech 마이크 전사 흐름 유지
+- 회의 전체 모드에서는 Local Whisper 최종 전사와 Apple Speech fallback을 함께 사용
 
 ## 구현 범위
 
@@ -24,7 +25,7 @@
 - `SystemAudioLevelMeter`로 RMS/peak dB level 계산
 - `SystemAudioPCMBufferConverter`로 시스템 오디오 buffer를 Apple Speech에 전달 가능한 PCM buffer로 변환
 - `SystemAudioSpeechTranscriptionProvider`로 시스템 오디오 단독 전사 연결
-- `FullMeetingSpeechTranscriptionProvider`로 마이크와 시스템 오디오를 하나의 Apple Speech recognitionTask에 연결
+- `FullMeetingSpeechTranscriptionProvider`로 마이크와 시스템 오디오를 하나의 Apple Speech recognitionTask에 연결하고 Local Whisper 최종 전사용 임시 녹음도 관리
 - 개발용 `SystemAudioCaptureProbe` UI는 검증 후 제거
 - 오디오 파일 저장 없음
 - raw audio buffer DB 저장 없음
@@ -67,8 +68,8 @@ macOS 앱은 세 가지 전사 입력 source를 사용합니다.
   - transcript source: `apple_speech_system_audio`
 - `회의 전체`: `FullMeetingSpeechTranscriptionProvider`
   - 입력: 마이크 + 시스템 오디오
-  - 처리 방식: 하나의 Apple Speech recognitionTask에 두 입력을 append
-  - transcript source: `apple_speech_full_meeting`
+  - 처리 방식: 하나의 Apple Speech recognitionTask에 두 입력을 append하고, 종료 시 Local Whisper를 우선 시도
+  - transcript source: `local_whisper_full_meeting` 또는 `apple_speech_full_meeting`
 
 ## 필요한 권한
 
@@ -105,7 +106,7 @@ Apple Speech recognitionTask 두 개를 동시에 실행하는 방식은 사용�
 
 따라서 회의 전체 전사는 마이크와 시스템 오디오를 별도 recognitionTask로 분리하지 않고, `FullMeetingSpeechTranscriptionProvider`에서 하나의 Apple Speech recognitionTask에 두 입력을 append하는 방식으로 정리했습니다.
 
-이번 범위에서는 화자 분리, Whisper/OpenAI STT, 고급 오디오 믹싱을 구현하지 않습니다.
+현재 범위에서는 화자 분리, OpenAI STT, 고급 오디오 믹싱을 구현하지 않습니다.
 
 ## 저장 정책
 
@@ -117,6 +118,7 @@ Apple Speech recognitionTask 두 개를 동시에 실행하는 방식은 사용�
   - `apple_speech_microphone`
   - `apple_speech_system_audio`
   - `apple_speech_full_meeting`
+  - `local_whisper_full_meeting`
 - DB schema, migration, API endpoint 변경 없음
 
 ## 현재 제한사항

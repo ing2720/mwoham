@@ -1,6 +1,6 @@
 # 자동 Dev Tracking
 
-이 문서는 v0.6 기준 자동 Dev Tracking 구현을 정리합니다. Dev Tracking은 개발 중 Git 상태 변화를 DevEvent로 저장해 일일 리포트의 개발 작업 근거로 사용합니다.
+이 문서는 자동 Dev Tracking 구현을 정리합니다. Dev Tracking은 개발 중 Git 상태 변화를 DevEvent로 저장해 일일 리포트의 개발 작업 근거로 사용합니다.
 
 ## 전체 흐름
 

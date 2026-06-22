@@ -1,64 +1,224 @@
 # Mwoham
 
-Mwoham은 macOS 기반 개인 업무 기록/요약 앱입니다. macOS 앱이 작업 흐름을 수집하고, 로컬 FastAPI backend가 SQLite에 저장한 뒤 선택한 AI Provider 또는 로컬 fallback으로 일일 리포트를 생성합니다.
+Mwoham은 macOS 개인 업무 기록, 회의 전사, 일일 리포트 생성을 위한 로컬 우선 앱입니다. macOS SwiftUI 앱이 기록 제어와 수집 UI를 담당하고, 로컬 FastAPI backend가 `127.0.0.1:8765`에서 데이터를 저장/가공합니다.
 
-현재 구현은 macOS SwiftUI 클라이언트와 FastAPI 로컬 서버 기반입니다. 일반 창, 메뉴바, 플로팅 위젯, Daily Review Dashboard, 기본/상세 타임라인, Markdown/PDF 리포트 export를 제공합니다.
+현재 상태는 v0.1.x 내부 QA/포트폴리오 시연용 DMG 기준입니다. 공개 배포용 Developer ID signing/notarization은 적용하지 않았고, Apple Developer Program 미가입 상태의 internal QA/ad-hoc 성격 빌드로 관리합니다.
 
-현재 단계는 1차 Release DMG packaging 단계입니다. 앱 기능, backend API, DB
-schema, recording/STT/Dev Tracking 정책은 고정하고, 배포 산출물 생성만 다룹니다.
-Developer ID 서명과 notarization은 별도 공개 배포 단계에서 처리합니다.
+## 주요 기능
 
-## 현재 기능
-
-- 기록 세션 제어: 시작, 일시정지, 재개, 종료
-- 활성 앱/창 메타데이터 기반 작업 구간 저장
-- PrivateApp 제외 정책
-- 화면 OCR 텍스트 수집
+- 기록 세션 시작, 일시정지, 재개, 종료
+- 활성 앱/창 기반 작업 구간 기록
+- 화면 OCR 텍스트 수집과 타임라인 반영
 - 빠른 메모 저장
-- MeetingSession과 MeetingTranscript 저장
-- Apple Speech 기반 회의 전사
-  - 마이크
-  - 시스템 오디오
-  - 회의 전체
-- DevEvent 저장
+- 회의 전사
+  - 마이크 입력
+  - 시스템 오디오 입력
+  - 마이크 + 시스템 오디오 회의 전체 처리
+- Local Whisper STT
+  - DMG 안의 `MwohamMac.app`에 `whisper-cli`, `large-v3-turbo` 모델, 필요한 dylib 포함
+  - 별도 STT API key 불필요
+- Dev Tracking
   - Git snapshot
   - 개발 검증 명령 결과
-  - 자동 Dev Tracking watcher
-  - zsh hook 기반 터미널 명령 metadata
-- AI Provider 기반 일일 리포트 생성
-  - Gemini
-  - OpenAI
-  - API Key 미설정/실패 시 로컬 fallback
+  - zsh command tracking metadata
+  - 개발 도구 활성화 기반 watcher
+- Timeline
+  - 기본/상세 타임라인
+  - DevEvent, 회의, 메모, OCR, 리포트 필터
+- Daily Report
+  - Gemini/OpenAI 선택 가능
+  - API Key는 macOS Keychain 저장
+  - key 없음, quota/API 실패, timeout 시 fallback report 생성
 - Daily Review Dashboard
-  - 오늘 Daily Report 카드
-  - validation command 중심 검증 결과
-  - failed→success command 흐름
-  - 최근 개발 이벤트 요약
-  - 회의/메모 요약
-- Markdown/PDF export와 브라우저 다운로드
-- macOS 메뉴바와 플로팅 위젯
-  - 반응형 compact/regular/spacious layout
-  - opacity와 색상 preset
-  - 표시 항목 ON/OFF
-  - 빠른 액션 ON/OFF
+- Markdown/PDF export
+- macOS Menu Bar
+- Floating Widget
 - Launch at Login
-  - 로그인 시 앱 자동 실행
-  - recording 자동 시작은 하지 않음
-- 개발/테스트 데이터 초기화
-- Local API Bearer 토큰 인증
+- 내부 QA용 DMG packaging
+
+## 사용 기술 스택
+
+### Backend
+
+- Runtime: Python 3.12+
+- Web framework: FastAPI
+- ASGI server: Uvicorn
+- ORM: SQLAlchemy
+- Migration: Alembic
+- Database: SQLite
+- Settings: pydantic-settings, `.env`
+- Schema validation: Pydantic
+- Template rendering: Jinja2
+- Web dashboard: FastAPI web routes + Jinja2 templates
+- Markdown export: Python Markdown
+- PDF export: WeasyPrint
+- HTTP client/test utility: httpx
+- Package/dependency manager: uv
+- Test framework: pytest, pytest-cov
+- Lint: ruff
+- Local API security: optional Bearer token via `LOCAL_API_TOKEN`
+
+### Backend Architecture
+
+- API layer: `app/api/endpoints/*`
+- Service layer: `app/services/*`
+- Repository layer: `app/repositories/*`
+- ORM models: `app/models/*`
+- Request/response schemas: `app/schemas/*`
+- Report/export layer: `app/report/*`
+- AI integration layer: `app/ai/*`
+- Web UI layer: `app/web/*`
+- DB/session layer: `app/db/*`
+- Core utilities: config, timezone, security, exceptions
+
+### macOS App / Frontend
+
+- Language: Swift
+- UI framework: SwiftUI
+- macOS interop: AppKit
+- App entry: `WindowGroup` + `MenuBarExtra`
+- State pattern: ObservableObject / StateObject / AppStorage / UserDefaults
+- Local API client: URLSession 기반 `LocalApiClient`
+- Key storage: macOS Keychain
+- Menu bar UI: SwiftUI `MenuBarExtra`
+- Floating widget: custom floating panel/controller
+- Launch at Login: macOS login item integration
+- Permission UI: first-run permission onboarding + settings status cards
+- Build tool: Xcode / xcodebuild
+
+### macOS System APIs
+
+- Microphone capture: AVFoundation
+- Apple Speech fallback: Speech framework
+- System audio capture: ScreenCaptureKit
+- Screen recording permission: CoreGraphics `CGPreflightScreenCaptureAccess`, `CGRequestScreenCaptureAccess`
+- Accessibility permission: ApplicationServices `AXIsProcessTrusted`, `AXIsProcessTrustedWithOptions`
+- App/file opening: NSWorkspace
+- Open panel/path selection: NSOpenPanel
+- Process lifecycle: Foundation `Process`
+
+### STT / Audio
+
+- Primary local STT: Local Whisper via `whisper-cli`
+- Model: `ggml-large-v3-turbo.bin`
+- Bundled runtime layout: `MwohamMac.app/Contents/Resources/STT`
+- Bundled dynamic libraries: `libwhisper`, `ggml`, `libomp` 계열 dylib
+- Runtime dependency rewrite: `install_name_tool`
+- Apple Speech fallback: `SFSpeechRecognizer`, `SFSpeechAudioBufferRecognitionRequest`
+- Audio conversion/leveling: AVAudioPCMBuffer, AVAudioConverter, RMS/peak level meter
+- Audio policy: raw audio 영구 저장 없음, backend audio 전송 없음
+
+### AI / Report
+
+- AI providers: Gemini, OpenAI
+- Provider selection: macOS app settings
+- API Key storage: macOS Keychain
+- Model selection: provider model list / connection test 기반
+- Prompt construction: timeline, DevEvent, meeting transcript, memo, OCR context
+- Fallback report: API key 없음, quota/API 실패, timeout 시 deterministic fallback
+- Report formats: web detail, Markdown, PDF
+- Privacy filter: token/password/secret/bearer 계열 문자열 마스킹
+
+### Dev Tracking / Automation
+
+- Git snapshot collection: custom Python scripts
+- Command tracking: zsh `preexec` / `precmd` hook
+- DevEvent storage: backend API + SQLite
+- Watcher process: `watch_dev_context.py`
+- Process orchestration: macOS app child process management
+- Diff policy: raw diff 저장 없음, diff stat/summary 중심
+- Validation runner: `run_dev_checks.py`
+
+### Packaging / Release
+
+- macOS build scripts: shell scripts + xcodebuild
+- DMG packaging: `hdiutil`
+- App signing checks: `codesign`
+- Gatekeeper assessment reference: `spctl`
+- Quarantine troubleshooting: `xattr`
+- Bundle validation: STT resource check scripts
+- Release artifact: internal QA/portfolio `dist/Mwoham-*.dmg`
+- Distribution status: Developer ID signing/notarization 없음
+
+### Testing / QA
+
+- Backend unit/integration tests: pytest
+- Migration validation: `alembic check`
+- Lint/static checks: ruff, `git diff --check`
+- macOS presentation harness scripts
+- STT runtime readiness script
+- AI Provider settings harness
+- Floating widget responsive/settings harness
+- Menu bar presentation harness
+- Launch at Login harness
+- Manual QA: tester install guide, QA checklist, release checklist
 
 ## 구조
 
 ```text
-backend/
-  FastAPI, SQLite, TimelineBuilder, AI report, web dashboard
-mac-client/MwohamMac/
-  macOS SwiftUI app, menu bar, floating widget, OCR, meeting transcription, Dev Tracking process
-docs/
-  QA, tester guide, Dev Tracking, system audio transcription notes
+Mwoham
+  backend/
+    FastAPI, SQLite, SQLAlchemy, Alembic, Timeline/Report service, web dashboard
+  mac-client/
+    SwiftUI macOS app, STT, permission onboarding, menu bar, floating widget
+  scripts/
+    macOS build/package/test scripts
+  docs/
+    tester install, QA, release, tracking, STT notes
 ```
 
-## 빠른 시작
+backend의 기본 흐름은 `router -> service -> repository`입니다. macOS 앱은 `LocalApiClient`를 통해 backend API를 호출하고, backend lifecycle manager가 앱이 띄운 backend process만 관리합니다.
+
+## Privacy / Local-First 정책
+
+- 원본 화면 이미지는 저장하지 않습니다.
+- OCR 캡처 이미지는 backend로 전송하지 않고 메모리에서 텍스트만 추출합니다.
+- 원본 오디오와 raw audio buffer는 저장하지 않습니다.
+- Local Whisper 처리를 위한 임시 오디오 파일은 처리 후 삭제합니다.
+- backend에는 전사 text만 저장합니다.
+- STT는 외부 STT API가 아니라 로컬 Whisper를 우선 사용합니다.
+- AI 리포트는 사용자가 Gemini/OpenAI API Key를 입력한 경우에만 provider를 호출합니다.
+- AI API Key는 macOS Keychain에 저장하고 repo, `.env`, UserDefaults, 문서에 넣지 않습니다.
+- raw git diff, shell history, stdout/stderr 전체, 키 입력 내용은 DevEvent에 저장하지 않습니다.
+- command metadata와 report context에는 민감정보 마스킹을 적용합니다.
+
+## 릴리즈 상태
+
+- 대상: 내부 QA/포트폴리오 시연
+- 산출물: `dist/Mwoham-0.1.1.dmg` 또는 최신 `dist/Mwoham-*.dmg`
+- Bundle ID: `com.ing2720.MwohamMac`
+- backend: `http://127.0.0.1:8765`
+- health check: `GET /health`
+- signing: internal QA/ad-hoc 성격
+- Developer ID signing: 현재 범위 밖
+- notarization: 현재 범위 밖
+- 공개 스토어 배포: 현재 범위 밖
+- Gatekeeper 경고: 발생 가능, 설치 가이드에서 안내
+
+## 빠른 설치
+
+테스터는 최신 DMG를 사용합니다.
+
+1. `dist/Mwoham-*.dmg`를 엽니다.
+2. `MwohamMac.app`을 DMG 안의 `Applications` 바로가기로 드래그합니다.
+3. DMG 내부 앱을 바로 실행하지 말고 Applications로 복사된 앱을 실행합니다.
+4. macOS가 차단하면 Finder에서 우클릭 > 열기를 시도합니다.
+5. 그래도 차단되면 시스템 설정 > 개인정보 보호 및 보안에서 “그래도 열기” 또는 “Open Anyway”를 누릅니다.
+6. 첫 실행 권한 온보딩에서 접근성, 화면 기록, 마이크, 음성 인식을 허용합니다.
+7. 화면 기록/접근성 권한 반영이 늦으면 앱을 완전히 종료한 뒤 다시 실행합니다.
+
+터미널 최후 수단:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MwohamMac.app
+open /Applications/MwohamMac.app
+```
+
+자세한 설치 안내는 [Tester Install Guide](docs/TESTER_INSTALL_GUIDE.md)를 참고하세요.
+
+## 로컬 개발 실행
+
+backend:
 
 ```bash
 cd backend
@@ -67,152 +227,37 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
-브라우저에서 확인:
-
-- Daily Review Dashboard: http://127.0.0.1:8765/dashboard
-- 기본 타임라인: http://127.0.0.1:8765/timeline
-- 상세 타임라인: http://127.0.0.1:8765/timeline/detail
-- 리포트: http://127.0.0.1:8765/reports
-- 설정: http://127.0.0.1:8765/settings
-
-macOS 앱은 Xcode에서 실행하거나, 내부 테스트용 Release 앱 번들을 받아 실행합니다. backend는 앱에 번들링하지 않지만, 로컬 개발 환경에서는 앱 시작 시 `/Users/a/Projects/mwoham/backend`의 상태를 확인하고 필요하면 `uv`로 자동 시작합니다. 다른 경로에 설치했거나 `uv`가 없는 환경에서는 backend를 별도로 실행해야 합니다.
-
-개발 중 macOS 권한을 안정적으로 유지하려면 고정 경로의 `MwohamMac.app` bundle을 사용합니다:
+상태 확인:
 
 ```bash
-security find-identity -v -p codesigning
+curl http://127.0.0.1:8765/health
+curl http://127.0.0.1:8765/status
+```
 
-mkdir -p ~/.config/mwoham
-cat > ~/.config/mwoham/macos-signing.env <<'EOF'
-MWOHAM_DEVELOPMENT_TEAM=YOUR_TEAM_ID
-EOF
+웹 화면:
 
-# signed Debug: 개발 및 권한 QA
+- http://127.0.0.1:8765/dashboard
+- http://127.0.0.1:8765/timeline
+- http://127.0.0.1:8765/timeline/detail
+- http://127.0.0.1:8765/reports
+- http://127.0.0.1:8765/settings
+
+macOS 앱:
+
+```bash
 ./scripts/build_macos_app.sh --open
-
-# signed Release: 설치 앱 최종 확인 권장
 ./scripts/build_macos_app.sh --release --open
-
-# unsigned Debug: UI/CI 임시 확인 전용
-./scripts/build_macos_app.sh --unsigned --open
 ```
 
-Team ID는 인증서 표시 이름 끝의 괄호 값이 아니라 인증서 subject의 `OU` 또는
-서명 앱의 `TeamIdentifier`입니다. 스크립트는 해당 Team ID의 Apple Development
-인증서를 찾아 SHA-1 fingerprint로 정확히 지정합니다. 인증서가 여러 개이면
-`MWOHAM_CODE_SIGN_IDENTITY`에 `security find-identity`가 출력한 전체 이름을
-선택적으로 설정할 수 있습니다.
+개발/권한 QA의 stable app path는 `~/Applications/MwohamMac.app`입니다. 앱 runtime resource는 고정 설치 경로가 아니라 `Bundle.main.resourceURL`과 Application Support fallback 기준으로 탐색합니다.
 
-화면 기록, 마이크, 음성 인식 등 macOS 권한은 이 스크립트가 여는 고정 앱 번들인
-`~/Applications/MwohamMac.app` 기준으로 부여합니다.
+macOS 앱 개발 자세한 내용은 [mac-client README](mac-client/README.md)를 참고하세요.
 
-`build_macos_app.sh`는 `com.ing2720.MwohamMac` bundle identifier, Apple
-Development 서명, 설정된 Team ID를 검증합니다. 인증서가 없거나 ad-hoc
-서명으로 생성된 앱은 TCC identity가 빌드마다 달라질 수 있으므로 실행하지
-않습니다. 빠른 UI 확인이나 CI는 `--unsigned` 또는 `--unsigned --open`으로
-실행할 수 있지만 권한 유지 용도로 사용하지 않습니다. signed 실패 시 unsigned로
-자동 전환되지 않습니다.
+## Backend 개발
 
-기본 configuration은 Debug이고 `--release`를 지정하면 Release를 빌드합니다.
-두 configuration 모두 표시 이름 `MwohamMac`, bundle identifier
-`com.ing2720.MwohamMac`, 버전 `1.0 (1)`을 사용합니다. 기본 설치 경로는
-`~/Applications/MwohamMac.app`이며 `--destination` 또는 `APP_PATH`를 명시한
-경우에만 변경됩니다. 설치 과정은 기존 앱 종료, bundle 교체, strict codesign
-검증, LaunchServices 등록 순서로 진행됩니다.
+backend 환경 설정은 `backend/.env.example`을 참고합니다. 실제 `.env`, API Key, DB, export 산출물은 git에 포함하지 않습니다.
 
-```bash
-APP="$HOME/Applications/MwohamMac.app"
-codesign --verify --deep --strict --verbose=2 "$APP"
-codesign -dv --verbose=4 "$APP"
-spctl --assess --type execute --verbose=4 "$APP"
-```
-
-Apple Development 앱은 Developer ID 배포 및 notarization 산출물이 아니므로
-`spctl` 결과는 로컬 개발 인증서 정책에 따라 거부될 수 있습니다. 내부 권한 QA의
-필수 기준은 strict codesign, Identifier, TeamIdentifier, Authority 일치입니다.
-
-macOS 접근성, 화면 기록, 마이크 권한은 앱이 자동 허용할 수 없습니다. 최초 설치
-또는 기존 ad-hoc 앱에서 서명된 앱으로 전환한 뒤 시스템 설정에서 고정 경로의
-앱을 다시 허용해야 합니다.
-
-필요 권한:
-
-- 접근성: 활성 창 제목 수집과 상태 표시 품질 향상
-- 화면 기록: OCR과 시스템 오디오/회의 전체 전사
-- 마이크: 마이크 전사와 회의 전체 전사
-- 음성 인식: Apple Speech 기반 전사
-
-## Local Whisper STT runtime
-
-Mwoham의 회의 전사는 로컬 Whisper runtime을 사용합니다. Release DMG에는
-`MwohamMac.app/Contents/Resources/STT/whisper-cli`와
-`Contents/Resources/STT/models/ggml-large-v3-turbo.bin`을 포함하는 것을
-기본 정책으로 하며, 일반 사용자는 별도 STT API key나 모델 설치 없이 사용할 수
-있습니다.
-
-앱은 bundled resource를 먼저 찾고, 개발/override 용도로
-`~/Library/Application Support/Mwoham` 아래의 runtime/model 경로를 fallback으로
-확인합니다. 개발 환경에서는 `/opt/homebrew/bin/whisper-cli`를 fallback으로 사용할
-수 있지만 production 기본 경로로 의존하지 않습니다. 모델 파일과 `whisper-cli`
-바이너리는 배포 정책 확인 전까지 git에 포함하지 않습니다.
-
-runtime 또는 `large-v3-turbo` 모델이 없거나 `whisper-cli` 실행 권한이 없으면
-회의 전체 전사를 시작하지 않고 앱 설정과 전사 화면에서 안내를 표시합니다.
-
-## 1차 DMG packaging
-
-내부 QA용 DMG는 다음 명령으로 생성합니다.
-
-```bash
-./scripts/package_macos_dmg.sh --version 0.1.0 --internal-qa
-```
-
-생성물:
-
-- `dist/Mwoham-0.1.0.dmg`
-- DMG 내부 `MwohamMac.app`
-- DMG 내부 `Applications` 바로가기
-- DMG 내부 `README_INSTALL.md`
-
-`package_macos_dmg.sh`는 Release app build, STT resource 복사, bundled dylib
-install name 정리, STT resource check, app re-sign, DMG 생성과 verify를 수행합니다.
-로컬 Homebrew `whisper-cli`는 `/opt/homebrew` dylib 의존성이 있으므로 static binary가
-아니며, 1차 packaging은 `whisper-cli`와 필요한 dylib를 app bundle 안에 함께 넣는
-방식을 사용합니다.
-
-Apple Development/ad-hoc internal QA DMG는 일반 외부 배포용 notarized app이 아닙니다.
-공개 배포 전에는 Developer ID Application signing, notarization, `spctl` 기준 QA를
-별도로 완료해야 합니다.
-
-## 환경 설정
-
-백엔드는 `backend/.env`를 읽습니다. 실제 `.env`는 git에 포함하지 않습니다. 예시는 [backend/.env.example](backend/.env.example)을 참고하세요.
-
-주요 설정:
-
-- `DATABASE_URL`: 기본값 `sqlite:///./data/mwoham.sqlite3`
-- `AI_PROVIDER`: 개발용 provider override. `gemini` 또는 `openai`
-- `AI_MODEL`: 개발용 provider 공통 model override
-- `GEMINI_API_KEY`, `GEMINI_MODEL`: 개발용 Gemini 호환 설정
-- `OPENAI_API_KEY`, `OPENAI_MODEL`: 개발용 OpenAI 설정
-- `GEMINI_MAX_OUTPUT_TOKENS`: AI 리포트 최대 출력 토큰
-- `AI_REPORT_TIMEOUT_SECONDS`: AI 리포트 provider 호출 timeout. 기본값은 25초
-- `ENABLE_SCREEN_OBSERVATION_AI_INFERENCE`: 개별 화면 관찰 AI 해석 호출 여부. 기본값은 `false`
-- `SCREEN_AI_MIN_INTERVAL_SECONDS`: 화면 관찰 AI 해석 최소 간격
-- `SCREEN_AI_DAILY_LIMIT`: 화면 관찰 AI 해석 일일 제한
-- `LOCAL_API_TOKEN`: 설정 시 보호 API에 `Authorization: Bearer <token>` 필요
-- `REPORT_EXPORT_DIR`: 리포트 export 저장 경로
-
-## 개발 검증
-
-로컬 검증만 실행하고 DevEvent를 저장하지 않으려면:
-
-```bash
-cd backend
-uv run python scripts/run_dev_checks.py --no-record
-```
-
-개별 검증:
+주요 명령:
 
 ```bash
 cd backend
@@ -220,227 +265,85 @@ uv run ruff check .
 uv run pytest
 uv run alembic check
 git diff --check
+uv run python scripts/run_dev_checks.py --no-record
 ```
 
-coverage 확인:
+backend 구조와 API/DB 개발 기준은 [backend README](backend/README.md)를 참고하세요.
+
+## 내부 QA 검증
+
+문서 작업 또는 기능 작업 후 주요 smoke/regression:
 
 ```bash
+./scripts/test_macos_stt_runtime_readiness.sh
+./scripts/test_macos_ai_provider_settings.sh
+./scripts/test_macos_report_presentation.sh
+./scripts/test_macos_timeline_presentation.sh
+./scripts/test_macos_floating_widget_settings.sh
+./scripts/test_macos_floating_widget_responsive.sh
+./scripts/test_macos_menu_bar_floating_presentation.sh
+./scripts/test_macos_launch_at_login.sh
+
 cd backend
-uv run pytest --cov=app --cov-report=term-missing --cov-report=html
+uv run python scripts/run_dev_checks.py --no-record
+uv run pytest -q
 ```
 
-작업 마감 시 Git snapshot과 검증 결과를 DevEvent로 남기려면:
+전체 수동 QA는 [QA Checklist](docs/QA_CHECKLIST.md)를 참고하세요.
+
+## DMG 릴리즈 생성
+
+내부 QA/포트폴리오 시연용 DMG:
 
 ```bash
-cd backend
-uv run python scripts/collect_dev_context.py --repo-path ..
+./scripts/package_macos_dmg.sh --version 0.1.1 --internal-qa
 ```
 
-## Dev Tracking
+검증 대상:
 
-v0.6 기준으로 macOS 앱은 개발 도구가 활성화되면 backend watcher process를 자동 실행합니다. 사용자가 직접 시작/종료 버튼을 누르는 방식은 아닙니다.
+- `dist/Mwoham-*.dmg`
+- DMG 안의 `MwohamMac.app`
+- DMG 안의 `Applications` 바로가기
+- DMG 안의 `README_INSTALL.md`
+- bundled STT runtime/model/dylib
+- Gatekeeper 안내
 
-자동 실행 대상 앱:
+자세한 절차는 [Release Checklist](docs/RELEASE_CHECKLIST.md)를 참고하세요.
 
-- PyCharm
-- Visual Studio Code
-- Code
-- Terminal
-- iTerm
-- iTerm2
-- Cursor
+## 현재 한계
 
-앱은 설정된 repo path 1개를 추적합니다. 설정값이 비어 있으면 현재 mwoham repo fallback을 사용하고, repo 검증은 `git rev-parse --show-toplevel` 기준으로 수행합니다.
+- 내부 QA/포트폴리오 시연용 빌드이며 공개 배포가 아닙니다.
+- Developer ID signing/notarization은 아직 적용하지 않았습니다.
+- Gatekeeper 경고가 표시될 수 있습니다.
+- 화면 기록/접근성 권한은 macOS 정책상 사용자가 직접 허용해야 합니다.
+- 권한 허용 후 앱 재시작이 필요할 수 있습니다.
+- 자동 업데이트 채널은 없습니다.
+- 여러 repo Dev Tracking, STT 모델 다운로드/교체 UI는 아직 없습니다.
 
-자세한 정책은 [Dev Tracking](docs/DEV_TRACKING.md)을 참고하세요.
+## 향후 개선 후보
 
-## Timeline Filtering
-
-v0.8 기준으로 웹 타임라인은 최신 항목이 위에 오도록 표시합니다. 이 정렬은 웹 표시용 context에만
-적용됩니다. Timeline API(`/timeline/today`, `/timeline/today/detail`)와 daily report 입력용
-timeline은 기존 시간순 흐름을 유지합니다.
-
-웹 타임라인은 `filter` query parameter로 항목을 좁혀 볼 수 있습니다.
-
-```text
-/timeline?filter=all
-/timeline?filter=command
-/timeline?filter=command_failed
-/timeline?date=2026-06-08&filter=git
-```
-
-지원 필터:
-
-- `all`: 전체
-- `dev`: DevEvent 전체
-- `git`: 자동 Git tracking 이벤트
-- `command`: 터미널 command_result 전체
-- `command_failed`: 실패한 터미널 명령 확인용
-- `meeting`: 회의 전사
-- `memo`: 수동 메모
-- `report`: 일일 리포트
-
-알 수 없는 filter 값은 `all`로 처리합니다. `date`와 `filter` query는 함께 사용할 수 있습니다.
-
-## Daily Review Dashboard
-
-v1.0 기준 `/dashboard`는 오늘 작업을 한 화면에서 검수하는 Daily Review Dashboard 역할을 합니다.
-별도 `/review/today`, `/daily-review` 화면은 공식 기능이 아니며, 기존 대시보드에 리뷰 섹션을
-통합했습니다.
-
-확인 가능한 내용:
-
-- 오늘 생성된 Daily Report 카드: 제목, 생성 시각, 짧은 preview, 상세 링크
-- validation command 중심 검증 결과: pytest, run_dev_checks, alembic check, git diff check, ruff, xcodebuild 등
-- failed→success command 흐름
-- 최근 개발 이벤트와 자동 Git tracking 요약
-- 회의/메모 요약
-- 기존 현재 상태, 오늘 요약, 이벤트 입력, 메모 입력, 최근 타임라인
-
-inspection/setup/cleanup terminal command는 dashboard에서 과하게 직접 노출하지 않고, 필요한 경우
-검증 흐름이나 최근 타임라인의 보조 맥락으로만 다룹니다. 기존 timeline과 reports 화면은
-dashboard에서 이어서 확인할 수 있습니다.
-
-## Floating Widget / Menu Bar
-
-메뉴바와 플로팅 위젯은 같은 presentation 값을 공유해 recording, backend, OCR,
-Dev Tracking, meeting mode 상태를 표시합니다. 플로팅 위젯은 창 크기에 따라
-compact/regular/spacious layout을 선택하고, 매우 작은 크기에서는 기록 상태와
-핵심 버튼만 남깁니다.
-
-위젯 설정은 `UserDefaults`에 저장됩니다.
-
-- 투명도: 60%~100%
-- 색상 preset: 시스템, 초록, 파랑, 보라, 주황, 회색
-- 표시 항목: 현재 앱, 현재 창, OCR 상태, Dev Tracking 상태, 기록 시간
-- 빠른 액션: 메인 창, 대시보드, Dev Tracking, 회의모드
-- 기본값 초기화
-
-Launch at Login은 macOS 로그인 시 `MwohamMac` 앱을 자동 실행하는 기능입니다.
-앱이 실행되어도 recording session은 자동 시작되지 않으며, 사용자가 직접
-`기록 시작`을 눌러야 합니다.
-
-## AI Provider Settings
-
-AI 리포트 품질을 높이려면 macOS 앱 설정 화면에서 AI Provider를 선택하고 API
-Key를 입력할 수 있습니다. 입력된 키는 macOS Keychain의
-`com.ing2720.MwohamMac.ai-provider` service에 provider별로 저장되며 앱 번들,
-UserDefaults, repo, 문서에는 포함되지 않습니다.
-
-- 지원 provider: Gemini, OpenAI
-- Provider와 선택 모델: UserDefaults 저장
-- API Key: macOS Keychain 저장
-- 모델: 연결 테스트 또는 모델 불러오기 후 API에서 자동 조회한 목록에서 선택
-- 키 없음, invalid key, 네트워크/API/quota 실패: 로컬 fallback 리포트 생성
-- AI 리포트 성공 시 `created_by=ai`, provider 미설정/실패/timeout 시
-  `created_by=fallback`으로 표시
-- `.env`: 개발용 override로만 유지
-
-Provider/model/API Key 변경은 다음 backend 시작 또는 재시작부터 적용됩니다.
-앱이 시작한 backend는 설정 화면의 `backend 재시작 적용` 버튼으로 새 환경변수를
-주입할 수 있습니다. 외부에서 이미 실행 중인 backend는 해당 프로세스의 환경 변수를
-사용하므로 직접 재시작해야 web report AI 생성에도 반영됩니다.
-
-## Command Tracking
-
-v0.7 기준으로 zsh hook 기반 터미널 명령 자동 기록을 지원합니다. 설치하면 `preexec`와
-`precmd` hook이 명령 metadata를 수집해 `command_result` DevEvent로 저장합니다.
-
-```bash
-cd backend
-uv run python scripts/install_command_tracking_hook.py
-```
-
-설치 후 새 터미널부터 자동 적용됩니다. 현재 열려 있는 터미널에서는 다음 명령으로 적용합니다.
-
-```bash
-source ~/.zshrc
-```
-
-상태 확인과 현재 터미널 비활성화:
-
-```bash
-mwoham_command_tracking_status
-mwoham_command_tracking_disable
-```
-
-해제:
-
-```bash
-cd backend
-uv run python scripts/uninstall_command_tracking_hook.py
-```
-
-저장 대상은 `command`, `exit_code`, `duration_ms`, `cwd`, `repo_path`, `branch` 같은
-metadata입니다. stdout/stderr 전체, shell history, 키 입력 내용은 저장하지 않으며
-민감정보는 마스킹합니다. failed command는 리포트에서 우선 근거로 다루고,
-`sqlite3`, `curl`, `echo`, `source` 같은 확인용 command는 낮은 우선순위로 참고합니다.
-타임라인에는 `명령 성공` 또는 `명령 실패` label로 표시됩니다.
-
-자세한 정책은 [Command Tracking](docs/COMMAND_TRACKING.md)을 참고하세요.
-
-## Report Quality
-
-v0.9 기준 daily report는 detailed report 품질 개선에 집중합니다. summary/simple/compact
-요약본 분리는 아직 공식 기능이 아닙니다.
-
-리포트 입력은 현재 작업 주제를 먼저 잡기 위해 `CURRENT_WORK_FOCUS`를 우선 반영합니다.
-`command_result`는 `PRIORITY_COMMAND_FLOWS`에서 `failed_to_success`, `failed_only`,
-`development_validation`, `inspection`, `cleanup` 흐름으로 구분해 전달합니다.
-
-report 작성 정책:
-
-- failed command는 실제 장애로 과장하지 않고 주변 DevEvent, diff context, command 흐름과 함께 해석
-- inspection/setup command는 보조 근거로만 사용
-- cleanup command는 명령 원문을 길게 나열하지 않고 간결하게 요약
-- meeting transcript는 결정사항, 논의사항, 후속작업 후보로 나눠 반영하되 근거 없이 결정사항을 만들지 않음
-- 이미 완료된 기능은 다음 작업 후보로 반복 제안하지 않도록 prompt에서 지시
-- raw diff는 저장하지 않고 report 생성 시 prompt context에만 제한적으로 사용
-- stdout/stderr 전체, shell history, 키 입력 내용은 저장하지 않음
-
-Release packaging 전 남은 후속 후보는 signed Release 최종 QA, Developer ID
-notarization 정책 확정, DMG/ZIP 산출물 구성, tester install guide 최종 확인입니다.
-이 작업들은 현재 정리 단계가 아니라 다음 packaging 단계에서 다룹니다.
-
-## Privacy / Safety
-
-Mwoham의 현재 구현 원칙:
-
-- 원본 화면 이미지 저장 없음
-- OCR용 캡처 이미지를 backend로 전송하지 않음
-- 원본 오디오 파일 저장 없음
-- raw audio buffer 저장 없음
-- backend로 audio data 전송 없음
-- 전사 text만 `/meeting-transcripts` API로 저장
-- terminal command tracking은 stdout/stderr 전체, shell history, 키 입력 내용을 저장하지 않음
-- raw git diff를 DB, DevEvent, log, Report.content에 저장하지 않음
-- report 생성 시 제한된 git diff context만 prompt context로 일시 사용
-- token, password, secret, api_key, bearer, authorization 계열 문자열은 PrivacyFilter로 마스킹
+- Developer ID signing/notarization
+- 자동 업데이트
+- STT 모델 다운로드/교체 UI
+- report quality refinement
+- timeline clustering refinement
+- 권한/서명/앱 경로 진단 복사 기능
+- public release guide
 
 ## 문서
 
+- [Tester Install Guide](docs/TESTER_INSTALL_GUIDE.md)
+- [QA Checklist](docs/QA_CHECKLIST.md)
+- [Release Checklist](docs/RELEASE_CHECKLIST.md)
 - [Backend README](backend/README.md)
 - [macOS Client README](mac-client/README.md)
-- [Development Guide](DEVELOPMENT.md)
-- [Backend Development Guide](docs/BACKEND_DEVELOPMENT_GUIDE.md)
 - [Dev Tracking](docs/DEV_TRACKING.md)
 - [Command Tracking](docs/COMMAND_TRACKING.md)
-- [System Audio Capture/Transcription](docs/SYSTEM_AUDIO_CAPTURE_SPIKE.md)
-- [QA Checklist](docs/QA_CHECKLIST.md)
-- [Tester Install Guide](docs/TESTER_INSTALL_GUIDE.md)
-- [Codex Workflow](docs/CODEX_WORKFLOW.md)
-
-## CI
-
-- Backend CI는 ruff, pytest, coverage, alembic, git diff check를 검증합니다.
-- macOS client CI는 인증서가 없는 runner에서
-  `CODE_SIGNING_ALLOWED=NO`를 명시한 unsigned `xcodebuild build`를 검증합니다.
-- 권한/TCC QA는 CI 산출물이 아니라 로컬 stable signed 앱으로 검증합니다.
-- 화면 기록 권한, OCR 수집, Speech/마이크 권한, 메뉴바/플로팅 동작은 macOS 권한과 실제 사용자 세션이 필요하므로 수동 QA에서 검증합니다.
+- [STT Whisper POC](docs/STT_WHISPER_POC.md)
+- [System Audio Capture](docs/SYSTEM_AUDIO_CAPTURE_SPIKE.md)
+- [Development Index](DEVELOPMENT.md)
 
 ## Git 제외 대상
-
-다음은 로컬 산출물이므로 git에 포함하지 않습니다.
 
 - `backend/.env`
 - `backend/.venv/`
@@ -448,5 +351,6 @@ Mwoham의 현재 구현 원칙:
 - `backend/exports/`
 - SQLite DB 파일
 - `dist/`
-- coverage 산출물
-- 캐시 파일
+- `.derivedData/`
+- coverage/cache 산출물
+- 모델 파일, `whisper-cli`, bundled dylib 원본

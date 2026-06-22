@@ -1,22 +1,45 @@
-# Local Whisper STT POC와 Meeting 연동
+# Local Whisper STT와 Meeting 연동
 
 ## 목적
 
 이 문서는 다음 두 흐름을 설명합니다.
 
+- MwohamMac 회의 전체 전사 종료 시 Local Whisper를 우선 사용하는 실제 meeting 흐름
 - 동일한 짧은 한국어 WAV를 Apple Speech와 local `whisper.cpp`에 전달하는 비교 POC
-- MwohamMac 회의 전체 전사 종료 시 local Whisper를 우선 사용하는 실제 meeting 흐름
 
-마이크와 시스템 오디오 단독 전사는 기존 Apple Speech를 유지합니다. 회의 전체
-전사도 Apple Speech를 실시간 fallback으로 계속 실행하며, Whisper가 설정되고
-정상 처리된 경우에만 종료 시 Whisper transcript를 최종 저장합니다.
+현재 v0.1.x 내부 QA DMG는 `MwohamMac.app` 안에 `whisper-cli`,
+`ggml-large-v3-turbo.bin`, 필요한 dylib를 포함합니다. 일반 테스터는 별도 STT API
+key, Homebrew 설치, 모델 다운로드 없이 Local Whisper를 사용할 수 있습니다.
+
+마이크와 시스템 오디오 단독 전사는 Apple Speech를 사용합니다. 회의 전체 전사는
+Apple Speech를 실시간 fallback으로 계속 실행하고, 종료 시 Local Whisper가 정상
+처리되면 Whisper transcript를 최종 저장합니다.
+
+## Release DMG runtime 정책
+
+DMG의 앱 번들에는 다음 resource가 포함되어야 합니다.
+
+```text
+MwohamMac.app/Contents/Resources/STT/whisper-cli
+MwohamMac.app/Contents/Resources/STT/models/ggml-large-v3-turbo.bin
+MwohamMac.app/Contents/Resources/STT/lib/*.dylib
+```
+
+runtime 탐색 순서:
+
+1. bundled resource
+2. 사용자 설정 override
+3. Application Support fallback
+4. 개발환경 fallback
+
+모델 파일, `whisper-cli`, dylib 원본은 repo에 커밋하지 않습니다.
 
 ## MwohamMac Meeting 연동
 
-앱의 `전사 입력`에서 `회의 전체`를 선택하면 Local Whisper 설정이 표시됩니다.
+앱의 `전사 입력`에서 `회의 전체`를 선택하면 Local Whisper 상태가 표시됩니다.
 
-1. `whisper-cli 절대 경로`에 실행 파일 경로를 입력합니다.
-2. `GGML model 절대 경로`에 모델 파일 경로를 입력합니다.
+1. Release DMG에서는 bundled `whisper-cli`와 bundled model을 자동 탐색합니다.
+2. 개발/QA override가 필요하면 설정에서 runtime/model 경로를 지정합니다.
 3. 회의 전사를 시작합니다.
 4. 회의 중에는 Apple Speech가 실시간 transcript를 생성하지만 backend에는 아직
    최종 저장하지 않습니다.
@@ -100,7 +123,7 @@ UI의 `STT engine` 행에는 `Local Whisper`, `Apple Speech (fallback)` 또는 �
 
 ## 범위와 데이터 정책
 
-- 입력 오디오와 Whisper 모델은 저장소 밖 경로에 있어야 합니다.
+- 개발용 입력 오디오와 외부 Whisper 모델은 저장소 밖 경로에 있어야 합니다.
 - 스크립트는 입력 WAV를 macOS 임시 디렉터리에서 16 kHz mono PCM WAV로 변환합니다.
 - Apple Speech helper app, 변환 WAV, Whisper text output은 실행별 임시 디렉터리에만
   만들고 정상 종료와 오류 종료 모두에서 삭제합니다.
@@ -113,7 +136,8 @@ UI의 `STT engine` 행에는 `Local Whisper`, `Apple Speech (fallback)` 또는 �
 - source별 chunk WAV, Whisper output, error log도 서로 다른 임시 디렉터리에
   생성하며 성공, 부분 실패, 전체 실패, 취소 후 모두 삭제합니다.
 - 앱은 audio data를 backend로 보내지 않고 최종 transcript text만 저장합니다.
-- 모델은 다운로드하거나 복사하지 않으며 사용자가 설정한 외부 경로에서 읽습니다.
+- Release DMG는 bundled model을 사용합니다. 비교 POC와 개발 override에서는 사용자가
+  설정한 저장소 밖 경로에서 모델을 읽습니다.
 - `QA/debug용 source별 WAV 보관`은 기본 비활성화입니다. 사용자가 명시적으로
   활성화한 회의에 한해 microphone/system audio 최종 WAV와 15초 chunk WAV를
   저장소 밖
@@ -127,7 +151,7 @@ buffer 대신 파일 입력용 `SFSpeechURLRecognitionRequest`를 사용합니�
 
 ## 준비
 
-필요 항목:
+비교 POC 필요 항목:
 
 - macOS와 full Xcode (`xcrun swiftc`, `codesign`)
 - Python 3
@@ -150,7 +174,7 @@ cmake -S ~/src/whisper.cpp -B ~/src/whisper.cpp/build
 cmake --build ~/src/whisper.cpp/build --config Release
 ```
 
-모델은 자동 다운로드하지 않습니다. whisper.cpp의 모델 다운로드 안내에 따라
+비교 POC는 모델을 자동 다운로드하지 않습니다. whisper.cpp의 모델 다운로드 안내에 따라
 `ggml-base.bin`, `ggml-small.bin`, `ggml-large-v3-turbo.bin` 등을 저장소 밖에
 준비합니다. 예시 경로:
 
@@ -240,8 +264,8 @@ normal stop, Whisper 실패, provider stop 모두에서 삭제합니다. 앱이 
 
 ## 실제 앱 연동 QA
 
-1. 앱에서 `회의 전체`를 선택하고 유효한 `whisper-cli`와 model 절대 경로를
-   입력합니다.
+1. 앱에서 `회의 전체`를 선택하고 Local Whisper 상태가 사용 가능인지 확인합니다.
+   Release DMG에서는 bundled runtime/model이 먼저 잡혀야 합니다.
 2. `QA/debug용 source별 WAV 보관`은 우선 끈 상태로 회의를 시작합니다.
 3. microphone으로 짧은 한국어 문장을 말하면서 ZEP 또는 Chrome에서 한국어
    system audio를 재생합니다. 이어폰 없이 재생해 ScreenCaptureKit 입력과 실제
