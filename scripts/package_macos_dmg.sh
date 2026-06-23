@@ -11,6 +11,7 @@ STT_MODEL_PATH=""
 SKIP_BUILD=0
 SKIP_SIGN=0
 INTERNAL_QA=0
+PACKAGE_MODE="lightweight"
 SIGN_IDENTITY="${MWOHAM_CODE_SIGN_IDENTITY:-}"
 SIGNING_CONFIG_PATH="${MWOHAM_SIGNING_CONFIG:-${HOME}/.config/mwoham/macos-signing.env}"
 MODEL_NAME="ggml-large-v3-turbo.bin"
@@ -19,7 +20,7 @@ MIN_MODEL_BYTES=$((100 * 1024 * 1024))
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/package_macos_dmg.sh [--version 1.1.0] [--internal-qa]
+  ./scripts/package_macos_dmg.sh [--version 1.1.0] [--lightweight|--full] [--internal-qa]
 
 Options:
   --app-path PATH             Existing MwohamMac.app path. Default: ~/Applications/MwohamMac.app
@@ -30,6 +31,8 @@ Options:
   --skip-build                Reuse --app-path instead of building the app.
   --skip-sign                 Do not re-sign the app after resource injection.
   --sign-identity IDENTITY    codesign identity for re-signing.
+  --lightweight               Package app only. backend/STT/model install after launch. Default.
+  --full                      Bundle backend/STT runtime/model into the app.
   --internal-qa               Allow unsigned/ad-hoc internal QA packaging.
 
 This script creates a first-pass DMG for internal QA. Developer ID signing and
@@ -195,24 +198,18 @@ open /Applications/MwohamMac.app
 - 음성 인식: Apple Speech fallback
 - 화면 기록: OCR, 시스템 오디오/회의 전체 전사
 
-STT:
+Components:
 
-- Mwoham은 로컬 Whisper STT를 사용합니다.
-- 이 DMG에는 `whisper-cli`와 `ggml-large-v3-turbo.bin` 모델이 포함되어 있습니다.
-- 별도 STT API key는 필요하지 않습니다.
+- lightweight DMG에는 backend, whisper-cli, STT model이 포함되지 않습니다.
+- 첫 실행 후 Settings > 필수 컴포넌트에서 backend, STT CLI, STT model을 설치합니다.
+- full DMG는 내부 QA용으로 backend/STT runtime/model을 앱에 포함할 수 있습니다.
+- STT model은 용량이 커서 lightweight 배포에서는 별도 다운로드됩니다.
 
 Backend 경로:
 
-- 앱은 backend를 고정 설치 경로로 찾지 않습니다.
-- backend가 앱에 포함된 배포판이면 현재 실행 중인 앱 기준
-  `MwohamMac.app/Contents/Resources/backend`를 자동으로 사용합니다.
-- backend가 앱에 포함되지 않은 내부 QA 빌드이면 앱 설정 > 백엔드에서
-  backend 폴더를 직접 선택합니다.
-- 개발/QA repo를 함께 받은 경우 일반적인 backend 폴더는 다음 경로입니다.
-
-```text
-/Users/a/Projects/mwoham/backend
-```
+- backend 설치 위치는 `~/Library/Application Support/Mwoham/backend`입니다.
+- STT CLI 설치 위치는 `~/Library/Application Support/Mwoham/stt/bin/whisper-cli`입니다.
+- STT model 설치 위치는 `~/Library/Application Support/Mwoham/stt/models/ggml-large-v3-turbo.bin`입니다.
 
 - 설정에서 backend 경로를 비우고 `자동 탐색`을 누르면 앱은 현재 앱 번들,
   Application Support, 개발 빌드 fallback 순서로 다시 확인합니다.
@@ -292,6 +289,14 @@ while [[ $# -gt 0 ]]; do
       SIGN_IDENTITY="$2"
       shift 2
       ;;
+    --lightweight)
+      PACKAGE_MODE="lightweight"
+      shift
+      ;;
+    --full)
+      PACKAGE_MODE="full"
+      shift
+      ;;
     --internal-qa)
       INTERNAL_QA=1
       shift
@@ -333,13 +338,25 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
   if [[ "${INTERNAL_QA}" -eq 1 ]]; then
     BUILD_ARGS=(--unsigned "${BUILD_ARGS[@]}")
   fi
-  MWOHAM_SKIP_LSREGISTER=1 "${ROOT_DIR}/scripts/build_macos_app.sh" "${BUILD_ARGS[@]}"
+  if [[ "${PACKAGE_MODE}" == "lightweight" ]]; then
+    MWOHAM_SKIP_LSREGISTER=1 MWOHAM_BUNDLE_COMPONENTS=0 \
+      "${ROOT_DIR}/scripts/build_macos_app.sh" "${BUILD_ARGS[@]}"
+  else
+    MWOHAM_SKIP_LSREGISTER=1 MWOHAM_BUNDLE_COMPONENTS=1 \
+      "${ROOT_DIR}/scripts/build_macos_app.sh" "${BUILD_ARGS[@]}"
+  fi
 else
   [[ -d "${APP_PATH}" ]] || fail "app bundle not found: ${APP_PATH}"
 fi
 
-bundle_stt_resources "${APP_PATH}"
-"${ROOT_DIR}/scripts/check_release_stt_resources.sh" "${APP_PATH}"
+if [[ "${PACKAGE_MODE}" == "lightweight" ]]; then
+  rm -rf \
+    "${APP_PATH}/Contents/Resources/backend" \
+    "${APP_PATH}/Contents/Resources/STT"
+else
+  bundle_stt_resources "${APP_PATH}"
+  "${ROOT_DIR}/scripts/check_release_stt_resources.sh" "${APP_PATH}"
+fi
 
 if [[ "${SKIP_SIGN}" -eq 0 ]]; then
   if [[ -z "${SIGN_IDENTITY}" ]]; then
@@ -377,5 +394,10 @@ create_dmg "${APP_PATH}" "${DMG_PATH}"
 
 echo "DMG created: ${DMG_PATH}"
 echo "App bundle: ${APP_PATH}"
-echo "STT runtime: ${APP_PATH}/Contents/Resources/STT/whisper-cli"
-echo "STT model: ${APP_PATH}/Contents/Resources/STT/models/${MODEL_NAME}"
+echo "Package mode: ${PACKAGE_MODE}"
+if [[ "${PACKAGE_MODE}" == "full" ]]; then
+  echo "STT runtime: ${APP_PATH}/Contents/Resources/STT/whisper-cli"
+  echo "STT model: ${APP_PATH}/Contents/Resources/STT/models/${MODEL_NAME}"
+else
+  echo "Bundled backend/STT resources: omitted"
+fi

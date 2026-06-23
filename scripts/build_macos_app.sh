@@ -454,9 +454,14 @@ mkdir -p "$(dirname "${APP_PATH}")"
 rm -rf "${APP_PATH}"
 ditto "${BUILT_APP_PATH}" "${APP_PATH}"
 
-echo "3/6 Bundling installable backend/STT components..."
-copy_backend_resources "${APP_PATH}"
-copy_stt_resources "${APP_PATH}"
+if [[ "${MWOHAM_BUNDLE_COMPONENTS:-1}" -eq 1 ]]; then
+  echo "3/6 Bundling installable backend/STT components..."
+  copy_backend_resources "${APP_PATH}"
+  copy_stt_resources "${APP_PATH}"
+else
+  echo "3/6 Skipping bundled backend/STT components for lightweight app..."
+  rm -rf "${APP_PATH}/Contents/Resources/backend" "${APP_PATH}/Contents/Resources/STT"
+fi
 
 ACTUAL_BUNDLE_IDENTIFIER="$(
   /usr/libexec/PlistBuddy \

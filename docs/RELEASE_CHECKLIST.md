@@ -7,8 +7,9 @@
 이번 릴리즈 절차가 하는 일:
 
 - `MwohamMac.app` Release build 생성
-- Local Whisper runtime/model/dylib를 앱 번들 설치 원본으로 포함
-- 앱 실행 후 Application Support component 설치/검증
+- 기본 lightweight DMG에는 앱 본체만 포함
+- backend/STT CLI/STT model은 앱 실행 후 Settings에서 다운로드/설치
+- full mode에서는 Local Whisper runtime/model/dylib를 앱 번들 설치 원본으로 포함
 - `MwohamMac.app`, `Applications` symlink, `README_INSTALL.md`를 DMG에 포함
 - STT resource 검증
 - app signing/ad-hoc internal QA 처리
@@ -43,10 +44,27 @@ git diff --check
 현재 내부 QA 기준:
 
 ```bash
-./scripts/package_macos_dmg.sh --version 1.1.0 --internal-qa
+./scripts/build_component_assets.sh --stt-model-path /path/to/ggml-large-v3-turbo.bin
+./scripts/package_macos_dmg.sh --version 1.1.0 --lightweight --internal-qa
 ```
 
-최신 버전을 만들 때는 `--version`만 올립니다.
+기존 full bundle QA가 필요하면:
+
+```bash
+./scripts/package_macos_dmg.sh --version 1.1.0 --full --internal-qa
+```
+
+최신 버전을 만들 때는 `--version`만 올립니다. 기본 mode는 lightweight입니다.
+
+Component asset 확인:
+
+```bash
+ls -lh dist/components
+cat dist/components/sha256sums.txt
+cat dist/components/component_manifest.json
+```
+
+`MISSING_MODEL_SHA256` 또는 빈 model sha가 남아 있으면 v1.1.0 lightweight STT model 설치는 실패합니다. 실제 배포 전 모델 원본 경로를 지정해 다시 생성합니다.
 
 예상 산출물:
 
@@ -62,7 +80,16 @@ dist/Mwoham-*.dmg
 
 ## STT Runtime Policy
 
-현재 full/internal QA Release app에는 다음 resource가 설치 원본으로 포함되어야 합니다.
+Lightweight release app에는 다음 resource가 없어야 합니다.
+
+```text
+MwohamMac.app/Contents/Resources/backend
+MwohamMac.app/Contents/Resources/STT/whisper-cli
+MwohamMac.app/Contents/Resources/STT/models/ggml-large-v3-turbo.bin
+MwohamMac.app/Contents/Resources/STT/lib/*.dylib
+```
+
+Full/internal QA Release app에는 다음 resource가 설치 원본으로 포함될 수 있습니다.
 
 ```text
 MwohamMac.app/Contents/Resources/STT/whisper-cli
@@ -82,7 +109,7 @@ Homebrew 기반 `whisper-cli`는 단독 실행 파일이 아니므로 필요한 
 
 ## Component Install Policy
 
-앱 번들 내부 Resources는 읽기 전용 설치 원본입니다. runtime 쓰기 위치, manifest, DB, log는 Application Support 아래에 둡니다.
+Lightweight 앱 번들에는 backend/STT/model이 없어도 앱이 실행되어야 합니다. runtime 쓰기 위치, manifest, DB, log는 Application Support 아래에 둡니다.
 
 ```text
 ~/Library/Application Support/Mwoham/
@@ -91,6 +118,8 @@ Homebrew 기반 `whisper-cli`는 단독 실행 파일이 아니므로 필요한 
     bin/
     lib/
     models/
+  downloads/
+  staging/
   logs/
   data/
   component_manifest.json
@@ -98,13 +127,17 @@ Homebrew 기반 `whisper-cli`는 단독 실행 파일이 아니므로 필요한 
 
 검증 기준:
 
-- backend가 포함된 배포판이면 `Application Support/Mwoham/backend`로 복사되어야 합니다.
-- STT CLI가 포함된 배포판이면 `Application Support/Mwoham/stt/bin/whisper-cli`가 executable이어야 합니다.
-- STT model이 포함되지 않은 lite 배포판은 앱이 종료되지 않고 manifest/status에 `missing`으로 표시되어야 합니다.
+- clean lightweight install에서는 backend/STT CLI/STT model이 `missing`으로 표시되어야 합니다.
+- backend가 missing이면 backend start를 시도하지 않고 `backend 설치 필요` 상태를 표시해야 합니다.
+- Settings > 필수 컴포넌트에서 전체 설치/개별 설치/재설치가 가능해야 합니다.
+- 설치 중에는 `downloading` 또는 설치 진행 상태 텍스트가 표시되어야 합니다.
+- 설치 성공 후 manifest에 `installed`, path, sourceURL, sha256, installedAt, updatedAt가 기록되어야 합니다.
+- checksum mismatch나 offline 실패 시 `failed`와 `lastError`가 기록되고 기존 정상 설치본은 유지되어야 합니다.
+- STT model만 missing이면 backend는 시작 가능하고 STT 기능만 모델 설치 필요 상태로 표시되어야 합니다.
 - Release 기본값에 개발자 개인 로컬 backend 경로가 들어가면 안 됩니다.
 - packaged backend에 `.venv/bin/python`과 `.venv/bin/alembic`이 있으면 앱은 `uv` 없이 해당 실행 파일을 우선 사용해야 합니다.
 - `.venv`가 없는 배포판은 backend 실행에 `uv`가 필요할 수 있으며, 앱은 Finder 실행 환경을 고려해 `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, Python framework 경로를 탐색해야 합니다.
-- `backend_payload.zip`, `stt_cli_payload.zip`, remote download, lite/full DMG 분리는 향후 확장 지점입니다.
+- STT model은 용량이 크므로 lightweight mode에서 별도 다운로드됩니다.
 
 `uv` 확인:
 
@@ -119,11 +152,14 @@ uv --version
 
 ```bash
 APP="/Applications/MwohamMac.app"
-./scripts/check_release_stt_resources.sh "$APP"
 codesign -dv --verbose=4 "$APP" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority|Runtime|Signature"
 codesign --verify --deep --strict --verbose=2 "$APP"
 codesign -d --entitlements :- "$APP" 2>/dev/null | grep com.apple.security.device.audio-input
+test ! -d "$APP/Contents/Resources/backend"
+test ! -d "$APP/Contents/Resources/STT"
 ```
+
+Full mode에서는 추가로 `./scripts/check_release_stt_resources.sh "$APP"`를 실행합니다.
 
 DMG 검증:
 
@@ -219,7 +255,5 @@ uv run pytest -q
 - notarization/stapling
 - `spctl --assess` acceptance criteria
 - 자동 업데이트
-- STT 모델 다운로드/교체 UI
-- backend/STT 추가 다운로드 installer
-- lite/full DMG 분리
+- signed/notarized remote component manifest 운영
 - public release guide

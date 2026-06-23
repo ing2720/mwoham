@@ -141,18 +141,32 @@ Release configuration 확인:
 내부 QA/포트폴리오 시연용 DMG는 repo root에서 생성합니다.
 
 ```bash
-./scripts/package_macos_dmg.sh --version 1.1.0 --internal-qa
+./scripts/build_component_assets.sh --stt-model-path /path/to/ggml-large-v3-turbo.bin
+./scripts/package_macos_dmg.sh --version 1.1.0 --lightweight --internal-qa
+./scripts/package_macos_dmg.sh --version 1.1.0 --full --internal-qa
 ```
 
 package script는 다음을 처리합니다.
 
 - Release app build
-- STT resource 복사
-- bundled dylib install name 정리
-- STT resource check
+- lightweight mode: backend/STT/model bundle resource 제거
+- full mode: STT resource 복사, bundled dylib install name 정리, STT resource check
 - app re-sign
 - DMG 생성
 - `hdiutil verify`
+
+`build_component_assets.sh`는 다음 파일을 생성하고 앱의 v1.1.0 source catalog를 갱신합니다.
+
+```text
+dist/components/MwohamBackend-1.1.0.tar.gz
+dist/components/MwohamSTTRuntime-1.1.0.tar.gz
+dist/components/ggml-large-v3-turbo.bin
+dist/components/sha256sums.txt
+dist/components/component_manifest.json
+mac-client/MwohamMac/MwohamMac/GeneratedComponentSources.swift
+```
+
+모델 원본이 없으면 backend/STT runtime asset만 생성되고 model sha는 빈 값으로 남습니다. sha가 빈 컴포넌트는 설치가 중단됩니다.
 
 공개 배포용 Developer ID signing/notarization은 현재 범위 밖입니다.
 
@@ -193,15 +207,19 @@ DMG 내부 앱을 바로 실행하거나 quarantine 상태의 앱을 실행하�
 
 ## Component Installer
 
-앱 시작 시 `ComponentInstaller`가 사용자별 Application Support 위치를 준비합니다. 앱 번들 Resources는 읽기 전용 설치 원본으로만 보고, 실제 실행 파일과 모델은 Application Support 아래에서 우선 사용합니다.
+앱 시작 시 `ComponentInstaller`가 사용자별 Application Support 위치와 `component_manifest.json`을 준비합니다. 기본 release는 lightweight라 앱 번들에 backend/STT/model이 없어도 실행되며, Settings의 `필수 컴포넌트` 카드에서 별도 다운로드/설치를 진행합니다. 앱 번들 Resources copy 방식은 full bundle/dev fallback으로만 유지합니다.
 
 ```text
 ~/Library/Application Support/Mwoham/
   backend/
   stt/
     bin/
+      whisper-cli
     lib/
     models/
+      ggml-large-v3-turbo.bin
+  downloads/
+  staging/
   logs/
   data/
   component_manifest.json
@@ -211,18 +229,19 @@ DMG 내부 앱을 바로 실행하거나 quarantine 상태의 앱을 실행하�
 
 1. `MwohamPaths.ensureDirectories()`
 2. `component_manifest.json` load or create
-3. backend resolve/copy
-4. STT CLI resolve/copy
-5. STT model existence check
-6. manifest update
-7. backend lifecycle start
-8. `/health` readiness check
+3. 실제 backend/STT CLI/STT model 상태를 `missing/installed/invalid` 등으로 반영
+4. backend가 missing이면 backend start를 시도하지 않고 `backend 설치 필요` 표시
+5. 사용자가 설치를 누르면 `downloads/`에 다운로드
+6. sha256 검증
+7. archive는 `staging/`에 압축 해제 후 구조 검증
+8. 검증 성공 시 최종 경로로 이동하고 manifest update
+9. backend가 설치되면 migration → backend start → `/health` readiness check
 
-현재 zip payload 자동 해제와 원격 다운로드는 구현하지 않았습니다. `backend_payload.zip`, `stt_cli_payload.zip`, lite/full DMG 분리는 향후 확장 지점입니다.
+manifest에는 각 컴포넌트별 `name`, `status`, `version`, `path`, `sourceURL`, `sha256`, `installedAt`, `updatedAt`, `lastError`를 기록합니다. 다운로드 URL은 기본 GitHub Releases asset 형식이며 `MWOHAM_COMPONENT_BASE_URL`과 컴포넌트별 sha256 env로 교체할 수 있습니다.
 
 ## STT runtime
 
-Release DMG는 Local Whisper runtime을 앱 번들에 설치 원본으로 포함할 수 있습니다. 실행 시에는 Application Support에 설치된 runtime을 우선 사용합니다.
+Lightweight DMG는 Local Whisper runtime과 model을 앱 번들에 포함하지 않습니다. Settings의 `필수 컴포넌트`에서 STT CLI와 model을 설치하면 Application Support에 배치되고, full DMG에서는 번들 resource가 fallback 설치 원본으로 사용될 수 있습니다.
 
 ```text
 ~/Library/Application Support/Mwoham/stt/bin/whisper-cli

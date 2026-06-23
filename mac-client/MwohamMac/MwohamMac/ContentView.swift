@@ -15,6 +15,9 @@ final class BackendStatusViewModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var refreshErrorMessage: String?
     @Published private(set) var componentInstallationMessages: [String] = []
+    @Published private(set) var componentManifest: ComponentManifest
+    @Published private(set) var isInstallingComponents = false
+    @Published private(set) var componentInstallProgress: [ComponentName: ComponentInstallProgress] = [:]
     @Published private(set) var meetingMode = "-"
     @Published private(set) var currentMeeting: MeetingResponse?
     @Published var meetingTranscription: MeetingTranscriptionViewModel!
@@ -119,6 +122,12 @@ final class BackendStatusViewModel: ObservableObject {
     ) {
         self.localApiClient = localApiClient
         self.componentInstaller = componentInstaller
+        self.componentManifest = (
+            try? ComponentManifest.loadOrCreate(
+                at: componentInstaller.paths.componentManifestPath,
+                paths: componentInstaller.paths
+            )
+        ) ?? ComponentManifest.defaultManifest(paths: componentInstaller.paths)
         self.backendLifecycle = BackendLifecycleManager(
             localApiClient: localApiClient
         )
@@ -162,6 +171,7 @@ final class BackendStatusViewModel: ObservableObject {
         var componentErrorMessage: String?
         do {
             let result = try componentInstaller.installRequiredComponents()
+            componentManifest = result.manifest
             componentInstallationMessages = result.messages
         } catch {
             componentInstallationMessages = [
@@ -173,6 +183,56 @@ final class BackendStatusViewModel: ObservableObject {
         await refresh()
         if let componentErrorMessage {
             refreshErrorMessage = componentErrorMessage
+        }
+    }
+
+    func refreshComponents() {
+        do {
+            let result = try componentInstaller.refreshInstalledComponents()
+            componentManifest = result.manifest
+            componentInstallationMessages = result.messages
+        } catch {
+            componentInstallationMessages = [
+                "컴포넌트 상태 확인 실패: \(error.localizedDescription)"
+            ]
+        }
+    }
+
+    func installAllComponents() async {
+        await installComponents(ComponentName.allCases)
+    }
+
+    func installComponent(_ component: ComponentName) async {
+        await installComponents([component], reinstall: true)
+    }
+
+    private func installComponents(
+        _ components: [ComponentName],
+        reinstall: Bool = false
+    ) async {
+        guard !isInstallingComponents else {
+            return
+        }
+        isInstallingComponents = true
+        componentInstallProgress = [:]
+        defer { isInstallingComponents = false }
+
+        do {
+            let result = try await componentInstaller.installDownloadedComponents(
+                components,
+                reinstall: reinstall,
+                onProgress: { [weak self] progress in
+                    self?.componentInstallProgress[progress.component] = progress
+                }
+            )
+            componentManifest = result.manifest
+            componentInstallationMessages = result.messages
+            componentInstallProgress = [:]
+            await backendLifecycle.ensureBackendAvailable()
+            await refresh()
+        } catch {
+            refreshComponents()
+            refreshErrorMessage = error.localizedDescription
         }
     }
 
@@ -710,6 +770,47 @@ private struct SettingsView: View {
                 }
             )
 
+            StatusCard("필수 컴포넌트", systemImage: "externaldrive.badge.plus") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(
+                        "lightweight 앱은 backend, STT CLI, STT model을 Application Support에 별도 설치합니다."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                    HStack {
+                        PrimaryActionButton(
+                            title: viewModel.isInstallingComponents
+                                ? "설치 중"
+                                : "전체 설치",
+                            systemImage: "arrow.down.circle",
+                            isDisabled: viewModel.isInstallingComponents
+                        ) {
+                            await viewModel.installAllComponents()
+                        }
+
+                        PrimaryActionButton(
+                            title: "상태 새로고침",
+                            systemImage: "arrow.clockwise",
+                            isDisabled: viewModel.isInstallingComponents
+                        ) {
+                            viewModel.refreshComponents()
+                        }
+                    }
+
+                    ForEach(viewModel.componentManifest.allRecords) { record in
+                        ComponentRecordView(
+                            record: record,
+                            isInstalling: viewModel.isInstallingComponents,
+                            progress: viewModel.componentInstallProgress[record.name],
+                            install: {
+                                await viewModel.installComponent(record.name)
+                            }
+                        )
+                    }
+                }
+            }
+
             StatusCard("Local Whisper", systemImage: "cpu") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Mwoham은 로컬 Whisper STT를 사용합니다.")
@@ -1215,6 +1316,153 @@ private struct SettingsView: View {
            let url = panel.url {
             backendDirectoryPath = url.path
         }
+    }
+}
+
+private struct ComponentRecordView: View {
+    let record: ComponentRecord
+    let isInstalling: Bool
+    let progress: ComponentInstallProgress?
+    let install: () async -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(record.name.displayName)
+                    .fontWeight(.semibold)
+                Spacer()
+                StatusBadge(state: record.status, compact: true)
+                PrimaryActionButton(
+                    title: record.status == .installed ? "재설치" : "설치",
+                    systemImage: "arrow.down.circle",
+                    isDisabled: isInstalling
+                ) {
+                    await install()
+                }
+            }
+
+            if let progress {
+                ComponentProgressView(progress: progress)
+            }
+
+            LabeledContent("version") {
+                Text(record.version.isEmpty ? "-" : record.version)
+                    .textSelection(.enabled)
+            }
+            LabeledContent("path") {
+                Text(record.path)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+
+            if let lastError = record.lastError, !lastError.isEmpty {
+                ErrorBanner(message: lastError, title: "\(record.name.displayName) 설치 실패")
+            }
+
+            DisclosureGroup("진단") {
+                VStack(alignment: .leading, spacing: 6) {
+                    LabeledContent("sourceURL") {
+                        Text(record.sourceURL.isEmpty ? "-" : record.sourceURL)
+                            .textSelection(.enabled)
+                    }
+                    LabeledContent("sha256") {
+                        Text(record.sha256.isEmpty ? "미설정" : record.sha256)
+                            .textSelection(.enabled)
+                    }
+                    LabeledContent("installedAt") {
+                        Text(record.installedAt?.formatted() ?? "-")
+                            .textSelection(.enabled)
+                    }
+                    LabeledContent("updatedAt") {
+                        Text(record.updatedAt.formatted())
+                            .textSelection(.enabled)
+                    }
+                }
+                .font(.caption)
+                .padding(.top, 4)
+            }
+        }
+        .padding(12)
+        .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct ComponentProgressView: View {
+    let progress: ComponentInstallProgress
+
+    private var phaseText: String {
+        switch progress.phase {
+        case .downloading:
+            return "다운로드 중"
+        case .verifying:
+            return "sha256 검증 중"
+        case .installing:
+            return "설치 중"
+        case .completed:
+            return "설치 완료"
+        }
+    }
+
+    private var detailText: String {
+        guard progress.phase == .downloading else {
+            return phaseText
+        }
+        var parts: [String] = []
+        if let totalBytes = progress.totalBytes {
+            parts.append("\(Self.byteString(progress.downloadedBytes)) / \(Self.byteString(totalBytes))")
+        } else {
+            parts.append(Self.byteString(progress.downloadedBytes))
+        }
+        if let fraction = progress.fractionCompleted {
+            parts.append("\(Int(fraction * 100))%")
+        }
+        let speed = progress.bytesPerSecond
+        if speed > 0 {
+            parts.append("\(Self.byteString(Int64(speed)))/s")
+        }
+        if let remaining = progress.estimatedRemainingSeconds, remaining.isFinite {
+            parts.append("약 \(Self.durationString(remaining)) 남음")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(phaseText)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text(detailText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let fraction = progress.fractionCompleted {
+                ProgressView(value: fraction)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .padding(8)
+        .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private static func byteString(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private static func durationString(_ seconds: TimeInterval) -> String {
+        let value = max(0, Int(seconds.rounded()))
+        if value >= 3600 {
+            let hours = value / 3600
+            let minutes = (value % 3600) / 60
+            return "\(hours)시간 \(minutes)분"
+        }
+        if value >= 60 {
+            return "\(value / 60)분"
+        }
+        return "\(value)초"
     }
 }
 

@@ -176,13 +176,14 @@ final class BackendLifecycleManager: ObservableObject {
 
         switch preflight {
         case .backendPathMissing:
-            state = .backendPathError
             if let configured = Self.configuredBackendDirectory() {
+                state = .backendPathError
                 lastErrorMessage =
                     "수동 설정한 backend 경로를 찾을 수 없습니다: \(configured.path)"
             } else {
+                state = .backendInstallationRequired
                 lastErrorMessage =
-                    "backend 경로를 찾을 수 없습니다. 앱 번들 또는 Application Support 기준으로 다시 확인해 주세요."
+                    "backend 설치 필요: Settings에서 필수 컴포넌트를 설치해 주세요."
             }
             return
         case .uvMissing:

@@ -61,6 +61,12 @@ curl http://127.0.0.1:8765/status
 - [ ] Gatekeeper 경고가 있으면 Finder 우클릭 > 열기 또는 시스템 설정 > 개인정보 보호 및 보안 > Open Anyway로 허용한다.
 - [ ] 앱이 실행되고 메인 창이 표시된다.
 - [ ] 메뉴바 항목이 표시된다.
+- [ ] lightweight DMG의 app bundle에는 `Contents/Resources/backend`가 없다.
+- [ ] lightweight DMG의 app bundle에는 `Contents/Resources/STT`가 없다.
+- [ ] Settings > 필수 컴포넌트에 backend/STT CLI/STT model 상태가 표시된다.
+- [ ] clean install에서는 세 컴포넌트가 `missing`으로 표시된다.
+- [ ] offline 상태에서 설치 실패 시 `failed`와 `lastError`가 표시된다.
+- [ ] 전체 설치 또는 개별 설치/재설치 버튼이 표시된다.
 
 ## 권한
 
@@ -79,9 +85,28 @@ curl http://127.0.0.1:8765/status
 tccutil reset All com.ing2720.MwohamMac
 ```
 
+## Component Installer
+
+- [ ] backend 설치 위치는 `~/Library/Application Support/Mwoham/backend`이다.
+- [ ] STT CLI 설치 위치는 `~/Library/Application Support/Mwoham/stt/bin/whisper-cli`이다.
+- [ ] STT libs 설치 위치는 `~/Library/Application Support/Mwoham/stt/lib`이다.
+- [ ] STT model 설치 위치는 `~/Library/Application Support/Mwoham/stt/models/ggml-large-v3-turbo.bin`이다.
+- [ ] manifest 위치는 `~/Library/Application Support/Mwoham/component_manifest.json`이다.
+- [ ] manifest에 name/status/version/path/sourceURL/sha256/installedAt/updatedAt/lastError가 기록된다.
+- [ ] 앱 Settings 진단의 sourceURL이 GitHub Release asset 이름과 일치한다.
+- [ ] 앱 Settings 진단에 sha256 값 또는 `미설정`이 표시된다.
+- [ ] sha256 누락 시 `컴포넌트 sha256이 설정되지 않아 설치를 중단했습니다. 릴리즈 asset manifest를 확인하세요.`가 표시된다.
+- [ ] 다운로드 파일은 `downloads/`에 남고 partial file은 final 경로에 남지 않는다.
+- [ ] archive는 `staging/`에서 검증된 뒤 final 경로로 이동한다.
+- [ ] checksum mismatch 시 기존 정상 설치본이 유지된다.
+- [ ] 이미 installed이고 검증이 통과하면 재다운로드하지 않는다.
+- [ ] STT model만 missing이면 backend는 시작 가능하고 STT만 모델 설치 필요 상태로 표시된다.
+- [ ] STT model은 대용량 파일이라 lightweight mode에서 별도 다운로드된다는 안내가 문서와 UI에 맞다.
+
 ## Backend
 
-- [ ] 앱 설정에서 backend 상태가 `연결됨`으로 표시된다.
+- [ ] backend missing 상태에서는 backend start를 시도하지 않고 `backend 설치 필요`로 표시된다.
+- [ ] backend 설치 후 앱 설정에서 backend 상태가 `연결됨`으로 표시된다.
 - [ ] `~/Library/Application Support/Mwoham/backend`가 있으면 우선 사용한다.
 - [ ] `component_manifest.json`에 backend status/path가 기록된다.
 - [ ] `curl http://127.0.0.1:8765/health`가 정상 응답한다.
@@ -255,7 +280,8 @@ APP="/Applications/MwohamMac.app"
 - [ ] DMG mount/detach가 가능하다.
 - [ ] Applications symlink가 있다.
 - [ ] `README_INSTALL.md`가 있다.
-- [ ] STT model/runtime/dylib가 app bundle에 있다.
+- [ ] lightweight mode에서는 backend/STT/model이 app bundle에 없다.
+- [ ] full mode에서만 STT model/runtime/dylib가 app bundle에 있다.
 - [ ] 앱 실행 후 Application Support component manifest가 생성된다.
 - [ ] backend/STT runtime이 앱 번들 내부를 쓰기 위치로 사용하지 않는다.
 - [ ] Homebrew absolute dylib dependency가 남지 않는다.
@@ -289,5 +315,4 @@ curl http://127.0.0.1:8765/health
 - 공개 스토어 배포
 - 자동 업데이트
 - 여러 repo Dev Tracking
-- STT 모델 다운로드/교체 UI
 - 화자 분리
