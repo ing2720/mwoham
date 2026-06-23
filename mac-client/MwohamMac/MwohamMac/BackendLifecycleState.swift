@@ -11,6 +11,7 @@ enum BackendLifecycleState: Equatable, StatusPresentable {
     case starting
     case connectionFailed
     case portConflict
+    case backendInstallationRequired
     case backendPathError
     case uvExecutionFailed
     case migrationFailed
@@ -28,6 +29,8 @@ enum BackendLifecycleState: Equatable, StatusPresentable {
             return "연결 실패"
         case .portConflict:
             return "포트 충돌 의심"
+        case .backendInstallationRequired:
+            return "backend 설치 필요"
         case .backendPathError:
             return "backend 경로 오류"
         case .uvExecutionFailed:
@@ -45,7 +48,7 @@ enum BackendLifecycleState: Equatable, StatusPresentable {
 
     var isError: Bool {
         switch self {
-        case .connectionFailed, .portConflict, .backendPathError,
+        case .connectionFailed, .portConflict, .backendInstallationRequired, .backendPathError,
              .uvExecutionFailed, .migrationFailed:
             return true
         default:
@@ -65,6 +68,8 @@ enum BackendLifecycleState: Equatable, StatusPresentable {
             return "xmark.circle.fill"
         case .portConflict:
             return "network.slash"
+        case .backendInstallationRequired:
+            return "externaldrive.badge.questionmark"
         case .backendPathError:
             return "folder.badge.questionmark"
         case .uvExecutionFailed:

@@ -17,8 +17,11 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
 
 let command = AppRelauncher.relaunchCommand(
     bundlePath: "/Users/a/Applications/MwohamMac.app",
-    delaySeconds: 0.25
+    delaySeconds: 0.25,
+    currentProcessID: 12345
 )
+expect(command.contains("/bin/kill -0 12345"), "relaunch command waits for the current app process")
+expect(command.contains("[ $i -lt 80 ]"), "relaunch command caps process wait attempts")
 expect(command.contains("sleep 0.25"), "relaunch command delays before opening")
 expect(command.contains("/usr/bin/open -n"), "relaunch command forces a new app instance")
 expect(
@@ -27,7 +30,8 @@ expect(
 )
 
 let quoted = AppRelauncher.relaunchCommand(
-    bundlePath: "/tmp/Mwoham's App/MwohamMac.app"
+    bundlePath: "/tmp/Mwoham's App/MwohamMac.app",
+    currentProcessID: 12345
 )
 expect(
     quoted.contains("'/tmp/Mwoham'\\''s App/MwohamMac.app'"),

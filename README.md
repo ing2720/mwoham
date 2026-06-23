@@ -171,17 +171,21 @@ Mwoham
 
 backend의 기본 흐름은 `router -> service -> repository`입니다. macOS 앱은 `LocalApiClient`를 통해 backend API를 호출하고, component installer가 backend/STT resource를 Application Support 아래에 준비한 뒤 backend lifecycle manager가 앱이 띄운 backend process만 관리합니다.
 
-## 앱 설치 컴포넌트 구조
+## Lightweight DMG / Component Installer
 
-앱 번들 내부 Resources는 읽기 전용 설치 원본으로 취급합니다. 실제 runtime, data, log 위치는 사용자별 Application Support 아래로 표준화합니다.
+v1.1.0 이후 기본 release DMG는 lightweight 구조입니다. DMG에는 `MwohamMac.app` 본체만 넣고, backend/STT CLI/STT model은 앱 실행 후 Settings의 `필수 컴포넌트` 화면에서 별도 설치합니다. 기존 full bundle 방식은 내부 QA fallback으로 유지합니다.
 
 ```text
 ~/Library/Application Support/Mwoham/
   backend/
   stt/
     bin/
+      whisper-cli
     lib/
     models/
+      ggml-large-v3-turbo.bin
+  downloads/
+  staging/
   logs/
   data/
   component_manifest.json
@@ -189,11 +193,44 @@ backend의 기본 흐름은 `router -> service -> repository`입니다. macOS �
 
 컴포넌트 처리 기준:
 
-- backend: Application Support의 `backend/`를 우선 사용하고, 없으면 번들 `Resources/backend`를 복사합니다.
-- STT CLI: Application Support의 `stt/bin/whisper-cli`를 우선 사용하고, 없으면 번들 `Resources/stt` 또는 `Resources/STT`에서 복사합니다.
-- STT model: Application Support의 `stt/models/ggml-large-v3-turbo.bin`을 확인합니다. 없으면 앱 전체를 종료하지 않고 STT 모델 미설치 상태로 표시합니다.
-- manifest: `component_manifest.json`에 backend, STT CLI, STT model의 `missing/installed/invalid` 상태와 resolved path를 기록합니다.
-- zip payload와 추가 다운로드 방식은 향후 `backend_payload.zip`, `stt_cli_payload.zip`, lite/full DMG 분리로 확장할 수 있도록 남겨둔 구조입니다.
+- backend: `~/Library/Application Support/Mwoham/backend`
+- STT CLI: `~/Library/Application Support/Mwoham/stt/bin/whisper-cli`
+- STT libs: `~/Library/Application Support/Mwoham/stt/lib`
+- STT model: `~/Library/Application Support/Mwoham/stt/models/ggml-large-v3-turbo.bin`
+- manifest: `component_manifest.json`에 `missing/downloading/installed/failed/version_mismatch/invalid` 상태, version, path, sourceURL, sha256, installedAt, updatedAt, lastError를 기록합니다.
+
+설치 흐름:
+
+1. 앱 시작 시 ComponentInstaller가 manifest와 실제 파일 상태를 확인합니다.
+2. backend가 없으면 backend start를 시도하지 않고 `backend 설치 필요` 상태를 표시합니다.
+3. 사용자가 Settings에서 전체 설치 또는 개별 설치를 누르면 backend, STT CLI, STT model을 다운로드합니다.
+4. 다운로드 파일은 `downloads/`에 저장하고 sha256 검증 후 `staging/`에서 압축 해제/검증합니다.
+5. 검증 성공 시에만 최종 경로로 이동합니다. 실패하거나 중단되면 기존 정상 설치본은 유지합니다.
+6. backend 설치 후 기존 migration/start/health check 흐름이 실행됩니다.
+
+다운로드 asset 기본 이름:
+
+- `MwohamBackend-1.1.0.tar.gz`
+- `MwohamSTTRuntime-1.1.0.tar.gz`
+- `ggml-large-v3-turbo.bin`
+
+기본 URL은 GitHub Releases asset 형태로 구성됩니다. `./scripts/build_component_assets.sh`는 `dist/components` 아래 release asset과 `sha256sums.txt`, remote manifest 예시, 앱이 참조하는 `GeneratedComponentSources.swift`를 생성합니다.
+
+```bash
+./scripts/build_component_assets.sh --stt-model-path /path/to/ggml-large-v3-turbo.bin
+```
+
+모델 원본 경로가 없으면 backend/STT runtime asset만 생성하고 model sha는 비워 둡니다. 이 상태에서는 STT model 설치 버튼이 안전하게 실패합니다. Offline 상태거나 checksum이 설정되지 않으면 설치가 실패하고 Settings에 `lastError`가 표시됩니다.
+
+패키징:
+
+```bash
+./scripts/package_macos_dmg.sh --lightweight
+./scripts/package_macos_dmg.sh --full
+```
+
+- lightweight: app bundle에 `Contents/Resources/backend`, `Contents/Resources/STT`를 포함하지 않습니다.
+- full: 기존 내부 QA 방식처럼 backend/STT runtime/model을 bundle resource로 포함합니다.
 
 ## Privacy / Local-First 정책
 

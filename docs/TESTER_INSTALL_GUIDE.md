@@ -9,6 +9,7 @@
 - Bundle ID: `com.ing2720.MwohamMac`
 - backend: 앱이 로컬 `http://127.0.0.1:8765`에서 사용
 - 설치 컴포넌트 위치: `~/Library/Application Support/Mwoham`
+- 기본 DMG: lightweight. backend/STT CLI/STT model은 첫 실행 후 별도 설치
 - STT: Application Support에 설치된 Local Whisper 우선 사용
 - AI Report: Gemini/OpenAI API Key를 설정한 경우 provider 사용, 없거나 실패하면 fallback report
 
@@ -18,8 +19,10 @@
 2. DMG 안의 `MwohamMac.app`을 `Applications` 바로가기로 드래그합니다.
 3. DMG 내부에서 바로 실행하지 말고 Applications 폴더로 복사된 앱을 실행합니다.
 4. macOS가 확인되지 않은 앱 경고를 표시하면 내부 QA/포트폴리오 시연용 빌드인지 확인한 뒤 실행을 허용합니다.
-5. 첫 실행 권한 온보딩에서 필요한 권한을 허용합니다.
-6. 화면 기록/접근성 권한을 허용한 뒤에는 앱을 완전히 종료하고 다시 실행합니다.
+5. 첫 실행 후 Settings > 필수 컴포넌트에서 `전체 설치`를 실행합니다.
+6. 설치가 끝나면 backend가 migration/start/health check를 진행합니다.
+7. 첫 실행 권한 온보딩에서 필요한 권한을 허용합니다.
+8. 화면 기록/접근성 권한을 허용한 뒤에는 앱을 완전히 종료하고 다시 실행합니다.
 
 ## Gatekeeper 경고 처리
 
@@ -74,7 +77,7 @@ tccutil reset All com.ing2720.MwohamMac
 
 ## Local Whisper STT
 
-일반 테스터는 별도 STT API Key, Homebrew 설치, 모델 다운로드가 필요 없습니다.
+일반 테스터는 별도 STT API Key가 필요 없습니다. Lightweight DMG에서는 STT CLI와 `ggml-large-v3-turbo.bin` 모델이 앱 실행 후 별도 다운로드됩니다. 모델 용량이 크므로 네트워크 상태에 따라 시간이 걸릴 수 있고, offline 상태에서는 설치가 실패합니다.
 
 앱은 첫 실행 시 Application Support 아래에 설치된 STT runtime을 우선 확인합니다.
 
@@ -84,7 +87,7 @@ tccutil reset All com.ing2720.MwohamMac
 ~/Library/Application Support/Mwoham/stt/lib/*.dylib
 ```
 
-DMG에 STT runtime이 포함된 경우 앱 번들의 `Resources/STT` 또는 `Resources/stt`는 설치 원본으로 사용됩니다. 모델이 없는 lite 배포판에서는 앱이 바로 종료되지 않고 설정 화면의 Local Whisper 상태에 모델 미설치로 표시됩니다.
+DMG에 STT runtime이 포함된 full 배포판이면 앱 번들의 `Resources/STT` 또는 `Resources/stt`는 설치 원본으로 사용됩니다. Lightweight 배포판에서는 앱 번들에 STT resource가 없으며, 모델이 없으면 앱이 종료되지 않고 설정 화면의 Local Whisper 상태에 모델 미설치로 표시됩니다.
 
 회의 전사 정책:
 
@@ -111,11 +114,25 @@ MwohamMac 앱 본체와 runtime component는 분리되어 있습니다. 앱 본�
 
 문제가 있을 때 확인할 파일:
 
-- `component_manifest.json`: backend, STT CLI, STT model의 `missing/installed/invalid` 상태
+- `component_manifest.json`: backend, STT CLI, STT model의 `missing/downloading/installed/failed/version_mismatch/invalid` 상태, sourceURL, sha256, lastError
 - `logs/`: 앱이 시작한 backend/runtime 로그 위치
 - `data/`: 로컬 DB/export 등 runtime data 위치
 
-복구가 필요하면 앱을 종료한 뒤 최신 DMG에서 앱을 다시 설치하고 실행합니다. 내부 QA에서 Application Support component를 완전히 초기화해야 할 때만 개발자 안내에 따라 `~/Library/Application Support/Mwoham` 하위 component를 삭제한 뒤 재실행합니다.
+재설치는 Settings > 필수 컴포넌트에서 컴포넌트별 `재설치` 또는 `전체 설치`를 사용합니다. 실패 시 `lastError`를 확인하고 네트워크, checksum 설정, 디스크 공간을 확인합니다. 내부 QA에서 Application Support component를 완전히 초기화해야 할 때만 개발자 안내에 따라 `~/Library/Application Support/Mwoham` 하위 component를 삭제한 뒤 재실행합니다.
+
+`컴포넌트 sha256이 설정되지 않아 설치를 중단했습니다. 릴리즈 asset manifest를 확인하세요.`가 표시되면 해당 배포판의 component asset sha가 앱 source catalog 또는 remote manifest에 연결되지 않은 상태입니다. 개발자에게 `dist/components/sha256sums.txt`와 GitHub Release asset 업로드 상태 확인을 요청합니다.
+
+설치 위치:
+
+```text
+~/Library/Application Support/Mwoham/backend
+~/Library/Application Support/Mwoham/stt/bin/whisper-cli
+~/Library/Application Support/Mwoham/stt/lib
+~/Library/Application Support/Mwoham/stt/models/ggml-large-v3-turbo.bin
+~/Library/Application Support/Mwoham/component_manifest.json
+```
+
+Backend 실행에는 packaged `.venv`가 없으면 `uv`가 필요할 수 있습니다. 앱은 `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, Python framework 경로를 탐색합니다.
 
 ## AI Report
 

@@ -36,6 +36,14 @@ nonisolated struct MwohamPaths: Equatable {
         appSupportRoot.appendingPathComponent("data", isDirectory: true)
     }
 
+    var downloadsDir: URL {
+        appSupportRoot.appendingPathComponent("downloads", isDirectory: true)
+    }
+
+    var stagingDir: URL {
+        appSupportRoot.appendingPathComponent("staging", isDirectory: true)
+    }
+
     var componentManifestPath: URL {
         appSupportRoot.appendingPathComponent("component_manifest.json")
     }
@@ -53,6 +61,8 @@ nonisolated struct MwohamPaths: Equatable {
             sttModelsDir,
             logsDir,
             dataDir,
+            downloadsDir,
+            stagingDir,
         ] {
             try fileManager.createDirectory(
                 at: directory,

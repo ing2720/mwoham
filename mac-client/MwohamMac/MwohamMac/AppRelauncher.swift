@@ -10,12 +10,14 @@ enum AppRelauncher {
     @MainActor
     static func relaunch(
         bundleURL: URL = Bundle.main.bundleURL,
-        delaySeconds: Double = 0.4
+        delaySeconds: Double = 0.4,
+        currentProcessID: Int32 = ProcessInfo.processInfo.processIdentifier
     ) {
         do {
             try launchRelaunchHelper(
                 bundleURL: bundleURL,
-                delaySeconds: delaySeconds
+                delaySeconds: delaySeconds,
+                currentProcessID: currentProcessID
             )
             NSApplication.shared.terminate(nil)
         } catch {
@@ -31,7 +33,8 @@ enum AppRelauncher {
 
     nonisolated static func launchRelaunchHelper(
         bundleURL: URL,
-        delaySeconds: Double = 0.4
+        delaySeconds: Double = 0.4,
+        currentProcessID: Int32 = ProcessInfo.processInfo.processIdentifier
     ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -39,7 +42,8 @@ enum AppRelauncher {
             "-c",
             relaunchCommand(
                 bundlePath: bundleURL.path,
-                delaySeconds: delaySeconds
+                delaySeconds: delaySeconds,
+                currentProcessID: currentProcessID
             ),
         ]
         try process.run()
@@ -47,9 +51,16 @@ enum AppRelauncher {
 
     nonisolated static func relaunchCommand(
         bundlePath: String,
-        delaySeconds: Double = 0.4
+        delaySeconds: Double = 0.4,
+        currentProcessID: Int32 = ProcessInfo.processInfo.processIdentifier
     ) -> String {
-        "sleep \(delayText(delaySeconds)); /usr/bin/open -n \(shellQuoted(bundlePath))"
+        [
+            "i=0",
+            "while /bin/kill -0 \(currentProcessID) 2>/dev/null && [ $i -lt 80 ]",
+            "do /bin/sleep 0.1; i=$((i + 1)); done",
+            "/bin/sleep \(delayText(delaySeconds))",
+            "/usr/bin/open -n \(shellQuoted(bundlePath))",
+        ].joined(separator: "; ")
     }
 
     nonisolated private static func delayText(_ delaySeconds: Double) -> String {
