@@ -66,7 +66,13 @@ SwiftUI View
 
 ## Backend lifecycle
 
-앱은 먼저 `http://127.0.0.1:8765/health`를 확인합니다. backend가 없으면 `BackendLifecycleManager`가 다음 후보에서 backend directory를 찾고, `uv run uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload`로 실행합니다.
+앱은 먼저 `http://127.0.0.1:8765/health`를 확인합니다. backend가 없으면 `BackendLifecycleManager`가 다음 후보에서 backend directory를 찾고, packaged `.venv` 실행 파일을 우선 사용합니다.
+
+실행 우선순위:
+
+1. Migration: `./.venv/bin/alembic upgrade head`
+2. Backend: `./.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload`
+3. `.venv` 실행 파일이 없으면 resolved absolute `uv` path로 `uv run ...`
 
 backend directory 탐색:
 
@@ -75,6 +81,24 @@ backend directory 탐색:
 3. `~/Library/Application Support/Mwoham/backend`
 4. `Bundle.main.resourceURL/backend`
 5. debug build fallback
+
+`uv` 탐색 순서:
+
+1. 현재 process env `PATH`
+2. `/opt/homebrew/bin/uv`
+3. `/usr/local/bin/uv`
+4. `~/.local/bin/uv`
+5. `~/.cargo/bin/uv`
+6. `/Library/Frameworks/Python.framework/Versions/Current/bin/uv`
+7. `/Library/Frameworks/Python.framework/Versions/*/bin/uv`
+
+Finder로 실행한 앱은 shell PATH를 상속하지 않을 수 있으므로 backend/migration process에는 확장 PATH를 명시합니다. `uv`가 필요한 환경에서는 아래 명령으로 설치/확인합니다.
+
+```bash
+brew install uv
+which uv
+uv --version
+```
 
 앱은 자신이 시작한 backend process만 종료/재시작합니다. 외부에서 이미 실행 중인 backend는 사용자가 직접 관리합니다.
 

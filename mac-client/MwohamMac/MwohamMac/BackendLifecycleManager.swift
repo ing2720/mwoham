@@ -15,6 +15,7 @@ final class BackendLifecycleManager: ObservableObject {
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var recentLogLines: [String] = []
     @Published private(set) var ownsBackendProcess = false
+    @Published private(set) var uvExecutablePathText = "uv 확인 전"
 
     private let localApiClient: LocalApiClient
     private let backendDirectoryOverride: URL?
@@ -34,6 +35,9 @@ final class BackendLifecycleManager: ObservableObject {
         self.localApiClient = localApiClient
         self.backendDirectoryOverride = backendDirectory
         self.fileManager = fileManager
+        self.uvExecutablePathText = BackendRuntimeResolver.resolveUVExecutable(
+            fileManager: fileManager
+        ).displayPath
     }
 
     var isBusy: Bool {
@@ -148,12 +152,26 @@ final class BackendLifecycleManager: ObservableObject {
     private func startBackendAfterHealthFailure() async {
         let backendDirectory = backendDirectory
         let directoryExists = directoryIsValid(backendDirectory)
-        let uvExecutable = Self.resolveUVExecutable()
+        let uvResolution = BackendRuntimeResolver.resolveUVExecutable(
+            fileManager: fileManager
+        )
+        uvExecutablePathText = uvResolution.displayPath
+        let migrationCommand = BackendRuntimeResolver.migrationCommand(
+            backendDirectory: backendDirectory,
+            uvExecutablePath: uvResolution.executablePath,
+            fileManager: fileManager
+        )
+        let backendCommand = BackendRuntimeResolver.backendCommand(
+            backendDirectory: backendDirectory,
+            uvExecutablePath: uvResolution.executablePath,
+            fileManager: fileManager
+        )
         let preflight = BackendLifecyclePolicy.preflight(
             healthAvailable: false,
             portInUse: Self.isPortInUse(port: 8765),
             backendDirectoryExists: directoryExists,
-            uvExecutablePath: uvExecutable
+            uvExecutablePath: uvResolution.executablePath,
+            canRunWithoutUV: migrationCommand != nil && backendCommand != nil
         )
 
         switch preflight {
@@ -169,25 +187,28 @@ final class BackendLifecycleManager: ObservableObject {
             return
         case .uvMissing:
             state = .uvExecutionFailed
-            lastErrorMessage =
-                "uv 실행 파일을 찾을 수 없습니다. PATH 또는 Homebrew 설치를 확인해 주세요."
+            lastErrorMessage = BackendRuntimeResolver.missingUVDiagnostic(
+                uvResolution
+            )
             return
         case .portConflict:
             state = .portConflict
             lastErrorMessage =
                 "포트 8765가 사용 중이지만 backend health check에 실패했습니다."
             return
-        case let .ready(uvPath):
+        case .ready:
             state = .starting
             guard await runBackendMigrations(
-                uvExecutablePath: uvPath,
-                backendDirectory: backendDirectory
+                command: migrationCommand,
+                backendDirectory: backendDirectory,
+                uvResolution: uvResolution
             ) else {
                 return
             }
             launchBackend(
-                uvExecutablePath: uvPath,
-                backendDirectory: backendDirectory
+                command: backendCommand,
+                backendDirectory: backendDirectory,
+                uvResolution: uvResolution
             )
         }
 
@@ -213,8 +234,9 @@ final class BackendLifecycleManager: ObservableObject {
     }
 
     private func runBackendMigrations(
-        uvExecutablePath: String,
-        backendDirectory: URL
+        command: BackendRuntimeCommand?,
+        backendDirectory: URL,
+        uvResolution: BackendUVResolution
     ) async -> Bool {
         let paths = MwohamPaths()
         do {
@@ -227,13 +249,20 @@ final class BackendLifecycleManager: ObservableObject {
             return false
         }
 
-        let environment = Self.processEnvironment()
-        let command = Self.migrationCommand(
-            backendDirectory: backendDirectory,
-            uvExecutablePath: uvExecutablePath,
-            fileManager: fileManager
+        guard let command else {
+            state = .migrationFailed
+            lastErrorMessage = BackendRuntimeResolver.missingUVDiagnostic(
+                uvResolution
+            )
+            appendLog(lastErrorMessage ?? "")
+            return false
+        }
+
+        let environment = Self.processEnvironment(
+            resolvedUVPath: uvResolution.executablePath
         )
         appendLog("DB migration 시작: \(command.display)")
+        appendLog("uv path: \(uvResolution.displayPath)")
         appendLog("DB migration DATABASE_URL: \(environment["DATABASE_URL"] ?? "unset")")
 
         let result = await Self.runProcess(
@@ -257,11 +286,21 @@ final class BackendLifecycleManager: ObservableObject {
     }
 
     private func launchBackend(
-        uvExecutablePath: String,
-        backendDirectory: URL
+        command: BackendRuntimeCommand?,
+        backendDirectory: URL,
+        uvResolution: BackendUVResolution
     ) {
         guard process?.isRunning != true else {
             state = .starting
+            return
+        }
+
+        guard let command else {
+            state = .uvExecutionFailed
+            lastErrorMessage = BackendRuntimeResolver.missingUVDiagnostic(
+                uvResolution
+            )
+            appendLog(lastErrorMessage ?? "")
             return
         }
 
@@ -269,18 +308,11 @@ final class BackendLifecycleManager: ObservableObject {
         let standardOutput = Pipe()
         let standardError = Pipe()
         process.currentDirectoryURL = backendDirectory
-        process.executableURL = URL(fileURLWithPath: uvExecutablePath)
-        process.arguments = [
-            "run",
-            "uvicorn",
-            "app.main:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            "8765",
-            "--reload",
-        ]
-        process.environment = Self.processEnvironment()
+        process.executableURL = command.executableURL
+        process.arguments = command.arguments
+        process.environment = Self.processEnvironment(
+            resolvedUVPath: uvResolution.executablePath
+        )
         process.standardOutput = standardOutput
         process.standardError = standardError
 
@@ -322,11 +354,13 @@ final class BackendLifecycleManager: ObservableObject {
             self.standardOutput = standardOutput
             self.standardError = standardError
             ownsBackendProcess = true
+            appendLog("uv path: \(uvResolution.displayPath)")
+            appendLog("backend command: \(command.display)")
             appendLog("backend process 시작: pid \(process.processIdentifier)")
         } catch {
             clearPipeHandlers()
             state = .uvExecutionFailed
-            lastErrorMessage = "uv 실행 실패: \(error.localizedDescription)"
+            lastErrorMessage = "backend 실행 실패: \(command.display) - \(error.localizedDescription)"
         }
     }
 
@@ -409,45 +443,6 @@ final class BackendLifecycleManager: ObservableObject {
         standardError?.fileHandleForReading.readabilityHandler = nil
         standardOutput = nil
         standardError = nil
-    }
-
-    private static func resolveUVExecutable() -> String? {
-        let environment = processEnvironment()
-        let pathDirectories = (environment["PATH"] ?? "")
-            .split(separator: ":")
-            .map(String.init)
-        let candidates = pathDirectories.map {
-            URL(fileURLWithPath: $0).appendingPathComponent("uv").path
-        } + [
-            "/opt/homebrew/bin/uv",
-            "/usr/local/bin/uv",
-        ]
-        return candidates.first {
-            FileManager.default.isExecutableFile(atPath: $0)
-        }
-    }
-
-    private static func migrationCommand(
-        backendDirectory: URL,
-        uvExecutablePath: String,
-        fileManager: FileManager
-    ) -> BackendMigrationCommand {
-        let venvAlembic = backendDirectory
-            .appendingPathComponent(".venv", isDirectory: true)
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("alembic")
-        if fileManager.isExecutableFile(atPath: venvAlembic.path) {
-            return BackendMigrationCommand(
-                executableURL: venvAlembic,
-                arguments: ["upgrade", "head"],
-                display: "./.venv/bin/alembic upgrade head"
-            )
-        }
-        return BackendMigrationCommand(
-            executableURL: URL(fileURLWithPath: uvExecutablePath),
-            arguments: ["run", "alembic", "upgrade", "head"],
-            display: "uv run alembic upgrade head"
-        )
     }
 
     private static func runProcess(
@@ -582,20 +577,13 @@ final class BackendLifecycleManager: ObservableObject {
     private static let backendDirectorySearchDescription =
         "자동 탐색: 수동 설정, Application Support/Mwoham/backend, Bundle.main.resourceURL/backend, 개발 빌드 fallback"
 
-    private static func processEnvironment() -> [String: String] {
+    private static func processEnvironment(resolvedUVPath: String? = nil) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let paths = MwohamPaths()
-        let requiredPaths = [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin",
-            "/usr/sbin",
-            "/sbin",
-        ]
-        let existingPath = environment["PATH"] ?? ""
-        environment["PATH"] =
-            (requiredPaths + [existingPath]).joined(separator: ":")
+        environment["PATH"] = BackendRuntimeResolver.extendedPath(
+            resolvedUVPath: resolvedUVPath,
+            existingPath: environment["PATH"]
+        )
         environment["DATABASE_URL"] = environment["DATABASE_URL"]
             ?? "sqlite:///\(paths.dataDir.appendingPathComponent("mwoham.sqlite3").path)"
         environment["REPORT_EXPORT_DIR"] = environment["REPORT_EXPORT_DIR"]
@@ -639,12 +627,6 @@ final class BackendLifecycleManager: ObservableObject {
             }
         }
     }
-}
-
-private struct BackendMigrationCommand: Sendable {
-    let executableURL: URL
-    let arguments: [String]
-    let display: String
 }
 
 private struct BackendProcessResult: Sendable {

@@ -89,7 +89,8 @@ enum BackendLifecyclePolicy {
         healthAvailable: Bool,
         portInUse: Bool,
         backendDirectoryExists: Bool,
-        uvExecutablePath: String?
+        uvExecutablePath: String?,
+        canRunWithoutUV: Bool = false
     ) -> BackendLaunchPreflightResult {
         if healthAvailable {
             return .ready("")
@@ -99,6 +100,9 @@ enum BackendLifecyclePolicy {
         }
         guard backendDirectoryExists else {
             return .backendPathMissing
+        }
+        if canRunWithoutUV {
+            return .ready(uvExecutablePath ?? "")
         }
         guard let uvExecutablePath, !uvExecutablePath.isEmpty else {
             return .uvMissing

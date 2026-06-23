@@ -159,8 +159,16 @@ AI Report를 사용하려면 앱 설정에서 Gemini 또는 OpenAI Provider를 �
 ### backend 연결 실패
 
 - 앱 설정의 backend 상태와 최근 로그를 확인합니다.
+- 앱 설정의 backend 진단에서 `uv path`가 `uv missing`인지 확인합니다.
 - `~/Library/Application Support/Mwoham/component_manifest.json`에서 backend status를 확인합니다.
 - 포트 `8765`가 다른 프로세스에 사용 중인지 확인합니다.
+- packaged `.venv`가 없는 내부 QA 빌드는 backend 실행에 `uv`가 필요할 수 있습니다. Finder로 실행한 앱은 터미널 shell PATH를 그대로 상속하지 않을 수 있어 앱이 common path resolver로 `uv`를 다시 찾습니다.
+
+```bash
+brew install uv
+which uv
+uv --version
+```
 
 ```bash
 lsof -ti :8765
@@ -177,6 +185,13 @@ lsof -ti :8765 | xargs kill -9
 - 이미 거부한 권한은 macOS가 팝업을 다시 띄우지 않을 수 있습니다.
 - 시스템 설정에서 직접 허용하거나 `tccutil reset All com.ing2720.MwohamMac` 후 다시 실행합니다.
 - 화면 기록/접근성은 허용 후 앱 재시작이 필요할 수 있습니다.
+- 마이크만 다시 요청하려면 개발/QA 환경에서 아래 명령을 사용할 수 있습니다.
+
+```bash
+tccutil reset Microphone com.ing2720.MwohamMac
+```
+
+- unsigned build, DerivedData 앱, DMG 내부 앱처럼 실행 경로/서명이 바뀌면 macOS가 같은 앱으로 인식하지 못할 수 있습니다. 권한 QA는 `/Users/a/Applications/MwohamMac.app` 또는 `/Applications/MwohamMac.app`처럼 고정된 앱 경로에서 확인합니다.
 
 ### STT 사용 불가
 
@@ -201,6 +216,7 @@ uname -m
 sw_vers
 spctl --assess --verbose /Applications/MwohamMac.app
 codesign --verify --deep --strict --verbose=2 /Applications/MwohamMac.app
+codesign -d --entitlements :- /Applications/MwohamMac.app 2>/dev/null | grep com.apple.security.device.audio-input
 curl http://127.0.0.1:8765/health
 ```
 

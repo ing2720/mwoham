@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="1.1.0"
 APP_PATH=""
 OUTPUT_DIR="${ROOT_DIR}/dist"
+ENTITLEMENTS_PATH="${ROOT_DIR}/mac-client/MwohamMac/MwohamMac/MwohamMac.entitlements"
 WHISPER_CLI_PATH="/opt/homebrew/bin/whisper-cli"
 STT_MODEL_PATH=""
 SKIP_BUILD=0
@@ -346,14 +347,28 @@ if [[ "${SKIP_SIGN}" -eq 0 ]]; then
   fi
 
   if [[ -n "${SIGN_IDENTITY}" ]]; then
-    codesign --force --deep --options runtime --sign "${SIGN_IDENTITY}" "${APP_PATH}"
+    codesign \
+      --force \
+      --deep \
+      --options runtime \
+      --entitlements "${ENTITLEMENTS_PATH}" \
+      --sign "${SIGN_IDENTITY}" \
+      "${APP_PATH}"
   elif [[ "${INTERNAL_QA}" -eq 1 ]]; then
     echo "Warning: ad-hoc signing internal QA app bundle."
-    codesign --force --deep --sign - "${APP_PATH}"
+    codesign \
+      --force \
+      --deep \
+      --entitlements "${ENTITLEMENTS_PATH}" \
+      --sign - \
+      "${APP_PATH}"
   else
     fail "no signing identity provided. Use --sign-identity or --internal-qa."
   fi
   codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+  codesign -d --entitlements :- "${APP_PATH}" 2>/dev/null \
+    | grep -Fq "com.apple.security.device.audio-input" \
+    || fail "signed app is missing microphone audio-input entitlement"
 else
   echo "Warning: skipping app re-sign after resource injection."
 fi

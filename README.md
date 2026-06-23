@@ -54,7 +54,7 @@ Mwoham은 macOS 개인 업무 기록, 회의 전사, 일일 리포트 생성을 
 - Markdown export: Python Markdown
 - PDF export: WeasyPrint
 - HTTP client/test utility: httpx
-- Package/dependency manager: uv
+- Package/dependency manager/runtime launcher: uv
 - Test framework: pytest, pytest-cov
 - Lint: ruff
 - Local API security: optional Bearer token via `LOCAL_API_TOKEN`
@@ -276,6 +276,14 @@ macOS 앱:
 ```
 
 개발/권한 QA의 stable app path는 `~/Applications/MwohamMac.app`입니다. 앱 runtime resource는 고정 설치 경로가 아니라 `Bundle.main.resourceURL`과 Application Support fallback 기준으로 탐색합니다.
+
+backend 실행에는 packaged `.venv`가 없을 경우 `uv`가 필요할 수 있습니다. Finder/DMG/LaunchServices로 실행한 앱은 shell PATH를 그대로 상속하지 않을 수 있으므로 macOS 앱은 `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, Python framework 경로를 추가로 탐색합니다.
+
+```bash
+brew install uv
+which uv
+uv --version
+```
 
 macOS 앱 개발 자세한 내용은 [mac-client README](mac-client/README.md)를 참고하세요.
 

@@ -102,7 +102,16 @@ Homebrew 기반 `whisper-cli`는 단독 실행 파일이 아니므로 필요한 
 - STT CLI가 포함된 배포판이면 `Application Support/Mwoham/stt/bin/whisper-cli`가 executable이어야 합니다.
 - STT model이 포함되지 않은 lite 배포판은 앱이 종료되지 않고 manifest/status에 `missing`으로 표시되어야 합니다.
 - Release 기본값에 개발자 개인 로컬 backend 경로가 들어가면 안 됩니다.
+- packaged backend에 `.venv/bin/python`과 `.venv/bin/alembic`이 있으면 앱은 `uv` 없이 해당 실행 파일을 우선 사용해야 합니다.
+- `.venv`가 없는 배포판은 backend 실행에 `uv`가 필요할 수 있으며, 앱은 Finder 실행 환경을 고려해 `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/.cargo/bin`, Python framework 경로를 탐색해야 합니다.
 - `backend_payload.zip`, `stt_cli_payload.zip`, remote download, lite/full DMG 분리는 향후 확장 지점입니다.
+
+`uv` 확인:
+
+```bash
+which uv
+uv --version
+```
 
 ## 자동 검증
 
@@ -113,6 +122,7 @@ APP="/Applications/MwohamMac.app"
 ./scripts/check_release_stt_resources.sh "$APP"
 codesign -dv --verbose=4 "$APP" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority|Runtime|Signature"
 codesign --verify --deep --strict --verbose=2 "$APP"
+codesign -d --entitlements :- "$APP" 2>/dev/null | grep com.apple.security.device.audio-input
 ```
 
 DMG 검증:
